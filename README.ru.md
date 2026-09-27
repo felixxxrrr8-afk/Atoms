@@ -152,7 +152,7 @@
 | <kbd>F5</kbd> / <kbd>F9</kbd>, <kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Ctrl</kbd>+<kbd>O</kbd> | быстрое и обычное сохранение и загрузка `.atoms` |
 | <kbd>F12</kbd> · <kbd>Ctrl</kbd>+<kbd>F12</kbd> · <kbd>Ctrl</kbd>+<kbd>E</kbd> | снимок PNG · запись кадров · экспорт графиков в CSV |
 
-Все клавиши, инструменты и объяснение физики — в [ИНСТРУКЦИЯ.html](ИНСТРУКЦИЯ.html) (в программе открывается по <kbd>F1</kbd>).
+Все клавиши, инструменты и объяснение физики — в [ИНСТРУКЦИЯ.html](ИНСТРУКЦИЯ.html) (в программе открывается по <kbd>F1</kbd>). Английская версия — [MANUAL.html](MANUAL.html). Обе лежат в архиве релиза.
 
 ## Как это устроено
 
@@ -205,7 +205,7 @@ rc /nologo atoms.rc
 cl /O2 /openmp /utf-8 /EHsc /std:c++17 /fp:fast main.cpp atoms.res /Fe:atoms.exe /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib opengl32.lib comdlg32.lib shell32.lib
 ```
 
-Каждый push в `main` собирается в [GitHub Actions](https://github.com/felixxxrrr8-afk/atoms-md/actions). Когда в `atoms.rc` меняется `ProductVersion`, релиз с новым архивом публикуется автоматически.
+Каждый push в `main` собирается в [GitHub Actions](https://github.com/felixxxrrr8-afk/atoms-md/actions), и релиз текущей версии получает свежий архив. Когда в `atoms.rc` меняется `ProductVersion`, автоматически публикуется новый релиз.
 
 ### Структура
 

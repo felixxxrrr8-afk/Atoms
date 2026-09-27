@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atoms — manual</title>
+<style>
+:root {
+  --bg: #0b0d10; --panel: #12151a; --elem: #1b1f26; --line: #2a2f38;
+  --text: #c9cfd8; --hi: #eef2f7; --dim: #8a93a0; --acc: #5fb4e8; --warn: #e0a84a;
+  --mono: Consolas, "Cascadia Mono", monospace;
+}
+:root[data-theme="light"] {
+  --bg: #f4f5f7; --panel: #ffffff; --elem: #eceff3; --line: #d5dae1;
+  --text: #2b3038; --hi: #0e1116; --dim: #5d6673; --acc: #1f6fa8; --warn: #a2650c;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f4f5f7; --panel: #ffffff; --elem: #eceff3; --line: #d5dae1;
+    --text: #2b3038; --hi: #0e1116; --dim: #5d6673; --acc: #1f6fa8; --warn: #a2650c;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 "Segoe UI", system-ui, sans-serif; }
+.wrap { display: grid; grid-template-columns: 240px minmax(0, 1fr); max-width: 1180px; margin: 0 auto; }
+nav { position: sticky; top: 0; height: 100vh; overflow: auto; padding: 24px 16px; border-right: 1px solid var(--line); }
+nav .brand { font-weight: 700; color: var(--hi); letter-spacing: .08em; margin-bottom: 4px; }
+nav .sub { color: var(--dim); font-size: 12px; margin-bottom: 18px; }
+nav a { display: block; color: var(--dim); text-decoration: none; padding: 3px 8px; border-left: 2px solid transparent; font-size: 14px; }
+nav a:hover { color: var(--hi); border-left-color: var(--acc); }
+nav .lang { margin-bottom: 14px; color: var(--acc); }
+main { padding: 28px 40px 80px; min-width: 0; }
+h1 { color: var(--hi); font-size: 28px; margin: 0 0 4px; letter-spacing: .02em; }
+h2 { color: var(--hi); font-size: 20px; margin: 44px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+h3 { color: var(--acc); font-size: 15px; margin: 22px 0 6px; text-transform: uppercase; letter-spacing: .06em; }
+p { margin: 8px 0; }
+.lead { color: var(--dim); margin-bottom: 20px; }
+code, kbd { font-family: var(--mono); font-size: 13px; }
+kbd { background: var(--elem); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 5px; color: var(--hi); white-space: nowrap; }
+code { background: var(--elem); padding: 1px 5px; border-radius: 3px; color: var(--hi); }
+.ru { color: var(--dim); }
+table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 14px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+td:first-child { white-space: nowrap; color: var(--hi); }
+.tbl { overflow-x: auto; }
+.note { border-left: 2px solid var(--acc); background: var(--panel); padding: 10px 14px; margin: 12px 0; }
+.warn { border-left-color: var(--warn); }
+ul { padding-left: 20px; } li { margin: 3px 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 12px 14px; }
+.card b { color: var(--hi); }
+.theme { position: fixed; top: 12px; right: 16px; background: var(--elem); color: var(--text); border: 1px solid var(--line); border-radius: 3px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+@media (max-width: 820px) {
+  .wrap { grid-template-columns: 1fr; }
+  nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 16px; }
+  nav a { display: inline-block; }
+  main { padding: 20px 16px 60px; }
+  td:first-child { white-space: normal; }
+}
+</style>
+</head>
+<body>
+<button class="theme" id="themeBtn" type="button">theme</button>
+<div class="wrap">
+<nav>
+  <div class="brand">ATOMS</div>
+  <div class="sub">molecular dynamics · 2D/3D</div>
+  <a class="lang" href="ИНСТРУКЦИЯ.html">Русская версия</a>
+  <a href="#start">Quick start</a>
+  <a href="#layout">Screen</a>
+  <a href="#tools">Tools</a>
+  <a href="#field">Field objects</a>
+  <a href="#select">Selection and measurements</a>
+  <a href="#camera">3D camera</a>
+  <a href="#keys">All keys</a>
+  <a href="#scenes">Scenes</a>
+  <a href="#physics">Physics</a>
+  <a href="#phases">States of matter</a>
+  <a href="#chem">Chemistry</a>
+  <a href="#table">Periodic table</a>
+  <a href="#files">Files, snapshots, export</a>
+  <a href="#cli">Headless checks</a>
+</nav>
+<main>
+<h1>Atoms — a nano sandbox</h1>
+<p class="lead">Interactive molecular dynamics: gas, liquid, crystal, phase transitions and chemical reactions emerge from interaction potentials and conservation laws, not from prepared scripts.</p>
+<div class="note">The program's interface is in Russian. This manual gives the Russian label next to the English one where it helps, <span class="ru">like this</span>, so you can find each control on screen. Every button, slider and atom also shows a tooltip on hover.</div>
+
+<h2 id="start">Quick start</h2>
+<ul>
+  <li><kbd>Tab</kbd> — scene menu. Pick any scene: it starts right away.</li>
+  <li><kbd>D</kbd> — switch 2D ↔ 3D. <kbd>Space</kbd> — pause, <kbd>R</kbd> — restart the scene.</li>
+  <li><kbd>E</kbd> — periodic table: pick an element, then LMB in the scene to add atoms.</li>
+  <li>LMB on an atom — "tweezers". RMB — heat, <kbd>Shift</kbd>+RMB — cool, wheel — zoom.</li>
+  <li><kbd>H</kbd> — a short key cheat sheet inside the program, <kbd>F1</kbd> — the full manual (opens the Russian version).</li>
+  <li>Hover over any button, slider or atom to see a tooltip.</li>
+</ul>
+
+<h2 id="layout">Screen</h2>
+<div class="grid2">
+  <div class="card"><b>Top: the command bar.</b> Scenes, periodic table, pause/step/reset/undo, open/save, snapshot, frame recording, 2D|3D, hide panel, help. On the right: model time (ps), time step and frames per second.</div>
+  <div class="card"><b>Left: tools</b> (what LMB does in the scene). Icons with tooltips; quick selection with <kbd>Alt</kbd>+digit.</div>
+  <div class="card"><b>Top right: readings</b>: T, P, density (σ⁻ᵈ and g/cm³), number of atoms, total energy E, external work W, energy drift, Ek/Ep/Ebond, time step dt, phase with a fraction bar, and stability alerts. Everything in both model and real units.</div>
+  <div class="card"><b>Right: tabs</b>: Control <span class="ru">«Управление»</span> (thermostat, pressure and boundaries, system), Physics <span class="ru">«Физика»</span>, Chemistry <span class="ru">«Химия»</span>, Plots <span class="ru">«Графики»</span>, Object <span class="ru">«Объект»</span> (inspector for the selection, field objects and measurements).</div>
+  <div class="card"><b>Below the scene: the substance palette</b> — elements and molecules for the Add tool. The first cell holds the element picked in the periodic table or a molecule from the library.</div>
+  <div class="card"><b>Bottom: the status bar</b>: current tool, what the mouse does, cursor coordinates in nm, pause, recording.</div>
+</div>
+<p>The scene background is black; in 3D you see a thin box frame, axes and depth shading, and a scale bar in nm in the corner. <kbd>G</kbd> hides the side panel, <kbd>F11</kbd> or <kbd>Alt</kbd>+<kbd>Enter</kbd> — full screen. The interface scales from 1280×720 up to 4K.</p>
+
+<h2 id="tools">LMB tools</h2>
+<div class="tbl"><table>
+<tr><th>Key</th><th>Tool</th><th>What it does</th></tr>
+<tr><td><kbd>Alt+1</kbd></td><td>Camera</td><td>Rotate (3D) or pan the view (2D); <kbd>Shift</kbd> — pan in 3D. In any tool, <kbd>Ctrl</kbd>+LMB controls the camera.</td></tr>
+<tr><td><kbd>Alt+2</kbd></td><td>Selection</td><td>Box select; clicking an atom selects its whole molecule. See <a href="#select">below</a>.</td></tr>
+<tr><td><kbd>Alt+3</kbd></td><td>Ruler and protractor</td><td>2 atoms — distance (Å), 3 — angle, 4 — dihedral angle (3D).</td></tr>
+<tr><td><kbd>Alt+4</kbd></td><td>Add / tweezers</td><td>On empty space — paint the selected substance with a brush; on an atom — pull it with a spring; double click — follow the atom with the camera.</td></tr>
+<tr><td><kbd>Alt+5</kbd></td><td>Eraser</td><td>Erases molecules under the brush (also the middle mouse button).</td></tr>
+<tr><td><kbd>Alt+6</kbd> / <kbd>Alt+7</kbd></td><td>Heat / cool</td><td>Changes the speeds of atoms under the brush (also RMB and <kbd>Shift</kbd>+RMB).</td></tr>
+<tr><td><kbd>Alt+8</kbd></td><td>Push</td><td>Pushes atoms away from the cursor; with <kbd>Shift</kbd> — pulls them in.</td></tr>
+<tr><td><kbd>Alt+9</kbd></td><td>Shock wave</td><td>A click sends a radial impulse around the point.</td></tr>
+<tr><td><kbd>Alt+0</kbd></td><td>Scissors</td><td>Drag the cursor across bonds to break them.</td></tr>
+<tr><td><kbd>Alt+F</kbd></td><td>Field objects</td><td>Places "instruments" in the box — see the next section.</td></tr>
+</table></div>
+<div class="note">Everything you do by hand (heating, pushing, shock waves, breaking bonds, inserting and deleting, field objects, resizing the box) is counted as <b>external work W</b>. So E − W is conserved, and its "drift" shows how honest the integration is.</div>
+
+<h2 id="field">Field objects</h2>
+<p>Permanent "instruments" inside the box. Tool <kbd>Alt+F</kbd>; pick the object type on the small panel at the left edge of the scene. LMB — place it; wind and source — drag to set the direction; barrier — drag from point to point. In 3D an object is placed on the plane through the box center, perpendicular to the view.</p>
+<div class="tbl"><table>
+<tr><th>Object</th><th>Effect</th></tr>
+<tr><td>Attractor</td><td>A smooth potential well of radius R — gathers atoms.</td></tr>
+<tr><td>Repeller</td><td>A potential "hill" — pushes atoms apart.</td></tr>
+<tr><td>Heater</td><td>A local Langevin thermostat: atoms inside R approach the zone temperature T.</td></tr>
+<tr><td>Cooler</td><td>The same with a low T — a condenser, a "cold finger".</td></tr>
+<tr><td>Wind</td><td>A constant force along a direction within R — a flow.</td></tr>
+<tr><td>Vortex</td><td>A tangential force — swirls the matter.</td></tr>
+<tr><td>Trap</td><td>A harmonic well — holds particles (optical tweezers).</td></tr>
+<tr><td>Source</td><td>Emits atoms of the chosen element at a set rate and speed (the element comes from the periodic table or the palette).</td></tr>
+<tr><td>Sink</td><td>Absorbs molecules that get inside — pumping out.</td></tr>
+<tr><td>Barrier</td><td>An impenetrable wall: a segment in 2D, a plate in 3D.</td></tr>
+</table></div>
+<p>Over an object: wheel — radius, <kbd>Shift</kbd>+wheel — strength, <kbd>N</kbd> — on/off, <kbd>Del</kbd> or RMB — delete, drag — move. All parameters (R, strength, zone T, element, coordinates in nm) are on the Object <span class="ru">«Объект»</span> tab. A new object switches on smoothly (≈1τ) to avoid a jolt.</p>
+
+<h2 id="select">Selection and measurements</h2>
+<ul>
+  <li>Box — select, <kbd>Shift</kbd> — add to the selection, <kbd>Ctrl+A</kbd> — everything. Clicking an atom selects its whole molecule.</li>
+  <li>Drag the selection — move it; <kbd>Alt</kbd>+drag — "throw" (set a velocity); <kbd>Alt</kbd>+wheel — rotate.</li>
+  <li><kbd>Del</kbd> — delete, <kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> / <kbd>Ctrl+X</kbd> — copy / paste at the cursor / cut.</li>
+  <li><kbd>I</kbd> — pin/unpin: pinned atoms stay still (a substrate, a clamp, an "anchor") and do not count toward the temperature.</li>
+  <li>The Object <span class="ru">«Объект»</span> tab: composition, temperature of the selection, center of mass, momentum, mass; buttons to heat, cool, stop, change the element, rotate and follow.</li>
+  <li>Moving, pasting and changing the element are refused if atoms would overlap, so the sandbox does not "explode".</li>
+</ul>
+
+<h2 id="camera">3D camera</h2>
+<ul>
+  <li><kbd>Ctrl</kbd>+LMB — rotate, <kbd>Ctrl+Shift</kbd>+LMB — pan, wheel — zoom, arrows — rotate, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> — closer/farther.</li>
+  <li><kbd>F</kbd>/<kbd>Home</kbd> — fit the box, <kbd>O</kbd> — auto-rotation, <kbd>F2</kbd> front, <kbd>F3</kbd> side, <kbd>F4</kbd> top, <kbd>F6</kbd> isometric.</li>
+  <li><kbd>V</kbd> — fly mode: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Q</kbd>/<kbd>E</kbd> — up/down, <kbd>Shift</kbd> — faster.</li>
+  <li><kbd>X</kbd> — cross-section, <kbd>Shift</kbd>+wheel — position of the cutting plane.</li>
+</ul>
+
+<h2 id="keys">All keys</h2>
+<div class="tbl"><table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td><kbd>Tab</kbd></td><td>scene menu (picking the same scene again opens its variant)</td></tr>
+<tr><td><kbd>1</kbd>…<kbd>0</kbd>, <kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>5</kbd></td><td>quick scene launch</td></tr>
+<tr><td><kbd>E</kbd></td><td>periodic table</td></tr>
+<tr><td><kbd>D</kbd></td><td>2D / 3D</td></tr>
+<tr><td><kbd>Space</kbd> / <kbd>S</kbd> / <kbd>R</kbd></td><td>pause / single step / reset scene</td></tr>
+<tr><td><kbd>Ctrl+Z</kbd></td><td>undo</td></tr>
+<tr><td><kbd>C</kbd></td><td>atom coloring: element, speed, energy, order, coordination, phase</td></tr>
+<tr><td><kbd>B</kbd> / <kbd>T</kbd></td><td>bonds / trails</td></tr>
+<tr><td><kbd>G</kbd></td><td>hide/show the side panel</td></tr>
+<tr><td><kbd>U</kbd></td><td>reverse time (all velocities × −1)</td></tr>
+<tr><td><kbd>M</kbd></td><td>reset the MSD origin</td></tr>
+<tr><td><kbd>K</kbd></td><td>catalyst zone under the cursor</td></tr>
+<tr><td><kbd>L</kbd></td><td>flash of light (photodissociation)</td></tr>
+<tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>compress / stretch the box along x</td></tr>
+<tr><td><kbd>F12</kbd> (<kbd>P</kbd>)</td><td>PNG snapshot of the scene; <kbd>Shift+F12</kbd> — the whole window; <kbd>Ctrl+F12</kbd> — record a series of frames</td></tr>
+<tr><td><kbd>F5</kbd> / <kbd>F9</kbd></td><td>quick save / load</td></tr>
+<tr><td><kbd>Ctrl+S</kbd> / <kbd>Ctrl+O</kbd></td><td>save / open an .atoms file</td></tr>
+<tr><td><kbd>Ctrl+E</kbd></td><td>export plots to CSV</td></tr>
+<tr><td><kbd>F11</kbd>, <kbd>Alt+Enter</kbd></td><td>full screen</td></tr>
+<tr><td><kbd>H</kbd> / <kbd>F1</kbd> / <kbd>Esc</kbd></td><td>cheat sheet / manual / close the window</td></tr>
+</table></div>
+
+<h2 id="scenes">Scenes</h2>
+<div class="tbl"><table id="scenesTbl">
+<tr><th>Key</th><th>Scene</th><th>What to watch</th></tr>
+<tr><td>1</td><td>Ideal gas</td><td>PV = NkT, Maxwell distribution, pressure on the walls</td></tr>
+<tr><td>2</td><td>Crystal melting</td><td>constant-power heating: the T(t) plateau; repeat — other lattices</td></tr>
+<tr><td>3</td><td>Boiling</td><td>liquid under gravity, a hot bottom, evaporation</td></tr>
+<tr><td>4</td><td>Condensation</td><td>supersaturated vapor → nuclei → droplets</td></tr>
+<tr><td>5</td><td>Diffusion</td><td>gases mixing: MSD(t) and the coefficient D</td></tr>
+<tr><td>6</td><td>NaCl in water</td><td>salt dissolving, hydration shells</td></tr>
+<tr><td>7</td><td>Hydrogen combustion</td><td>2H₂ + O₂ → 2H₂O from a spark; repeat — H₂ + Cl₂</td></tr>
+<tr><td>8</td><td>Brownian motion</td><td>a heavy particle, MSD ∝ t</td></tr>
+<tr><td>9</td><td>Quench</td><td>polycrystal, grain boundaries; repeat — glass</td></tr>
+<tr><td>0</td><td>Chemical equilibrium</td><td>Cl₂ ⇌ 2Cl under a piston, Le Chatelier's principle</td></tr>
+<tr><td>Shift+1</td><td>Gold nanoparticle</td><td>metallic bonding, melting from the surface</td></tr>
+<tr><td>Shift+2</td><td>Iron oxidation</td><td>Fe + O₂ → oxide</td></tr>
+<tr><td>Shift+3</td><td>Sodium in chlorine</td><td>2Na + Cl₂ → 2NaCl</td></tr>
+<tr><td>Shift+4</td><td>Methane combustion</td><td>CH₄ + 2O₂ → CO₂ + 2H₂O</td></tr>
+<tr><td>Shift+5</td><td>Electrophoresis</td><td>ions in water in an electric field, current I</td></tr>
+<tr><td>menu</td><td>Acid in water</td><td>HCl + H₂O → H₃O⁺ + Cl⁻; the proton hops along hydrogen bonds (Grotthuss mechanism), pH ≈ 0.3</td></tr>
+<tr><td>menu</td><td>Neutralization</td><td>H₃O⁺ + OH⁻ → 2H₂O, pH moves toward 7; repeat — titration: a portion of NaOH every 1.5τ</td></tr>
+<tr><td>menu</td><td>Ethanol combustion</td><td>C₂H₅OH + 3O₂ from a spark</td></tr>
+<tr><td>menu</td><td>Oxyhydrogen</td><td>2H₂ + O₂ in a closed vessel without a thermostat: a jump in T and P after the spark</td></tr>
+<tr><td>menu</td><td>Platinum catalysis</td><td>a Pt nanoparticle in an H₂ + O₂ mixture — the reaction runs on the surface without a spark</td></tr>
+</table></div>
+
+<h2 id="physics">Physics</h2>
+<h3>Model</h3>
+<ul>
+  <li><b>Van der Waals</b> — the Lennard-Jones potential (Lorentz–Berthelot rules), shifted cutoff at 2.5σ.</li>
+  <li><b>Electrostatics</b> — screened (Yukawa) Coulomb with force shifting; atomic charges come from electronegativities.</li>
+  <li><b>Covalent bonds</b> — Morse potential with a soft core, VSEPR bond angles, multiple bonds.</li>
+  <li><b>Hydrogen bonds</b> — the directional DREIDING term; water also has a three-body tetrahedral term (as in mW): ice and water anomalies.</li>
+  <li><b>Metals</b> — the many-body second-moment potential (Gupta / Cleri–Rosato): a bond depends on the number of neighbors, so surfaces, melting and nanoparticle faceting are realistic.</li>
+  <li><b>Integrator</b> — velocity Verlet with an automatic time step, Verlet neighbor list, OpenMP. Forces are checked against numerical differentiation of the energy (relative error ~10⁻⁷).</li>
+</ul>
+<h3>Units</h3>
+<p>Model units are argon: σ = 0.3405 nm, mass 10 u. The energy ε/k = 139.8 K is calibrated so that the model's critical point (LJ with a 2.5σ cutoff, T*c = 1.078) matches argon at 150.7 K. The triple point then comes out at ≈ 87 K (argon: 83.8 K), time τ = 0.999 ps, pressure ε/σ³ = 482.5 atm. Chemical scale: 1 eV = 4ε. The program shows both model and real quantities everywhere.</p>
+<h3>Thermostats and barostat</h3>
+<ul>
+  <li><b>NVE</b> — an isolated system, energy is conserved.</li>
+  <li><b>Bussi (CSVR)</b> and <b>Langevin</b> — a correct canonical ensemble; <b>Nosé–Hoover</b> — deterministic; <b>Berendsen</b> — fast, gentle approach to T; <b>power heating</b> <span class="ru">«нагрев P»</span> — constant power (for the melting plateau).</li>
+  <li><b>NPT</b> — the C-rescale barostat (Bernetti–Bussi): the box "breathes" toward the set pressure with correct volume fluctuations. Periodic boundaries only; with walls there is a piston.</li>
+  <li>Pressure comes from the virial theorem with all contributions (pair, many-body, bonds, angles).</li>
+</ul>
+<h3>External influences</h3>
+<p>Gravity, an electric field E along x (current I in the top panel), thermal walls (hot/cold, hot bottom), wall wetting, field objects, tools.</p>
+<h3>Stability guard</h3>
+<p>The program keeps two state snapshots (every 200 steps). If non-numbers appear or the temperature "explodes" with a broken energy balance, it rolls back to a snapshot, reduces the step and continues. An amber line in the readings reports this.</p>
+
+<h2 id="phases">States of matter</h2>
+<ul>
+  <li>Each atom gets a phase — <b>gas, liquid, solid</b> — from its local structure (Steinhardt order parameters in 3D, ψ₆ in 2D), number of neighbors and mobility. The "phase" coloring mode (<kbd>C</kbd>) colors atoms by it.</li>
+  <li>The readings show a phase fraction bar and a description of the state ("melting: crystal + liquid", "boiling" and so on).</li>
+  <li>The Physics <span class="ru">«Физика»</span> tab: a mini T–ρ phase diagram of the model (binodal, critical and triple points) with the trace of your state; a log of transitions (melting, crystallization, boiling, condensation, sublimation) with temperature and time; heat of transition from the T plateau.</li>
+  <li>The "order" coloring mode shows the lattice: FCC, HCP, BCC, NaCl, ice.</li>
+</ul>
+<div class="note">Try this: scene 2 → thermostat "power heating" <span class="ru">«нагрев P»</span> → watch the T(t) plateau on the plot and the transition log. Then place a cooler (<kbd>Alt+F</kbd>) and watch crystallization start from the cold zone.</div>
+
+<h2 id="chem">Chemistry</h2>
+<h3>How reactions happen</h3>
+<p>Chemistry here is not an animation but events within the same molecular dynamics: a bond forms when atoms come close and have a free valence; it breaks when overstretched; an atom switches to another partner (exchange) if the barrier is overcome. The energy of each event is computed exactly: reaction heat goes into atomic motion, so combustion heats the mixture by itself, and endothermic reactions cool it.</p>
+<ul>
+  <li><b>Bond energies and lengths</b> — real tabulated values for ~60 pairs and bond orders (H–H 4.52 eV, O=O 5.12, N≡N 9.79, C–H 4.3, O–H 4.8…); for other pairs — Pauling's rules from electronegativities. Scale: 1 eV = 4ε.</li>
+  <li><b>Barriers</b> — the Evans–Polanyi rule: Ea = E₀ + α·ΔH, but not below ΔH. The "reaction barriers ×" slider <span class="ru">«барьеры реакций ×»</span> changes the kinetics without touching the thermodynamics.</li>
+  <li><b>Charges</b> — partial, from electronegativity differences; for ions (H₃O⁺, OH⁻, NH₄⁺…) the charge is distributed by atomic hardness (a simplified electronegativity equalization).</li>
+  <li><b>Acids and bases</b> — proton transfer: HCl + H₂O → H₃O⁺ + Cl⁻, H⁺ hopping along a chain of water molecules (Grotthuss), neutralization H₃O⁺ + OH⁻ → 2H₂O, NH₃ + H₃O⁺ → NH₄⁺. Water autoionization is not modeled: in a box of ~10⁻²³ L its equilibrium is zero ions.</li>
+  <li><b>Catalysis</b> — a catalyst zone (<kbd>K</kbd>; barriers ×0.25) and the surface of metals Pt, Pd, Ni, Fe, Cu, Ru, Rh, Ag… (×0.3): only the kinetic part of the barrier is lowered.</li>
+  <li><b>Metals with non-metals</b> — oxides and salts through ionic-covalent bonds; an oxidized atom loses its metallic bonding. An atom's oxidation state is shown in the Chemistry tab on hover.</li>
+  <li><b>Flash of light</b> (<kbd>L</kbd>) — photodissociation of weak bonds (Cl₂ → 2Cl starts a chain reaction).</li>
+</ul>
+<h3>The Chemistry tab <span class="ru">«Химия»</span></h3>
+<ul>
+  <li>Switches: reactions, acids and bases, catalysis by metal surfaces, catalyst zone, barrier multiplier.</li>
+  <li>A <b>pH</b> scale with H₃O⁺, OH⁻ and water concentrations in mol/L.</li>
+  <li>The <b>structure library</b> — 32 items: H₂O, H₂O₂, CO₂, CO, CH₄, C₂H₆, C₂H₄, C₂H₂, CH₃OH, C₂H₅OH, C₆H₆, NH₃, HCl, N₂, O₂, O₃, ions, a small NaCl crystal, diamond, graphene, ice (3D), SiO₂, Pt/Au/Fe/Ni clusters. Real geometry (VSEPR); after insertion the structure is relaxed right away. Pick a structure — it goes into the first palette cell — then LMB in the scene.</li>
+  <li><b>Mixture composition</b> — molecular formulas, their counts and charges.</li>
+  <li><b>Reaction log</b> — equations, event counts, ΔH in kJ/mol and eV, rate, rate constant k (L/(mol·s)) and equilibrium constant K<sub>c</sub> for the selected reaction, with forward and reverse reactions side by side.</li>
+</ul>
+<div class="note">Experiments: "Acid in water" → watch the pH and the H⁺ transfer counter on the Chemistry tab. "Platinum catalysis" → erase the platinum with the eraser and the mixture stops reacting. "Chemical equilibrium" → move the piston and watch the Cl / Cl₂ fractions shift (Le Chatelier's principle).</div>
+<div class="note warn">The model is simplified: one bond curve per atom pair, no quantum effects and no explicit electron transfer (redox goes through bonds). Reaction rates are sped up, otherwise nothing would happen within the available simulation time.</div>
+
+<h2 id="table">Periodic table</h2>
+<p><kbd>E</kbd> — all 118 elements, colored by category. Hovering shows an element card: Z, mass, electronegativity, radii, valence and how the element works in the model. Clicking selects the element: it becomes the first palette cell, and if a source field object is selected, it becomes the source's element.</p>
+<ul>
+  <li>Noble gases — van der Waals only.</li>
+  <li>Metals — many-body metallic bonding; with non-metals they form ionic-covalent bonds (oxides, halides).</li>
+  <li>Non-metals — covalent bonds by Pauling's rules (the energy grows with the electronegativity difference), multiple bonds for B, C, N, O, Si, P, S, Ge, As, Se.</li>
+  <li>Radioactive elements are marked, but decay is not modeled.</li>
+</ul>
+
+<h2 id="files">Files, snapshots, export</h2>
+<ul>
+  <li><b>Saving</b> (<kbd>Ctrl+S</kbd>, <kbd>F5</kbd>) — the whole state: atoms, bonds, pins, field objects, parameters, view. Older files still open.</li>
+  <li><b>Snapshot</b> — <kbd>F12</kbd>: a PNG of the scene next to atoms.exe; <kbd>Shift+F12</kbd> — the whole window; <kbd>Ctrl+F12</kbd> — record frames into a folder named «кадры_…» (you can assemble a video from it).</li>
+  <li><b>CSV</b> — <kbd>Ctrl+E</kbd>: plots of T, P, energies, g(r) and more, for Excel.</li>
+</ul>
+
+<h2 id="cli">Headless checks</h2>
+<p>For those who want to verify the physics (run from a command prompt in the program folder; reports are written to .log files):</p>
+<div class="tbl"><table>
+<tr><td><code>atoms.exe --selftest</code></td><td>every scene in 2D and 3D: stability, energy drift, NaN</td></tr>
+<tr><td><code>--gradcheck D K N</code></td><td>forces against −∇U (numerical derivative)</td></tr>
+<tr><td><code>--evcheck D K N</code></td><td>exact energy balance of every reaction</td></tr>
+<tr><td><code>--kin K D N T V</code></td><td>a long run of a scene: phase, reactions, composition</td></tr>
+<tr><td><code>--phystest MODE D K N</code></td><td>coex (liquid–vapor), melt, npt, vir (virial), fo (field objects), guard</td></tr>
+<tr><td><code>--uitest</code></td><td>automatic interface test</td></tr>
+</table></div>
+</main>
+</div>
+<script>
+(function () {
+  var root = document.documentElement, btn = document.getElementById('themeBtn'), saved = null;
+  try { saved = localStorage.getItem('atoms-theme'); } catch (e) {}
+  if (saved) root.setAttribute('data-theme', saved);
+  btn.addEventListener('click', function () {
+    var cur = root.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    var nx = cur === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', nx);
+    try { localStorage.setItem('atoms-theme', nx); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>

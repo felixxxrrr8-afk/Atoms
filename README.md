@@ -33,7 +33,7 @@ they emerge on their own from interaction potentials and conservation laws.
 <br>
 
 > [!NOTE]
-> The program's interface and its built-in manual are in Russian. Everything below is enough to find your way around: scenes start from the <kbd>Tab</kbd> menu, and every button, slider and atom shows a tooltip on hover.
+> The program's interface is in Russian. The full manual comes in English ([MANUAL.html](MANUAL.html)) and gives the Russian label next to every control, so you can find it on screen. Scenes start from the <kbd>Tab</kbd> menu, and every button, slider and atom shows a tooltip on hover.
 
 ## Features
 
@@ -108,7 +108,7 @@ they emerge on their own from interaction potentials and conservation laws.
 
 1. Download `atoms-windows-x64.zip` from [Releases](https://github.com/felixxxrrr8-afk/atoms-md/releases/latest).
 2. Unzip it anywhere and run `atoms.exe`. Nothing to install.
-3. <kbd>Tab</kbd> opens the scene menu, <kbd>D</kbd> toggles 2D ↔ 3D, <kbd>E</kbd> opens the periodic table, <kbd>H</kbd> shows a cheat sheet.
+3. <kbd>Tab</kbd> opens the scene menu, <kbd>D</kbd> toggles 2D ↔ 3D, <kbd>E</kbd> opens the periodic table, <kbd>H</kbd> shows a cheat sheet. `MANUAL.html` next to the program is the full manual in English.
 
 Requires Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn that the program is unsigned: click "More info" → "Run anyway".
 
@@ -155,7 +155,7 @@ Requires Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn
 | <kbd>F5</kbd> / <kbd>F9</kbd>, <kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Ctrl</kbd>+<kbd>O</kbd> | quick and regular save and load of `.atoms` files |
 | <kbd>F12</kbd> · <kbd>Ctrl</kbd>+<kbd>F12</kbd> · <kbd>Ctrl</kbd>+<kbd>E</kbd> | PNG snapshot · frame recording · export plots to CSV |
 
-The full manual with every key, tool and the physics behind them is [ИНСТРУКЦИЯ.html](ИНСТРУКЦИЯ.html) (in Russian; <kbd>F1</kbd> opens it from the program).
+The full manual with every key, tool and the physics behind them: [MANUAL.html](MANUAL.html) in English and [ИНСТРУКЦИЯ.html](ИНСТРУКЦИЯ.html) in Russian. Both come in the release archive; <kbd>F1</kbd> in the program opens the Russian one, which links to the English one.
 
 ## How it works
 
@@ -208,7 +208,7 @@ rc /nologo atoms.rc
 cl /O2 /openmp /utf-8 /EHsc /std:c++17 /fp:fast main.cpp atoms.res /Fe:atoms.exe /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib opengl32.lib comdlg32.lib shell32.lib
 ```
 
-Every push to `main` is built by [GitHub Actions](https://github.com/felixxxrrr8-afk/atoms-md/actions). When `ProductVersion` in `atoms.rc` changes, a release with a new archive is published automatically.
+Every push to `main` is built by [GitHub Actions](https://github.com/felixxxrrr8-afk/atoms-md/actions), and the release for the current version gets the fresh archive. When `ProductVersion` in `atoms.rc` changes, a new release is published automatically.
 
 ### Layout
 

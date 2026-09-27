@@ -1,8 +1,11 @@
+### English
+
 Download **atoms-windows-x64.zip**, unzip it anywhere and run `atoms.exe`. Nothing to install.
 
 **Inside the archive**
-- `atoms.exe` — the program
-- `ИНСТРУКЦИЯ.html` — the full manual (in Russian), opens from the program with <kbd>F1</kbd>
+- `atoms.exe` — the program (its interface is in Russian)
+- `MANUAL.html` — the full manual in English, with the Russian label next to every control
+- `ИНСТРУКЦИЯ.html` — the same manual in Russian, opens from the program with <kbd>F1</kbd>
 - `vcomp140.dll` — Microsoft's OpenMP runtime for multithreading; needed if the Visual C++ Redistributable is not installed
 - `LICENSE` — GPL-3.0
 
@@ -14,11 +17,14 @@ The archive was built automatically by GitHub Actions from the sources of this r
 
 ---
 
+### Русский
+
 Скачайте **atoms-windows-x64.zip**, распакуйте в любую папку и запустите `atoms.exe`. Устанавливать ничего не нужно.
 
 **В архиве**
 - `atoms.exe` — программа
 - `ИНСТРУКЦИЯ.html` — подробная инструкция, открывается из программы по <kbd>F1</kbd>
+- `MANUAL.html` — та же инструкция на английском
 - `vcomp140.dll` — библиотека OpenMP от Microsoft для многопоточности; нужна, если на компьютере нет Visual C++ Redistributable
 - `LICENSE` — лицензия GPL-3.0
 
