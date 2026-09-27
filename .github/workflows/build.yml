@@ -1,4 +1,4 @@
-name: Сборка
+name: Build
 
 on:
   push:
@@ -16,16 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Сборка MSVC
+      - name: Build with MSVC
         shell: cmd
         run: .\build.bat release ci
 
-      - name: Архив для Windows
+      - name: Package for Windows
         shell: pwsh
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
           $omp = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC*.OpenMP\vcomp140.dll" | Sort-Object FullName | Select-Object -Last 1
-          if (-not $omp) { throw "vcomp140.dll не найдена в $vs" }
+          if (-not $omp) { throw "vcomp140.dll not found in $vs" }
           New-Item -ItemType Directory dist | Out-Null
           Copy-Item atoms.exe, ИНСТРУКЦИЯ.html, LICENSE, $omp.FullName dist/
           Compress-Archive dist/* atoms-windows-x64.zip
@@ -35,8 +35,8 @@ jobs:
           name: atoms-windows-x64
           path: dist/
 
-      # Новый релиз появляется сам, когда в atoms.rc меняется ProductVersion
-      - name: Релиз
+      # A new release is published automatically when ProductVersion in atoms.rc changes
+      - name: Release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
@@ -45,5 +45,5 @@ jobs:
           $ver = (Select-String -Path atoms.rc -Pattern '"ProductVersion",\s*"([^"]+)"').Matches[0].Groups[1].Value
           $tag = "v$ver"
           gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) { "Релиз $tag уже есть"; exit 0 }
-          gh release create $tag atoms-windows-x64.zip --target $env:GITHUB_SHA --title "Атомы $ver" --notes-file .github/release-notes.md
+          if ($LASTEXITCODE -eq 0) { "Release $tag already exists"; exit 0 }
+          gh release create $tag atoms-windows-x64.zip --target $env:GITHUB_SHA --title "Atoms $ver" --notes-file .github/release-notes.md

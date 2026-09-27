@@ -1,4 +1,4 @@
-# Результаты сборки (готовый atoms.exe лежит в Releases)
+# Build output (the ready-made atoms.exe lives in Releases)
 *.exe
 *.obj
 *.res
@@ -7,7 +7,7 @@
 *.exp
 *.lib
 
-# Что программа пишет рядом с собой
+# Files the program writes next to itself
 *.atoms
 *.log
 *.ppm
@@ -15,11 +15,11 @@ export_*.csv
 shot_*.png
 кадры_*/
 
-# Ранняя браузерная версия — в репозиторий не входит
+# Early browser version, not part of the repository
 index.html
 js/
 
-# Локальные настройки редакторов
+# Local editor settings
 .vs/
 .vscode/
 .claude/
