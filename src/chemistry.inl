@@ -849,23 +849,38 @@ static bool chemistryStep() {
 }
 // «Вспышка света / искра»: каждая связь вблизи луча (d != nullptr) или точки o (d == nullptr)
 // получает энергию D + 3ε вдоль оси связи (фотодиссоциация); энергия учитывается как внешняя работа
+static void photoKick(int i, int k) {   // связь i–(k-й сосед) получает энергию D + 3ε вдоль своей оси
+    const int j = S.nb[i][k];
+    const BondT& bt = BT[S.ty[i]][S.ty[j]]; double Eph = bt.D[S.bo[i][k]] + 3.0;
+    double dx, dy, dz; dvec(i, j, dx, dy, dz); double r = std::sqrt(dx * dx + dy * dy + dz * dz); if (r < 1e-9) return;
+    double nx = dx / r, ny = dy / r, nz = dz / r;
+    double mi = EL[S.ty[i]].m, mj = EL[S.ty[j]].m, mu = mi * mj / (mi + mj);
+    double vn = (S.vx[j] - S.vx[i]) * nx + (S.vy[j] - S.vy[i]) * ny + (S.vz[j] - S.vz[i]) * nz;
+    double vnew = std::sqrt(vn * vn + 2 * Eph / mu), dv = vnew - vn;   // ½μ(v'² − v²) = E_фотона
+    S.vx[i] -= mu / mi * dv * nx; S.vy[i] -= mu / mi * dv * ny; S.vz[i] -= mu / mi * dv * nz;
+    S.vx[j] += mu / mj * dv * nx; S.vy[j] += mu / mj * dv * ny; S.vz[j] += mu / mj * dv * nz;
+    Wext += Eph;
+    double mx, my, mz; midpoint(i, j, mx, my, mz); addFlash(mx, my, mz, -Eph);
+}
 static void lightFlash(const double* o, const double* d, double R) {
     for (int i = 0; i < S.n; i++) for (int k = 0; k < S.nbc[i]; k++) {
         int j = S.nb[i][k]; if (j < i) continue;
         double mx, my, mz; midpoint(i, j, mx, my, mz);
         double r2 = d ? rayDist2(mx, my, mz, o, d) : (mx - o[0]) * (mx - o[0]) + (my - o[1]) * (my - o[1]) + (DIM == 3 ? (mz - o[2]) * (mz - o[2]) : 0);
         if (r2 > R * R) continue;
-        const BondT& bt = BT[S.ty[i]][S.ty[j]]; double Eph = bt.D[S.bo[i][k]] + 3.0;
-        double dx, dy, dz; dvec(i, j, dx, dy, dz); double r = std::sqrt(dx * dx + dy * dy + dz * dz); if (r < 1e-9) continue;
-        double nx = dx / r, ny = dy / r, nz = dz / r;
-        double mi = EL[S.ty[i]].m, mj = EL[S.ty[j]].m, mu = mi * mj / (mi + mj);
-        double vn = (S.vx[j] - S.vx[i]) * nx + (S.vy[j] - S.vy[i]) * ny + (S.vz[j] - S.vz[i]) * nz;
-        double vnew = std::sqrt(vn * vn + 2 * Eph / mu), dv = vnew - vn;   // ½μ(v'² − v²) = E_фотона
-        S.vx[i] -= mu / mi * dv * nx; S.vy[i] -= mu / mi * dv * ny; S.vz[i] -= mu / mi * dv * nz;
-        S.vx[j] += mu / mj * dv * nx; S.vy[j] += mu / mj * dv * ny; S.vz[j] += mu / mj * dv * nz;
-        Wext += Eph;
-        addFlash(mx, my, mz, -Eph);
+        photoKick(i, k);
     }
+}
+// Избирательный фотолиз: свет поглощают только связи ta–tb (Cl2 — в ближнем УФ, а CH4 и HCl для него прозрачны;
+// пероксид-инициатор — по слабой связи O–O). Каждая такая связь возбуждается с вероятностью frac; возвращает их число
+static int photolyze(int ta, int tb, double frac) {
+    int c = 0;
+    for (int i = 0; i < S.n; i++) for (int k = 0; k < S.nbc[i]; k++) {
+        int j = S.nb[i][k]; if (j < i) continue;
+        if (!((S.ty[i] == ta && S.ty[j] == tb) || (S.ty[i] == tb && S.ty[j] == ta)) || urand() >= frac) continue;
+        photoKick(i, k); c++;
+    }
+    return c;
 }
 
 // ===================================== СОСТАВ, pH =========================================
