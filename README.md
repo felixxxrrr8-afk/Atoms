@@ -6,8 +6,8 @@
 
 # Atoms
 
-**A real-time molecular dynamics and chemistry sandbox, in 2D and 3D**
-tg-@qywoq
+**A real-time molecular dynamics and chemistry sandbox, in 2D and 3D By felinebut(telegram channel-@felinebut67 )**
+
 Gas, liquid, crystal, phase transitions and chemical reactions are not scripted here:<br>
 they emerge on their own from interaction potentials and conservation laws.
 
