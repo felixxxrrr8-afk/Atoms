@@ -52,7 +52,7 @@ struct Font { std::unordered_map<uint32_t, Glyph> g; float h = 12; };
 // fontL — заголовки, fontXS — мелкие подписи, fontXL — крупный символ элемента
 static Font fontS, fontM, fontL, fontXS, fontXL, fontU, fontUB;
 
-static std::vector<uint32_t> utf8(const std::string& s) {
+static std::vector<uint32_t> utf8(std::string_view s) {
     std::vector<uint32_t> out; size_t i = 0;
     while (i < s.size()) {
         unsigned char c = (unsigned char)s[i]; uint32_t cp; int len;
@@ -200,10 +200,12 @@ static void roundLine(float x, float y, float w, float h, float r, RGBA c) {
 }
 // панель/рамка: заливка + контур 1 px
 static void boxPanel(float x, float y, float w, float h, RGBA fill, RGBA line) { rectFill(x, y, w, h, fill); rectLine(x, y, w, h, line); }
-static float textW(const Font& f, const std::string& s) {
+// Весь текст выводится через эти функции; они переводят строку (lang.inl) — ширина и рисование — по одному тексту.
+// …Raw — без перевода (текст уже переведён: перенос строк, подсказки, формулы).
+static float textWRaw(const Font& f, std::string_view s) {
     float w = 0; for (uint32_t c : utf8(s)) { auto it = f.g.find(c); w += it == f.g.end() ? f.h * 0.5f : it->second.adv; } return w;
 }
-static float drawText(const Font& f, float x, float y, const std::string& s, RGBA c) {
+static float drawTextRaw(const Font& f, float x, float y, std::string_view s, RGBA c) {
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D, texFont); col(c);
     x = std::floor(x); y = std::floor(y);
     float x0 = x;
@@ -219,29 +221,37 @@ static float drawText(const Font& f, float x, float y, const std::string& s, RGB
     glEnd(); glDisable(GL_TEXTURE_2D);
     return x - x0;
 }
-static float drawTextR(const Font& f, float xr, float y, const std::string& s, RGBA c) { float w = textW(f, s); drawText(f, xr - w, y, s, c); return w; }
-static float drawTextC(const Font& f, float xc, float y, const std::string& s, RGBA c) { float w = textW(f, s); drawText(f, xc - w / 2, y, s, c); return w; }
+static float textW(const Font& f, std::string_view s) { return textWRaw(f, Tsv(s, "textW")); }
+static float drawText(const Font& f, float x, float y, std::string_view s, RGBA c) { return drawTextRaw(f, x, y, Tsv(s, "drawText"), c); }
+static float drawTextR(const Font& f, float xr, float y, std::string_view s, RGBA c) { s = Tsv(s, "drawText"); float w = textWRaw(f, s); drawTextRaw(f, xr - w, y, s, c); return w; }
+static float drawTextC(const Font& f, float xc, float y, std::string_view s, RGBA c) { s = Tsv(s, "drawText"); float w = textWRaw(f, s); drawTextRaw(f, xc - w / 2, y, s, c); return w; }
+// формула ли строка (s — до перевода): только ASCII; в английском режиме — ещё и без пробелов и «%»
+// (подписи вроде «газ 35%» после перевода становятся ASCII, но остаются текстом, а не формулой)
+static inline bool chemFormula(std::string_view s) {
+    for (char ch : s) if ((unsigned char)ch >= 0x80 || (LANG != LANG_RU && (ch == ' ' || ch == '%'))) return false;
+    return true;
+}
 // химическая формула: цифры после букв — нижний индекс, +/- в конце — верхний
-static float drawChem(const Font& f, float x, float y, const std::string& s, RGBA c) {
-    for (char ch : s) if ((unsigned char)ch >= 0x80) return drawText(f, x, y, s, c);   // не формула (кириллица)
+static float drawChem(const Font& f, float x, float y, std::string_view s, RGBA c) {
+    if (!chemFormula(s)) return drawTextRaw(f, x, y, Tsv(s, "drawChem"), c);   // не формула (кириллица → перевод)
     float x0 = x; char prev = 0;
     for (size_t k = 0; k < s.size(); k++) {
-        char ch = s[k]; std::string one(1, ch);
+        char ch = s[k]; std::string_view one = s.substr(k, 1);
         bool sub = (ch >= '0' && ch <= '9') && (std::isalpha((unsigned char)prev) || (prev >= '0' && prev <= '9' && k > 1));
         bool sup = (ch == '+' || ch == '-') && k + 1 == s.size() && std::isalpha((unsigned char)prev);
-        if (sub) x += drawText(fontXS, x, y + f.h * 0.34f, one, c);
-        else if (sup) x += drawText(fontXS, x, y - f.h * 0.22f, ch == '-' ? "−" : "+", c);
-        else x += drawText(f, x, y, one, c);
+        if (sub) x += drawTextRaw(fontXS, x, y + f.h * 0.34f, one, c);
+        else if (sup) x += drawTextRaw(fontXS, x, y - f.h * 0.22f, ch == '-' ? "−" : "+", c);
+        else x += drawTextRaw(f, x, y, one, c);
         prev = ch;
     }
     return x - x0;
 }
-static float chemW(const Font& f, const std::string& s) {
-    for (char ch : s) if ((unsigned char)ch >= 0x80) return textW(f, s);
+static float chemW(const Font& f, std::string_view s) {
+    if (!chemFormula(s)) return textWRaw(f, Tsv(s, "chemW"));
     float w = 0; char prev = 0;
     for (size_t k = 0; k < s.size(); k++) {
         char ch = s[k]; bool small = ((ch >= '0' && ch <= '9') && std::isalpha((unsigned char)prev)) || ((ch == '+' || ch == '-') && k + 1 == s.size());
-        w += textW(small ? fontXS : f, std::string(1, ch)); prev = ch;
+        w += textWRaw(small ? fontXS : f, s.substr(k, 1)); prev = ch;
     }
     return w;
 }
@@ -690,7 +700,7 @@ static void drawFieldObjs(bool over) {
                 if (!project(o.x, o.y, o.z, ax, ay, dd, sc) || !project(o.x2, o.y2, o.z2, bx, by, dd, sc)) continue;
                 col(withA(c, hot ? 1.0f : 0.7f * c.a)); glBegin(GL_LINES); segPx(ax, ay, bx, by); glEnd();
                 float hs = uiPx(hot ? 4.0f : 3.0f); rectFill(ax - hs, ay - hs, 2 * hs, 2 * hs, withA(c, 0.9f * c.a)); rectFill(bx - hs, by - hs, 2 * hs, 2 * hs, withA(c, 0.9f * c.a));
-                if (hot) drawText(fontXS, std::max(ax, bx) + uiPx(8), std::min(ay, by) - uiPx(4), fmt("%s%s", FO_NAMES[o.kind], o.on ? "" : " (выкл.)"), withA(c, 1));
+                if (hot) drawText(fontXS, std::max(ax, bx) + uiPx(8), std::min(ay, by) - uiPx(4), fmt("%s%s", T(FO_NAMES[o.kind]), o.on ? "" : T(" (выкл.)")), withA(c, 1));
             }
             continue;
         }
@@ -719,9 +729,9 @@ static void drawFieldObjs(bool over) {
             if (hot) rectLine(cx - is * 0.7f, cy - is * 0.7f, is * 1.4f, is * 1.4f, withA(c, 0.9f));
             if (o.kind == FO_EMITTER) drawText(fontXS, cx + is * 0.8f, cy - is * 0.9f, EL[clampv(o.elem, 0, NEL - 1)].sym, withA(c, 0.9f * c.a));
             if (hot) {
-                std::string s = fmt("%s  R %.1fσ  A %.2f %s", FO_NAMES[o.kind], o.R, o.strength, FO_UNITS[o.kind]);
+                std::string s = fmt("%s  R %.1fσ  A %.2f %s", T(FO_NAMES[o.kind]), o.R, o.strength, T(FO_UNITS[o.kind]));
                 if (foUsesT(o.kind)) s += fmt("  T %.2f", o.Tset);
-                if (!o.on) s += "  (выкл.)";
+                if (!o.on) s += T("  (выкл.)");
                 float tw = textW(fontXS, s), lx = cx + is;
                 if (lx + tw + uiPx(10) > sceneX + sceneW) lx = cx - is - tw - uiPx(8);   // у правого края — подпись слева
                 rectFill(lx, cy + is * 0.6f, tw + uiPx(8), fontXS.h + uiPx(2), withA(C_SCENE, 0.7f));

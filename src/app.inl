@@ -26,11 +26,61 @@ static std::string narrow(const std::wstring& w) {
     int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
     std::string s(n, 0); WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &s[0], n, nullptr, nullptr); return s;
 }
+// F1: инструкция на языке интерфейса (MANUAL.html / ИНСТРУКЦИЯ.html); нет её — открывается другая
 static void openManual() {
-    std::wstring path = exeDir() + L"\\ИНСТРУКЦИЯ.html";
-    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) { showToast("Файл ИНСТРУКЦИЯ.html не найден рядом с atoms.exe"); return; }
+    const bool en = LANG == LANG_EN;
+    std::wstring path = exeDir() + (en ? L"\\MANUAL.html" : L"\\ИНСТРУКЦИЯ.html"), alt = exeDir() + (en ? L"\\ИНСТРУКЦИЯ.html" : L"\\MANUAL.html");
+    auto exists = [](const std::wstring& p) { return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES; };
+    const char* msg = "Инструкция открыта в браузере";
+    if (!exists(path)) {
+        if (!exists(alt)) { showToast(en ? "Файл MANUAL.html не найден рядом с atoms.exe" : "Файл ИНСТРУКЦИЯ.html не найден рядом с atoms.exe"); return; }
+        path = alt; msg = en ? "Файл MANUAL.html не найден — открыта русская инструкция" : "Файл ИНСТРУКЦИЯ.html не найден — открыта английская инструкция (MANUAL.html)";
+    }
     if (!uiTestMode) ShellExecuteW(hwnd, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-    showToast("Инструкция открыта в браузере");
+    showToast(msg);
+}
+// ---- язык интерфейса: atoms.ini рядом с atoms.exe (строка lang=ru|en), по умолчанию — язык Windows
+static const char* WINDOW_TITLE = "Атомы — молекулярная динамика и химия (2D/3D)";
+static std::wstring iniPath() { return exeDir() + L"\\atoms.ini"; }
+static bool iniLangLine(const char* p, int* val) {   // «lang = en» (пробелы и BOM допускаются)
+    if (!strncmp(p, "\xEF\xBB\xBF", 3)) p += 3;
+    while (*p == ' ' || *p == '\t') p++;
+    if (_strnicmp(p, "lang", 4)) return false;
+    p += 4; while (*p == ' ' || *p == '\t') p++;
+    if (*p != '=') return false;
+    p++; while (*p == ' ' || *p == '\t') p++;
+    if (val) *val = !_strnicmp(p, "en", 2) ? LANG_EN : !_strnicmp(p, "ru", 2) ? LANG_RU : -1;
+    return true;
+}
+static int langFromIni() {
+    FILE* f = _wfopen(iniPath().c_str(), L"rb"); if (!f) return -1;
+    char line[512]; int r = -1, v;
+    while (fgets(line, sizeof(line), f)) if (iniLangLine(line, &v) && v >= 0) r = v;
+    fclose(f); return r;
+}
+static void langSaveIni(int l) {   // прочие строки файла сохраняются; нет прав на запись — выбор просто не запоминается
+    std::vector<std::string> keep;
+    if (FILE* f = _wfopen(iniPath().c_str(), L"rb")) {
+        char line[512];
+        while (fgets(line, sizeof(line), f)) { std::string s = line; while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back(); if (!iniLangLine(s.c_str(), nullptr) && !s.empty()) keep.push_back(s); }
+        fclose(f);
+    }
+    FILE* f = _wfopen(iniPath().c_str(), L"wb"); if (!f) return;
+    fprintf(f, "lang=%s\r\n", l == LANG_EN ? "en" : "ru");
+    for (auto& s : keep) fprintf(f, "%s\r\n", s.c_str());
+    fclose(f);
+}
+static int langSystemDefault() {   // русский, украинский, белорусский, казахский интерфейс Windows → RU, иначе EN
+    switch (PRIMARYLANGID(GetUserDefaultUILanguage())) { case LANG_RUSSIAN: case LANG_UKRAINIAN: case LANG_BELARUSIAN: case LANG_KAZAK: return LANG_RU; }
+    return LANG_EN;
+}
+static void setLanguage(int l) {   // переключение на лету: кнопки RU | EN, Ctrl+L
+    l = l == LANG_EN ? LANG_EN : LANG_RU;
+    if (l == LANG) return;
+    langSet(l);
+    if (hwnd) SetWindowTextW(hwnd, TW(WINDOW_TITLE).c_str());
+    if (!uiTestMode) langSaveIni(LANG);
+    showToast(LANG == LANG_EN ? "Language: English" : "Язык: русский");
 }
 
 // ===================================== СОХРАНЕНИЕ / ЗАГРУЗКА / ЭКСПОРТ ======================
@@ -124,7 +174,9 @@ static bool loadState(const std::wstring& path) {
     bool pz = P.paused;
     DIM = hdr[0]; S = std::move(ns); P = np; P.paused = pz;
     currentPreset = hdr[1]; presetVariant = hdr[2]; colorMode = clampv(hdr[3], 0, COLOR_N - 1); trailsOn = hdr[4] != 0; bondsOn = hdr[5] != 0; lmbTool = clampv(hdr[7], 0, TOOL_N - 1);
-    presetTitle = title + "  [загружено]";
+    // заголовок — исходный литерал (перевод при выводе); пометка «загружено» — отдельно (старые файлы хранили её в заголовке)
+    { const std::string mark = "  [загружено]"; while (title.size() >= mark.size() && title.compare(title.size() - mark.size(), mark.size(), mark) == 0) title.resize(title.size() - mark.size()); }
+    presetTitle = title; presetLoaded = true;
     if (typeOfZ(hdr[6]) >= 0) customType = typeOfZ(hdr[6]);
     onDimChanged();
     cam3 = c3; camGoal = c3; camCX = c2[0]; camCY = c2[1]; camZoom = c2[2]; camMode = cm == 1 ? 1 : 0;
@@ -144,9 +196,12 @@ static bool loadState(const std::wstring& path) {
 static std::wstring fileDialog(bool save) {
     if (uiTestMode) return L"uitest_state.atoms";
     wchar_t buf[MAX_PATH] = L"";
-    if (save) { SYSTEMTIME st; GetLocalTime(&st); swprintf(buf, MAX_PATH, L"атомы_%04d%02d%02d_%02d%02d%02d.atoms", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond); }
+    if (save) { SYSTEMTIME st; GetLocalTime(&st); swprintf(buf, MAX_PATH, LANG == LANG_EN ? L"atoms_%04d%02d%02d_%02d%02d%02d.atoms" : L"атомы_%04d%02d%02d_%02d%02d%02d.atoms",
+                                                            st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond); }
     OPENFILENAMEW of = {}; of.lStructSize = sizeof(of); of.hwndOwner = hwnd;
-    of.lpstrFilter = L"Состояние «Атомы» (*.atoms)\0*.atoms\0Все файлы\0*.*\0"; of.lpstrFile = buf; of.nMaxFile = MAX_PATH; of.lpstrDefExt = L"atoms";
+    std::wstring filter = TW("Состояние «Атомы» (*.atoms)"); filter.push_back(0); filter += L"*.atoms"; filter.push_back(0);   // пары «описание\0маска\0», в конце \0\0
+    filter += TW("Все файлы"); filter.push_back(0); filter += L"*.*"; filter.push_back(0); filter.push_back(0);
+    of.lpstrFilter = filter.c_str(); of.lpstrFile = buf; of.nMaxFile = MAX_PATH; of.lpstrDefExt = L"atoms";
     of.Flags = save ? (OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR) : (OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR);
     BOOL ok = save ? GetSaveFileNameW(&of) : GetOpenFileNameW(&of);
     in.lDown = in.rDown = in.mDown = false;   // кнопки мыши могли быть отпущены внутри диалога
@@ -156,32 +211,39 @@ static void cmdSave() { std::wstring p = fileDialog(true); if (!p.empty()) saveS
 static void cmdLoad() { std::wstring p = fileDialog(false); if (!p.empty()) loadState(p); }
 static void cmdReset() { pushUndo(); loadPreset(currentPreset, presetVariant); viewFitPending = true; followAtom = -1; clearToolState(); }
 static void cmdUndo() { popUndo(); clearToolState(); showToast("Отмена"); }
-// Экспорт графиков в CSV (разделитель «;», десятичная запятая — открывается в Excel с русской локалью)
+// Экспорт графиков в CSV: RU — разделитель «;» и десятичная запятая (Excel с русской локалью),
+// EN — разделитель «,» и десятичная точка; заголовки — на языке интерфейса, текст с разделителем — в кавычках
 static void exportCSV() {
     SYSTEMTIME st; GetLocalTime(&st);
     std::string name = fmt("export_%04d%02d%02d_%02d%02d%02d.csv", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
     FILE* f = fopen(name.c_str(), "wb"); if (!f) { showToast("Не удалось создать CSV"); return; }
-    auto num = [](double v) { std::string s = fmt("%.6g", v); for (char& c : s) if (c == '.') c = ','; return s; };
+    const bool en = LANG == LANG_EN; const char sep = en ? ',' : ';';
+    auto num = [en](double v) { std::string s = fmt("%.6g", v); if (!en) for (char& c : s) if (c == '.') c = ','; return s; };
+    auto cell = [sep](const std::string& s) {
+        if (s.find(sep) == std::string::npos && s.find('"') == std::string::npos && s.find('\n') == std::string::npos) return s;
+        std::string q = "\""; for (char c : s) { if (c == '"') q += '"'; q += c; } return q + "\"";
+    };
+    auto row = [&](const std::vector<std::string>& cs) { for (size_t k = 0; k < cs.size(); k++) { if (k) fputc(sep, f); fputs(cell(cs[k]).c_str(), f); } fputc('\n', f); };
     fputs("\xEF\xBB\xBF", f);
-    fprintf(f, "Атомы — экспорт;%s;%dD;N=%d;t=%s\n\n", presetTitle.c_str(), DIM, S.n, num(S.t).c_str());
-    fputs("Временные ряды\nt;T;P;Eкин;Eпот;Eполн\n", f);
+    row({T("Атомы — экспорт"), std::string(T(presetTitle)) + (presetLoaded ? T("  [загружено]") : ""), fmt("%dD", DIM), fmt("N=%d", S.n), "t=" + num(S.t)});
+    fputc('\n', f);
+    row({T("Временные ряды")}); row({"t", "T", "P", T("Eкин"), T("Eпот"), T("Eполн")});
     for (size_t k = 0; k < A::sT.v.size(); k++)
-        fprintf(f, "%s;%s;%s;%s;%s;%s\n", num(k < A::sTime.v.size() ? A::sTime.v[k] : 0).c_str(), num(A::sT.v[k]).c_str(), num(k < A::sP.v.size() ? A::sP.v[k] : 0).c_str(),
-                num(k < A::sEk.v.size() ? A::sEk.v[k] : 0).c_str(), num(k < A::sEp.v.size() ? A::sEp.v[k] : 0).c_str(), num(k < A::sEt.v.size() ? A::sEt.v[k] : 0).c_str());
-    fputs("\ng(r)\nr;g\n", f);
-    for (int k = 0; k < A::GR_BINS; k++) fprintf(f, "%s;%s\n", num((k + 0.5) * A::GR_RMAX / A::GR_BINS).c_str(), num(A::gr[k]).c_str());
-    fputs("\nРаспределение скоростей\nv;f(v) измер.;f(v) Максвелл\n", f);
+        row({num(k < A::sTime.v.size() ? A::sTime.v[k] : 0), num(A::sT.v[k]), num(k < A::sP.v.size() ? A::sP.v[k] : 0),
+             num(k < A::sEk.v.size() ? A::sEk.v[k] : 0), num(k < A::sEp.v.size() ? A::sEp.v[k] : 0), num(k < A::sEt.v.size() ? A::sEt.v[k] : 0)});
+    fputc('\n', f); row({"g(r)"}); row({"r", "g"});
+    for (int k = 0; k < A::GR_BINS; k++) row({num((k + 0.5) * A::GR_RMAX / A::GR_BINS), num(A::gr[k])});
+    fputc('\n', f); row({T("Распределение скоростей")}); row({"v", T("f(v) измер."), T("f(v) Максвелл")});
     for (int k = 0; k < A::VH_BINS; k++) { double v = (k + 0.5) * A::vhMax / A::VH_BINS;
-        fprintf(f, "%s;%s;%s\n", num(v).c_str(), num(A::vh[k]).c_str(), num(maxwellF(v, EL[A::vhType].m, std::max(EN.T, 0.005))).c_str()); }
-    fputs("\nMSD\nt;MSD;MSD броун. частицы\n", f);
-    for (size_t k = 0; k < A::msdT.size(); k++) fprintf(f, "%s;%s;%s\n", num(A::msdT[k]).c_str(), num(A::msdV[k]).c_str(), num(A::msdBig[k]).c_str());
-    fputs("\nЧисло молекул (отсчёты)\nотсчёт", f);
-    for (auto& sp : A::species) fprintf(f, ";%s", sp.c_str());
-    fputs("\n", f);
+        row({num(v), num(A::vh[k]), num(maxwellF(v, EL[A::vhType].m, std::max(EN.T, 0.005)))}); }
+    fputc('\n', f); row({"MSD"}); row({"t", "MSD", T("MSD броун. частицы")});
+    for (size_t k = 0; k < A::msdT.size(); k++) row({num(A::msdT[k]), num(A::msdV[k]), num(A::msdBig[k])});
+    fputc('\n', f); row({T("Число молекул (отсчёты)")});
+    { std::vector<std::string> h = {T("отсчёт")}; for (auto& sp : A::species) h.push_back(sp); row(h); }
     size_t m = 0; for (auto& c : A::conc) m = std::max(m, c.v.size());
-    for (size_t k = 0; k < m; k++) { fprintf(f, "%zu", k); for (auto& c : A::conc) fprintf(f, ";%s", k < c.v.size() ? num(c.v[k]).c_str() : ""); fputs("\n", f); }
+    for (size_t k = 0; k < m; k++) { std::vector<std::string> r = {fmt("%zu", k)}; for (auto& c : A::conc) r.push_back(k < c.v.size() ? num(c.v[k]) : std::string()); row(r); }
     fclose(f);
-    showToast("Экспорт: " + name);
+    showToast(std::string(T("Экспорт: ")) + name);
 }
 // Обращение времени: v → −v (и ξ Нозе–Гувера, скорость поршня). Механика обратима — система идёт «назад»
 static void reverseTime() {
@@ -287,13 +349,16 @@ static void saveScreenshot(bool sceneOnly) { shotPending = sceneOnly ? 1 : 2; }
 static void doCapture(int mode) {
     int x = mode == 1 ? (int)sceneX : 0, y = mode == 1 ? (int)sceneY : 0, w = mode == 1 ? (int)sceneW : winW, h = mode == 1 ? (int)sceneH : winH;
     std::vector<unsigned char> px = readRGB(x, y, w, h);
-    std::wstring name = L"atoms_" + stampName() + (mode == 1 ? L"_сцена.png" : L"_окно.png"), path = exeDir() + L"\\" + name;
+    const bool en = LANG == LANG_EN;   // имена файлов — на языке интерфейса
+    std::wstring name = L"atoms_" + stampName() + (mode == 1 ? (en ? L"_scene.png" : L"_сцена.png") : (en ? L"_window.png" : L"_окно.png")), path = exeDir() + L"\\" + name;
     bool ok = writePNG(path, w, h, px);
-    showToast(ok ? "Снимок: " + narrow(name) + " (рядом с atoms.exe)" : std::string("Не удалось записать снимок"));
+    showToast(ok ? std::string(T("Снимок: ")) + narrow(name) + T(" (рядом с atoms.exe)") : std::string("Не удалось записать снимок"));
 }
+static bool recEN = false;   // язык имён кадров текущей записи (выбирается при старте записи)
 static void toggleRecording() {
     if (recording) { recording = false; showToast(fmt("Запись остановлена: %d кадров → ", recFrames) + narrow(recDir.substr(recDir.find_last_of(L"\\/") + 1))); return; }
-    recDir = exeDir() + L"\\кадры_" + stampName();
+    recEN = LANG == LANG_EN;
+    recDir = exeDir() + (recEN ? L"\\frames_" : L"\\кадры_") + stampName();
     if (!CreateDirectoryW(recDir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) { showToast("Не удалось создать папку для кадров"); return; }
     recording = true; recFrames = 0; recTick = 0;
     showToast("Запись кадров сцены (каждый 2-й кадр, PNG). Ctrl+F12 — остановить");
@@ -301,7 +366,7 @@ static void toggleRecording() {
 static void recordFrame() {
     if (!recording || (++recTick & 1)) return;
     std::vector<unsigned char> px = readRGB((int)sceneX, (int)sceneY, (int)sceneW, (int)sceneH);
-    wchar_t nm[32]; swprintf(nm, 32, L"\\кадр_%05d.png", recFrames);
+    wchar_t nm[32]; swprintf(nm, 32, recEN ? L"\\frame_%05d.png" : L"\\кадр_%05d.png", recFrames);
     if (writePNG(recDir + nm, (int)sceneW, (int)sceneH, px)) recFrames++;
     if (recFrames >= 20000) toggleRecording();
 }
@@ -336,6 +401,7 @@ static void handleKeys() {
             else if (k == 'X') { selCopy(); selDelete(); }
             else if (k == 'V') { double x, y, z; cursorPoint(x, y, z); pasteAt(x, y, z); }
             else if (k == VK_F12) toggleRecording();
+            else if (k == 'L') setLanguage(LANG == LANG_EN ? LANG_RU : LANG_EN);   // язык интерфейса RU/EN
             continue;
         }
         if (k >= '0' && k <= '9') {
@@ -358,7 +424,7 @@ static void handleKeys() {
         case 'G': graphsOn = !graphsOn; viewFitPending = true; break;
         case 'T': trailsOn = !trailsOn; break;
         case 'B': bondsOn = !bondsOn; break;
-        case 'C': colorMode = (colorMode + 1) % COLOR_N; showToast(std::string("Цвет: ") + COLOR_NAMES[colorMode]); break;
+        case 'C': colorMode = (colorMode + 1) % COLOR_N; showToast(std::string(T("Цвет: ")) + T(COLOR_NAMES[colorMode])); break;
         case 'P': saveScreenshot(true); break;
         case VK_F12: saveScreenshot(!shift); break;
         case 'F': case VK_HOME: fitView(false); followAtom = -1; break;
@@ -493,7 +559,7 @@ static void handleMouse(double frameDt) {
                     if (h >= 0 && !EL[S.ty[h]].fixed) { grabbed = h; grabDepth = d3 ? pdep[h] : 0; grabX = S.x[h]; grabY = S.y[h]; grabZ = S.z[h]; lMode = LM_TWEEZER; }
                     else if (chemStampActive()) {   // «штамп» молекулы из библиотеки (вкладка «Химия»): одна структура за щелчок
                         double p[3]; cursorPoint(p[0], p[1], p[2]); pushUndo();
-                        if (insertMolecule(chemStampMol, p[0], p[1], p[2])) showToast(std::string("Вставлено: ") + palette[0].label);
+                        if (insertMolecule(chemStampMol, p[0], p[1], p[2])) showToast(std::string(T("Вставлено: ")) + T(palette[0].label));
                         else { undoStack.pop_back(); showToast("Не помещается — выберите свободное место"); }
                     }
                     else { pushUndo(); lastAddT = 1; lMode = LM_ADD; }
@@ -930,7 +996,22 @@ static void buildUiTest() {
         fprintf(uiLog, "     панель %d: элементов %zu\n", tab, ids.size());
         uiSteps.insert(uiSteps.begin() + uiStepIdx + 1, ins.begin(), ins.end()); }); };
 
+    // язык интерфейса: кнопки RU | EN (773/774) и Ctrl+L; после каждого переключения — язык, заголовок окна и уведомление.
+    // Проход 2D идёт на английском, 3D — на языке запуска (с --lang en весь сценарий — на английском).
+    const int lang0 = LANG, other = 1 - lang0;
+    auto expectLang = [&](int l, bool switched) { add(fmt("проверка языка %d", l), 1, [l, switched](int) {
+        wchar_t buf[256] = L""; GetWindowTextW(hwnd, buf, 256);
+        bool ok = LANG == l && TW(WINDOW_TITLE) == buf;
+        if (switched) ok = ok && toast == (l == LANG_EN ? std::string("Language: English") : std::string(T("Язык: русский")));
+        if (!ok) { uiProblems++; fprintf(uiLog, "     ОШИБКА: язык %d (ожидался %d), заголовок окна или уведомление не совпали\n", LANG, l); }
+        else fprintf(uiLog, "     язык %s: заголовок окна и уведомление — ok\n", l == LANG_EN ? "EN" : "RU"); }); };
+    auto ctrlL = [&]() { keyMod(VK_CONTROL, 'L'); };
+    click(773 + other); expectLang(other, true); click(773 + lang0); expectLang(lang0, true);
+    click(773 + lang0); expectLang(lang0, false);   // повторный щелчок по активной кнопке — без изменений
+    ctrlL(); expectLang(other, true); ctrlL(); expectLang(lang0, true);
+    if (lang0 != LANG_EN) { ctrlL(); expectLang(LANG_EN, true); }
     for (int dim : {2, 3}) {
+        if (dim == 3 && lang0 != LANG_EN) { ctrlL(); expectLang(lang0, true); }
         if (dim == 3) key('D', 10);
         // пресеты и их варианты
         for (int k : {1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 0}) { key('0' + k, 20); }
@@ -1071,8 +1152,13 @@ static void buildUiTest() {
         run(20); key(VK_SPACE); run(20); key('T');
         add("кисть обратно", 1, [](int) { P.brushR = 3; });
         key('1', 30);
+        expectLang(dim == 2 ? LANG_EN : lang0, false);
     }
     key('D', 10); run(30);
+    // переключение языка при открытых окнах (справка, меню сцен, таблица) и на каждой вкладке — туда и обратно
+    for (int vk : {(int)'H', (int)VK_TAB, (int)'E'}) { key(vk, 4); ctrlL(); run(4); ctrlL(); run(4); expectLang(lang0, true); key(vk == 'H' ? 'H' : VK_ESCAPE, 4); }
+    for (int t = 0; t < 5; t++) { click(700 + t); ctrlL(); run(3); ctrlL(); run(3); expectLang(lang0, true); }
+    key('1', 20); expectLang(lang0, false);
 }
 static bool uiTestTick() {
     if (uiStepIdx >= uiSteps.size()) return false;
@@ -1237,6 +1323,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         }
         fclose(f); return 0;
     }
+    // язык окна: --lang (разобран в lang.inl) → atoms.ini → язык Windows (режимы без окна выше — русский, если нет --lang)
+    if (langCmd < 0) { int l = langFromIni(); langSet(l >= 0 ? l : langSystemDefault()); }
     SetProcessDPIAware();
     initBondTable(); initKlm(); initPalette();
     WNDCLASSEXW wc = {}; wc.cbSize = sizeof(wc); wc.style = CS_OWNDC | CS_DBLCLKS; wc.lpfnWndProc = WndProc; wc.hInstance = hInst;
@@ -1251,7 +1339,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     { int sx = argInt(cmd, L"size=", 0); const wchar_t* xp = cmd ? wcsstr(cmd, L"size=") : nullptr; if (sx > 0 && xp && wcschr(xp, L'x')) { int sy = (int)wcstol(wcschr(xp, L'x') + 1, nullptr, 10); if (sy > 0) { wr.right = sx; wr.bottom = sy; } } }
     uiScaleOverride = (float)argDbl(cmd, L"scale=", 0);
     AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);
-    hwnd = CreateWindowW(L"AtomsSim", L"Атомы — молекулярная динамика и химия (2D/3D)", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
+    hwnd = CreateWindowW(L"AtomsSim", TW(WINDOW_TITLE).c_str(), WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
                          wr.right - wr.left, wr.bottom - wr.top, nullptr, nullptr, hInst, nullptr);
     if (cmd && wcsstr(cmd, L"size=")) SetWindowPos(hwnd, nullptr, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOZORDER);
     hdc = GetDC(hwnd);

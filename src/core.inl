@@ -239,7 +239,7 @@ static void initElements() {
         }
         TZ[z] = t++;
     }
-    if (t != NEL) { MessageBoxW(nullptr, L"Внутренняя ошибка: неверное число типов элементов", L"Атомы", MB_ICONERROR); ExitProcess(3); }
+    if (t != NEL) { MessageBoxW(nullptr, TW("Внутренняя ошибка: неверное число типов элементов").c_str(), TW("Атомы").c_str(), MB_ICONERROR); ExitProcess(3); }
     E_F = TZ[9];
 }
 static inline int typeOfZ(int z) { return z >= 1 && z <= 118 ? TZ[z] : -1; }
@@ -299,8 +299,11 @@ static std::mt19937_64 rng(12345);
 static inline double urand() { return std::uniform_real_distribution<double>(0.0, 1.0)(rng); }
 static inline double grand() { return std::normal_distribution<double>(0.0, 1.0)(rng); }
 template <class T> static inline T clampv(T v, T a, T b) { return v < a ? a : (v > b ? b : v); }
-// форматирование строки (как printf)
-static std::string fmt(const char* f, ...) { char buf[1024]; va_list ap; va_start(ap, f); vsnprintf(buf, sizeof(buf), f, ap); va_end(ap); return buf; }
+// форматирование строки (как printf); строка формата переводится (lang.inl: спецификаторы в переводе те же)
+static std::string fmt(const char* f, ...) {
+    const char* tf = LANG == LANG_RU ? nullptr : langFind(f, strlen(f), "fmt");
+    char buf[1024]; va_list ap; va_start(ap, f); vsnprintf(buf, sizeof(buf), tf ? tf : f, ap); va_end(ap); return buf;
+}
 
 // ===================================== STATE ==========================================
 static int DIM = 2;   // размерность пространства: 2 или 3

@@ -7,10 +7,10 @@ static bool chemLibAll = false;        // показать всю библиот
 // выбрать структуру библиотеки: она становится первой ячейкой палитры, инструмент — «добавить»
 static void selectLibMolecule(int idx) {
     Tmpl m;
-    if (!buildLibTmpl(idx, m)) { showToast(fmt("%s — только в 3D (клавиша D)", MOL_LIB_NAMES[idx])); return; }
+    if (!buildLibTmpl(idx, m)) { showToast(fmt("%s — только в 3D (клавиша D)", T(MOL_LIB_NAMES[idx]))); return; }
     chemStampMol = idx; palette[0] = m; selPal = 0;
     if (lmbTool != TOOL_ADD) lmbTool = TOOL_ADD;
-    showToast(fmt("%s: %s. ЛКМ в сцене — вставить", MOL_LIB_NAMES[idx], MOL_LIB_DESC[idx]));
+    showToast(fmt("%s: %s. ЛКМ в сцене — вставить", T(MOL_LIB_NAMES[idx]), T(MOL_LIB_DESC[idx])));
 }
 // скорость реакции → константа скорости: k = r / (V·Π c_i), c — число частиц на σ³ (в 2D — слой толщиной σ)
 //   real: n = 1 — 1/с; n = 2 — л/(моль·с); n = 3 — л²/(моль²·с)
@@ -125,7 +125,7 @@ static void drawChemPanel(float x, float y, float w, float h) {
         if (uiButton(1259, x, yy, W, uiPx(20), chemLibAll ? "свернуть" : fmt("вся библиотека (%d)", (int)ML_N), false, false, "Показать все структуры: ионы, кристаллы, кластеры металлов")) chemLibAll = !chemLibAll;
         yy += uiPx(20) + g;
         if (chemStampActive()) {
-            yy += drawWrapped(fontXS, x, yy, W, fmt("Выбрано: %s — %s. ЛКМ в сцене (инструмент «добавить») вставляет со случайной ориентацией.", MOL_LIB_NAMES[chemStampMol], MOL_LIB_DESC[chemStampMol]), C_TEXT) + g;
+            yy += drawWrapped(fontXS, x, yy, W, fmt("Выбрано: %s — %s. ЛКМ в сцене (инструмент «добавить») вставляет со случайной ориентацией.", T(MOL_LIB_NAMES[chemStampMol]), T(MOL_LIB_DESC[chemStampMol])), C_TEXT) + g;
             if (uiButton(1260, x, yy, w1, bh, "в центр ящика", false, false, "Вставить выбранную структуру в центр ящика")) {
                 pushUndo(); if (!insertMolecule(chemStampMol, S.Lx / 2, S.Ly / 2, d3 ? S.Lz / 2 : 0)) { undoStack.pop_back(); showToast("Нет места в центре — освободите место или вставьте ЛКМ"); } }
             if (uiButton(1261, x + w1 + g, yy, W - w1 - g, bh, "5 шт. в случайные места", false, false, "Вставить пять копий в случайные свободные места")) {
@@ -192,7 +192,7 @@ static void drawChemPanel(float x, float y, float w, float h) {
         kv("скорость", fmt("%.3g соб./τ", r), fmt("за %.1fτ · %.3g соб./пс", w0, r / cfg::U_T_PS));
         double kS, kR; int ord;
         if (rxRateConst(st, r, kS, kR, ord)) {
-            const char* ru = ord == 1 ? "1/с" : ord == 2 ? "л/(моль·с)" : "л²/(моль²·с)";
+            const char* ru = T(ord == 1 ? "1/с" : ord == 2 ? "л/(моль·с)" : "л²/(моль²·с)");
             kv("k", fmt("%.3g", kS), fmt("σ^%d/τ · %.3g %s (порядок %d)", 3 * (ord - 1), kR, ru, ord));
         } else kv("k", "—", "нет реагентов в смеси");
         // обратная реакция и константа равновесия
@@ -202,7 +202,7 @@ static void drawChemPanel(float x, float y, float w, float h) {
         auto it = rxStats.find(rev);
         if (it != rxStats.end()) {
             double rr = rxRate(it->second, win);
-            kv("обратная", fmt("%.3g соб./τ", rr), rr > 0 ? fmt("r₊/r₋ = %.2f%s", r / rr, std::fabs(r / rr - 1) < 0.3 ? " — близко к равновесию" : "") : std::string());
+            kv("обратная", fmt("%.3g соб./τ", rr), rr > 0 ? fmt("r₊/r₋ = %.2f%s", r / rr, std::fabs(r / rr - 1) < 0.3 ? T(" — близко к равновесию") : "") : std::string());
         } else kv("обратная", "не наблюдалась");
         double K; int dn;
         if (rxKc(st, K, dn)) kv("K_c", fmt("%.3g", K), dn == 0 ? std::string("по текущим концентрациям") : fmt("(моль/л)^%+d, по текущим концентрациям", dn));
