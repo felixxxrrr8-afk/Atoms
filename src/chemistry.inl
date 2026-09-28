@@ -393,7 +393,8 @@ static void relaxBondOffsets(double dt) {
 }
 static void addFlash(double x, double y, double z, double dE) {
     Flash f; f.x = x; f.y = y; f.z = z; f.age = 0; f.str = (float)clampv(std::fabs(dE) / 10.0, 0.25, 1.5);
-    if (dE < 0) { f.r = 1.0f; f.g = 0.62f; f.b = 0.25f; } else { f.r = 0.35f; f.g = 0.6f; f.b = 1.0f; }
+    // выделение энергии — яркое белое пятно, поглощение — тусклое серое (и сжимающееся кольцо, см. drawScene)
+    if (dE < 0) { f.r = f.g = f.b = 1.0f; } else { f.r = f.g = f.b = 0.5f; }
     if (flashes.size() < 400) flashes.push_back(f);
 }
 static void midpoint(int i, int j, double& mx, double& my, double& mz) {
