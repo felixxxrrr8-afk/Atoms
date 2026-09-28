@@ -426,7 +426,20 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
             col(c); float x = in.x + k * bw, y = mapY(in, A::tprof[k], 0, hi);
             glVertex2f(x + 1, y); glVertex2f(x + bw - 1, y); glVertex2f(x + bw - 1, in.y + in.h); glVertex2f(x + 1, in.y + in.h);
         }
-        glEnd(); axisLabels(in, 0, hi, "%.2f");
+        glEnd();
+        // плотность веществ: линии поверх столбиков T (своя шкала; второе вещество — пунктир)
+        double dh = 1e-9; for (int s = 0; s < A::dprofN; s++) for (double d : A::dprof[s]) dh = std::max(dh, d * 1.1);
+        glLineWidth(1.4f); glEnable(GL_LINE_SMOOTH);
+        for (int s = 0; s < A::dprofN; s++) {
+            if (s) { glEnable(GL_LINE_STIPPLE); glLineStipple(2, 0x3333); }
+            col(s ? cG : cW); glBegin(GL_LINE_STRIP);
+            for (int k = 0; k < A::TP_BINS; k++) glVertex2f(in.x + (k + 0.5f) * bw, mapY(in, A::dprof[s][k], 0, dh));
+            glEnd(); glDisable(GL_LINE_STIPPLE);
+        }
+        glDisable(GL_LINE_SMOOTH); glLineWidth(1);
+        axisLabels(in, 0, hi, "%.2f");
+        float lx = in.x + in.w;
+        for (int s = A::dprofN - 1; s >= 0; s--) lx -= drawTextR(fontXS, lx, in.y + in.h - fontXS.h, fmt("ρ %s", EL[A::dprofType[s]].sym), s ? cG : cW) + uiPx(8);
     }
     // 11. журнал реакций: самые частые уравнения, число событий, ΔH по энергиям связей
     {
@@ -938,7 +951,7 @@ static void drawTopBar() {
     auto ic = [&](int id, int icon, bool on, const char* hint, RGBA tint = C_TEXT) { bool c = uiIconBtn(id, x, by, bh, bh, icon, on, hint, tint); x += bh + uiPx(2); return c; };
     if (ic(209, P.paused ? IC_PLAY : IC_PAUSE, false, P.paused ? "Продолжить (Пробел)" : "Пауза (Пробел)")) P.paused = !P.paused;
     if (ic(763, IC_STEP, false, "Один шаг (S)\nСтавит на паузу и делает один шаг интегрирования")) { P.paused = true; mdStep(); analysisTick(); }
-    if (ic(764, IC_RESET, false, "Сброс сцены (R)\nЗаново загрузить текущий пресет (объекты поля сохраняются)")) cmdReset();
+    if (ic(764, IC_RESET, false, "Сброс сцены (R)\nЗаново загрузить текущий пресет (объекты поля, поставленные вами, сохраняются)")) cmdReset();
     if (ic(765, IC_UNDO, false, "Отменить (Ctrl+Z)\nВернуть состояние до последнего действия")) cmdUndo();
     x += uiPx(4); sep();
     if (ic(766, IC_OPEN, false, "Открыть состояние (Ctrl+O)\nF9 — быстрая загрузка")) cmdLoad();
@@ -1437,6 +1450,7 @@ static void drawSceneOverlay() {
     if (DIM == 3) sub += camMode == 1 ? " · камера: полёт (WASD, Q/E)" : "";
     if (DIM == 3 && sliceOn) sub += fmt(" · разрез %+.1fσ (Shift+колесо)", sliceOff);
     drawText(fontXS, x, y + fontU.h + uiPx(1), sub, C_DIM);
+    if (!A::sceneNote.empty()) drawText(fontXS, x, y + fontU.h + fontXS.h + uiPx(2), A::sceneNote, C_TEXT);   // живое измерение сцены
     popClip();
 }
 static void drawToast() {
@@ -1620,23 +1634,51 @@ static void loadPreset(int k, int variant);
 static void clearToolState() { selClear(); measN = 0; rubberOn = false; throwDrag = false; foPlacing = false; cutHoverA = cutHoverB = -1; boxTarget = -1; }
 static void openScene(int k) {
     pushUndo(); bool same = k == currentPreset;
-    loadPreset(k, same ? presetVariant + 1 : 0); viewFitPending = true; followAtom = -1; menuOn = false;
-    clearToolState(); fieldObjs.clear(); selFieldObj = -1;
+    loadPresetKeepObjs(k, same ? presetVariant + 1 : 0, same); viewFitPending = true; followAtom = -1; menuOn = false; ptOn = false;
+    clearToolState();
 }
+// Меню сцен: разделы по SceneInfo.group (заголовки SG_NAMES), 3–4 колонки по ширине окна, компактные карточки
+// (метка клавиши, название, 1–2 строки описания); высота карточек подстраивается, чтобы всё помещалось без прокрутки.
 static void drawScenesMenu() {
-    const int NS = (int)(sizeof(SCENES) / sizeof(SCENES[0])), cols = 3, rows = (NS + cols - 1) / cols;
-    float cw = std::min(uiPx(360), (winW - uiPx(80)) / (float)cols), chh = uiPx(40) + 2 * (fontXS.h + uiPx(1)), pad = uiPx(18);
-    if (rows * (chh + uiPx(8)) + uiPx(66) > winH - uiPx(16)) chh = std::max(uiPx(48), (winH - uiPx(82)) / rows - uiPx(8));
-    float W = cols * cw + (cols - 1) * uiPx(8) + 2 * pad, H = rows * (chh + uiPx(8)) + uiPx(66);
+    const int NS = (int)(sizeof(SCENES) / sizeof(SCENES[0]));
+    const float pad = uiPx(18), gap = uiPx(6), secH = fontUB.h + uiPx(10), headH = uiPx(46);
+    // раскладка: сначала 3 (широкое окно — 4) колонки с двумя строками описания; не помещается — на колонку больше,
+    // затем одна строка описания (карточка никогда не обрезает строку посередине)
+    int cols = 3, rows = 0, nsec = 0; float chh = 0;
+    const float h2 = uiPx(20) + fontUB.h + 2 * fontXS.h, h1 = uiPx(18) + fontUB.h + fontXS.h;
+    auto rowsFor = [&](int c) { int r = 0, n = 0; for (int g = 0; g < SG_N; g++) { int k = 0; for (int s = 0; s < NS; s++) if (SCENES[s].group == g) k++; if (k) { r += (k + c - 1) / c; n++; } } nsec = n; return r; };
+    {
+        const int c0 = winW >= uiPx(1500) ? 4 : 3;
+        const int tryC[4] = {c0, c0 + 1, c0, c0 + 1}; const float tryH[4] = {h2, h2, h1, h1};
+        for (int t = 0; t < 4; t++) {
+            cols = tryC[t]; chh = tryH[t]; rows = rowsFor(cols);
+            if (headH + nsec * secH + rows * (chh + gap) + uiPx(10) <= winH - uiPx(16)) break;
+        }
+    }
+    float cw = std::floor(std::min(uiPx(330), (winW - uiPx(24) - 2 * pad - (cols - 1) * gap) / (float)cols));
+    float W = cols * cw + (cols - 1) * gap + 2 * pad, H = headH + nsec * secH + rows * (chh + gap) + uiPx(10);
     float x0 = std::floor((winW - W) / 2), y0 = std::floor(std::max(uiPx(8), (winH - H) / 2));
     menuRect = {x0, y0, W, H};
     rectFill(0, 0, (float)winW, (float)winH, {0, 0, 0, 0.6f});
     boxPanel(x0, y0, W, H, C_PANEL, C_LINE_H); rectFill(x0, y0, W, uiPx(2), C_ACC);
     drawText(fontL, x0 + pad, y0 + uiPx(12), "Сцены", C_TEXT_HI);
     drawTextR(fontXS, x0 + W - pad, y0 + uiPx(17), "щелчок — открыть (повторный — вариант) · Esc / Tab — закрыть", C_DIM);
+    std::vector<PR> rect(NS, PR{0, 0, 0, 0});
+    {
+        float yy = y0 + headH;
+        for (int g = 0; g < SG_N; g++) {
+            int c = 0;
+            for (int s = 0; s < NS; s++) {
+                if (SCENES[s].group != g) continue;
+                if (c == 0) { drawText(fontUB, x0 + pad, yy + uiPx(2), SG_NAMES[g], C_DIM); lineH(x0 + pad + textW(fontUB, SG_NAMES[g]) + uiPx(10), x0 + W - pad, yy + uiPx(2) + fontUB.h / 2, C_LINE); yy += secH; }
+                rect[s] = {x0 + pad + (c % cols) * (cw + gap), yy + (c / cols) * (chh + gap), cw, chh}; c++;
+            }
+            if (c) yy += ((c + cols - 1) / cols) * (chh + gap);
+        }
+    }
     for (int s = 0; s < NS; s++) {
         const SceneInfo& sc = SCENES[s];
-        PR r = {x0 + pad + (s % cols) * (cw + uiPx(8)), y0 + uiPx(48) + (s / cols) * (chh + uiPx(8)), cw, chh};
+        PR r = rect[s];
         bool hover = inPR(r), cur = sc.key == currentPreset; int id = 600 + sc.key;
         uiRects[id] = r;
         if (hover && ui.pressed) ui.active = id;
@@ -1644,12 +1686,13 @@ static void drawScenesMenu() {
         if (ui.active == id && ui.released) ui.active = -1;
         rectFill(r.x, r.y, r.w, r.h, cur ? C_ACC_BG : hover ? C_ELEM_H : C_ELEM);
         rectLine(r.x, r.y, r.w, r.h, cur ? withA(C_ACC, 0.8f) : hover ? C_LINE_H : C_LINE);
-        float kw = textW(fontXS, sc.keyLabel) + uiPx(12);
-        rectLine(r.x + uiPx(10), r.y + uiPx(10), kw, uiPx(18), sc.key >= 11 ? withA(C_WARN, 0.7f) : withA(C_ACC, 0.7f));
-        drawText(fontXS, r.x + uiPx(16), r.y + uiPx(11), sc.keyLabel, sc.key >= 11 ? C_WARN : C_ACC);
+        if (cur) rectFill(r.x, r.y, uiPx(2), r.h, C_ACC);   // текущая сцена — акцентная полоса слева
+        float kw = textW(fontXS, sc.keyLabel) + uiPx(10), ty = r.y + uiPx(7);
+        rectLine(r.x + uiPx(8), ty, kw, fontUB.h + uiPx(1), sc.key >= 11 ? withA(C_WARN, 0.7f) : withA(C_ACC, 0.7f));
+        drawText(fontXS, r.x + uiPx(13), ty + std::floor((fontUB.h - fontXS.h) / 2) + uiPx(1), sc.keyLabel, sc.key >= 11 ? C_WARN : C_ACC);
         pushClip(r.x, r.y, r.w - uiPx(6), r.h);
-        drawText(fontUB, r.x + uiPx(18) + kw, r.y + uiPx(10), sc.title, C_TEXT_HI);
-        pushClip(r.x, r.y, r.w, r.h - uiPx(3)); drawWrapped(fontXS, r.x + uiPx(12), r.y + uiPx(35), r.w - uiPx(24), sc.desc, C_DIM); popClip();
+        drawText(fontUB, r.x + uiPx(15) + kw, ty, sc.title, C_TEXT_HI);
+        pushClip(r.x, r.y, r.w, r.h - uiPx(3)); drawWrapped(fontXS, r.x + uiPx(10), ty + fontUB.h + uiPx(5), r.w - uiPx(20), sc.desc, C_DIM); popClip();
         popClip();
         if (clicked) { openScene(sc.key); return; }
     }
@@ -1668,8 +1711,8 @@ static void onDimChanged() {
 static void toggleDim() {
     pushUndo();
     DIM = DIM == 3 ? 2 : 3; onDimChanged();
-    loadPreset(currentPreset, 0); viewFitPending = true;
-    clearToolState(); fieldObjs.clear(); selFieldObj = -1;
+    loadPresetKeepObjs(currentPreset, 0, false); viewFitPending = true;   // объекты пользователя в другой размерности не имеют смысла
+    clearToolState();
 }
 // точка «посередине ящика» на луче под курсором
 static bool cursorPoint(double& x, double& y, double& z) {

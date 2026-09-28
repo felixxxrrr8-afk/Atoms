@@ -375,6 +375,7 @@ struct FieldObj {
     // темп испускания/поглощения (атомов/τ); cnt — всего испущено/поглощено атомов
     double pw = 0; long long cnt = 0;
     double ramp = 0;                  // плавное включение 0 → 1 за ~1τ (ведёт физика; выключенный объект — 0)
+    bool fromPreset = false;          // поставлен пресетом сцены: при сбросе пересоздаётся (объекты пользователя переносятся)
 };
 static std::vector<FieldObj> fieldObjs;
 static int selFieldObj = -1;          // выбранный объект (UI)

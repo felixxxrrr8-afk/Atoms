@@ -10,6 +10,7 @@ struct Energies {
 } EN;
 struct ChemStats { long long assoc = 0, exch = 0, diss = 0; double heat = 0; } CH;   // счётчики реакций
 static double Wext = 0, Eref = 0;     // работа внешних сил/термостатов и опорная энергия для дрейфа
+static double heatWallQ[2] = {0, 0};  // теплота, переданная веществу горячей [0] и холодной [1] тепловыми стенками (ε, нарастающим итогом)
 static bool energyRefValid = false;
 static bool conserving = true;        // false в режиме NPT (баростат не сохраняет энергию)
 
@@ -1068,16 +1069,16 @@ static void mdStep() {
         for (int i = 0; i < n; i++) {
             const Element& e = EL[S.ty[i]]; if (frozenAt(i)) continue;
             double s = e.sig * 1.2, K0 = 0.5 * e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]);
-            bool hit = false;
+            int hit = -1;   // 0 — горячая стенка, 1 — холодная
             auto ray = [&](double Tw) { return std::sqrt(-2 * Tw / e.m * std::log(std::max(1e-12, urand()))); };
             auto tang = [&](double Tw) { return grand() * std::sqrt(Tw / e.m); };
             if (P.heatWalls == 1) {
-                if (S.x[i] < s && S.vx[i] < 0) { S.vx[i] = ray(P.Thot); S.vy[i] = tang(P.Thot); if (d3) S.vz[i] = tang(P.Thot); hit = true; }
-                else if (S.x[i] > S.Lx - s && S.vx[i] > 0) { S.vx[i] = -ray(P.Tcold); S.vy[i] = tang(P.Tcold); if (d3) S.vz[i] = tang(P.Tcold); hit = true; }
+                if (S.x[i] < s && S.vx[i] < 0) { S.vx[i] = ray(P.Thot); S.vy[i] = tang(P.Thot); if (d3) S.vz[i] = tang(P.Thot); hit = 0; }
+                else if (S.x[i] > S.Lx - s && S.vx[i] > 0) { S.vx[i] = -ray(P.Tcold); S.vy[i] = tang(P.Tcold); if (d3) S.vz[i] = tang(P.Tcold); hit = 1; }
             } else if (P.heatWalls == 2) {
-                if (S.y[i] < s && S.vy[i] < 0) { S.vy[i] = ray(P.Thot); S.vx[i] = tang(P.Thot); if (d3) S.vz[i] = tang(P.Thot); hit = true; }
+                if (S.y[i] < s && S.vy[i] < 0) { S.vy[i] = ray(P.Thot); S.vx[i] = tang(P.Thot); if (d3) S.vz[i] = tang(P.Thot); hit = 0; }
             }
-            if (hit) Wext += 0.5 * e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]) - K0;
+            if (hit >= 0) { double dK = 0.5 * e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]) - K0; Wext += dK; heatWallQ[hit] += dK; }
         }
     }
     // кисть нагрева / охлаждения (локальный термостат вдоль луча под курсором)
