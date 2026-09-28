@@ -35,7 +35,7 @@ static void worldReset(double Lx, double Ly, double Lz, int boundary) {
     P.thermostat = TH_BUSSI; P.tauT = 0.5; P.epsScale = 1.0; P.wallAttr = 0.6; P.heatPower = 0.03; P.efield = 0; P.eaScale = 1.0;
     P.acidBase = true; P.surfCat = true; rxT0 = 0; chemPT = 0;
     grabbed = -1; followAtom = -1; flashes.clear(); CH = ChemStats(); script.clear(); trailsOn = false; P.substeps = 8;
-    pistonGrab = false; nlValid = false; fieldObjs.clear(); selFieldObj = -1;
+    pistonGrab = false; nlValid = false; fieldObjs.clear(); selFieldObj = -1; heatWallQ[0] = heatWallQ[1] = 0;
     buildPairTables();
 }
 static void finishPreset() {
@@ -46,7 +46,7 @@ static void finishPreset() {
 static std::string presetTitle; static bool presetLoaded = false;
 static int presetVariants(int k) {
     if (k == 2) return DIM == 3 ? 6 : 3;
-    if (k == 7 || k == 9 || k == 17) return 2;
+    if (k == 7 || k == 9 || k == 17 || k == 22) return 2;
     return 1;
 }
 // шарик металла (ГЦК в 3D, треугольная решётка в 2D) радиуса R (σ) с центром (cx, cy, cz)
@@ -82,6 +82,32 @@ static void partition(double x0) {
         else for (double z = 0.5; z < S.Lz; z += 0.9) addAtom(E_WALL, x0, y, z, 0, 0, 0);
     }
 }
+// шаблон «один атом типа t» (для элементов, которых нет в палитре веществ)
+static Tmpl atomTmpl(int t) { Tmpl m; m.label = EL[t].sym; m.a = {{t, 0, 0, 0}}; return m; }
+// пористая перегородка в плоскости x = x0: объекты-барьеры (чисто отталкивающие, без адсорбции), между ними
+// nSlits щелей шириной slit (2D — отрезки, 3D — полосы через весь ящик по z). Барьеры сразу в полную силу.
+static void porousMembrane(double x0, double slit, int nSlits) {
+    const double p = S.Ly / nSlits;
+    for (int k = 0; k <= nSlits; k++) {
+        double y0 = k == 0 ? -1.0 : (k - 0.5) * p + 0.5 * slit, y1 = k == nSlits ? S.Ly + 1.0 : (k + 0.5) * p - 0.5 * slit;
+        FieldObj o = makeFieldObj(FO_BARRIER, x0, 0.5 * (y0 + y1), 0.5 * S.Lz);
+        if (DIM == 2) { o.x = o.x2 = x0; o.y = y0; o.y2 = y1; o.z = o.z2 = 0; o.R = 0; }
+        else { o.x = o.x2 = x0; o.y = o.y2 = 0.5 * (y0 + y1); o.z = -1.0; o.z2 = S.Lz + 1.0; o.R = 0.5 * (y1 - y0); }
+        o.dx = 1; o.dy = 0; o.dz = 0; o.strength = 3.0; o.ramp = 1.0;
+        fieldObjs.push_back(o);
+    }
+}
+// ---- Живые измерения сцен 21–25(строка A::sceneNote под заголовком; обновляется в analysisTick)
+namespace SM {
+static double tPrev = -1;                                   // время прошлого отсчёта (−1 — отсчётов ещё не было)
+static double q0 = 0, q1 = 0, qh = 0, qc = 0; static bool qInit = false;   // теплопроводность: теплота стенок и сглаженные мощности
+static double tOpen = -1, xOpen = 0, T0 = 0, Ep0 = 0;      // момент разрыва мембраны, её положение, T и Eпот/атом до разрыва
+static std::vector<std::pair<double, double>> front;        // ударная волна: (t, x) фронта
+static double theoW = 0, rhoR0 = 0, rho21 = 1, speedW = 0, T1 = 1;   // теория: скорость фронта, плотность и T перед ним, сжатие; измеренная скорость
+static std::vector<double> avg[2];                          // барометрическая формула: профили плотности, усреднённые за ~10τ
+static double V0 = 0;                                       // спекание: начальное расстояние между центрами частиц
+}
+static void sceneMeasureReset() { SM::tPrev = -1; SM::qInit = false; SM::tOpen = -1; SM::front.clear(); SM::speedW = 0; SM::V0 = 0; SM::avg[0].clear(); SM::avg[1].clear(); }
 static void loadPreset(int k, int variant) {
     currentPreset = k; presetVariant = variant % std::max(1, presetVariants(k));
     const bool d3 = DIM == 3; const double asp = sceneAspect;
@@ -329,14 +355,77 @@ static void loadPreset(int k, int variant) {
         fillBox(palette[findPal("H2")], nh, 0.9, 0.0); fillBox(palette[findPal("O2")], nh / 2, 0.9, 0.0);
         P.Tset = 0.9; P.thermostat = TH_BUSSI; P.tauT = 1.0; colorMode = 0; P.substeps = d3 ? 5 : 8;
         presetTitle = "Катализ на платине: без искры смесь H2 + O2 инертна, но на поверхности наночастицы Pt идёт 2H2 + O2 → 2H2O"; break; }
+    case 21: {  // теплопроводность: левая стенка горячая, правая холодная → стационарный линейный профиль T(x)
+        if (d3) { worldReset(34, 13, 13, B_WALLS); P.Thot = 3.0; P.Tcold = 1.2; }
+        else { worldReset(50, 50 * asp, 1, B_WALLS); P.Thot = 1.6; P.Tcold = 0.6; }
+        P.heatWalls = 1; P.thermostat = TH_NVE; P.Tset = 0.5 * (P.Thot + P.Tcold); P.wallAttr = 0;
+        fillBox(palette[findPal("Ar")], (int)((d3 ? 0.40 : 0.50) * boxVolume()), P.Tset, 0.8);
+        colorMode = 1;
+        presetTitle = "Теплопроводность: левая стенка горячая, правая холодная → линейный профиль T(x), поток тепла q = −κ·dT/dx (закон Фурье)"; break; }
+    case 22: {  // ударная труба / расширение Джоуля: перегородка между плотным и разреженным (или пустым) объёмом
+        const Tmpl& ar = palette[findPal("Ar")];
+        double xm, rhoL, rhoR, TR;
+        if (presetVariant == 0) {   // классическая ударная труба: горячий плотный «толкающий» газ и холодный разреженный
+            if (d3) worldReset(90, 14, 14, B_WALLS); else worldReset(100, 28, 1, B_WALLS);
+            xm = 0.3 * S.Lx; rhoL = d3 ? 0.12 : 0.30; rhoR = d3 ? 0.025 : 0.07; P.Tset = d3 ? 4.0 : 2.5; TR = d3 ? 1.2 : 0.6;
+            presetTitle = "Ударная труба: через 1τ мембрана лопнет → горячий плотный газ гонит ударную волну (скачок плотности и T) по холодному разреженному, назад бежит волна разрежения. Повтор — расширение в вакуум";
+        } else {
+            if (d3) worldReset(36, 18, 18, B_WALLS); else worldReset(70, 70 * asp, 1, B_WALLS);
+            xm = 0.5 * S.Lx; rhoL = d3 ? 0.30 : 0.35; rhoR = 0; P.Tset = d3 ? 1.5 : 1.0; TR = P.Tset;
+            presetTitle = "Расширение Джоуля: через 1τ плотный газ вырвется в вакуум; энергия сохраняется, но газ остывает — атомы работают против взаимного притяжения";
+        }
+        const double A = d3 ? (S.Ly - 1.6) * (S.Lz - 1.6) : S.Ly - 1.6;
+        partition(xm);
+        fillRandom(ar, (int)(rhoL * (xm - 1.7) * A), 0.8, 0.8, 0.8, xm - 0.9, S.Ly - 0.8, S.Lz - 0.8, P.Tset);
+        if (rhoR > 0) fillRandom(ar, (int)(rhoR * (S.Lx - xm - 1.7) * A), xm + 0.9, 0.8, 0.8, S.Lx - 0.8, S.Ly - 0.8, S.Lz - 0.8, TR);
+        P.thermostat = TH_NVE; P.wallAttr = 0; colorMode = 1;
+        script.push_back({1.0, 20, false}); break; }
+    case 23: {  // барометрическая формула: смесь Ar и Ne в поле тяжести
+        if (d3) worldReset(16, 30, 16, B_WALLS); else worldReset(64, 64 * asp, 1, B_WALLS);
+        const double T = 1.5, H = d3 ? 7.0 : 0.24 * S.Ly;   // H — высота однородной атмосферы аргона kT/(mg)
+        P.gravity = T / (EL[E_AR].m * H); P.Tset = T; P.thermostat = TH_BUSSI; P.tauT = 1.0; P.wallAttr = 0;
+        const int n = d3 ? 300 : 90;
+        fillBox(palette[findPal("Ar")], n, T, 0.8); fillBox(palette[findPal("Ne")], n, T, 0.8);
+        colorMode = 0; P.substeps = d3 ? 10 : 14;
+        presetTitle = "Барометрическая формула: в поле тяжести плотность газа падает как exp(−mgh/kT) — тяжёлый Ar прижат ко дну, лёгкий Ne поднимается выше (ρ(y) — «Графики»)"; break; }
+    case 24: {  // эффузия через пористую перегородку: смесь He + Ar, справа вакуум
+        if (d3) worldReset(40, 20, 20, B_WALLS); else worldReset(64, 64 * asp, 1, B_WALLS);
+        const double xm = 0.5 * S.Lx;
+        porousMembrane(xm, d3 ? 4.0 : 4.5, d3 ? 4 : 5);
+        const int n = d3 ? 170 : 110, He = typeOfZ(2);
+        P.Tset = 1.2; P.thermostat = TH_BUSSI; P.tauT = 2.0; P.wallAttr = 0;
+        fillRandom(atomTmpl(He), n, 0.8, 0.8, 0.8, xm - 1.2, S.Ly - 0.8, S.Lz - 0.8, P.Tset);
+        fillRandom(palette[findPal("Ar")], n, 0.8, 0.8, 0.8, xm - 1.2, S.Ly - 0.8, S.Lz - 0.8, P.Tset);
+        colorMode = 0; P.substeps = d3 ? 10 : 12;
+        presetTitle = "Эффузия (закон Грэма): смесь He и Ar утекает через узкие щели в вакуум — лёгкий гелий быстрее в √(mAr/mHe) ≈ 3.2 раза"; break; }
+    case 25: {  // спекание: наночастицы золота и серебра касаются и срастаются ниже температуры плавления
+        const int Au = typeOfZ(79), Ag = typeOfZ(47);
+        const double d = 2 * EL[Au].rmet / 3.405, R = d3 ? 3.4 : 7.0, T0 = d3 ? 0.30 : 0.45;   // в 3D частица плавится уже при ≈0.45
+        if (d3) worldReset(4 * R + 12, 2 * R + 10, 2 * R + 10, B_PERIODIC); else worldReset(4 * R + 16, std::max((4 * R + 16) * asp, 2 * R + 10), 1, B_PERIODIC);
+        const double cx = S.Lx / 2, cy = S.Ly / 2, cz = d3 ? S.Lz / 2 : 0, h = R + 0.5 * d;
+        metalBall(Au, cx - h, cy, cz, R, T0); metalBall(Ag, cx + h, cy, cz, R, T0);
+        P.Tset = T0; P.thermostat = TH_BUSSI; P.tauT = 1.0; colorMode = 0; P.substeps = 10;
+        presetTitle = "Спекание: наночастицы Au и Ag коснулись ниже температуры плавления — растёт перешеек, частицы сближаются, атомы перемешиваются (твёрдое состояние!)"; break; }
     case 0: {   // химическое равновесие Cl2 ⇌ 2Cl и принцип Ле Шателье
         if (d3) { worldReset(24, 24, 24, B_PISTON); P.pExt = 0.2; fillBox(palette[findPal("Cl2")], 700, 2.6); }
         else { worldReset(60, 60 * asp, 1, B_PISTON); P.pExt = 0.15; fillBox(palette[findPal("Cl2")], 500, 2.6); }
         P.Tset = 2.6; S.pistonM = 60; colorMode = 0;
         presetTitle = "0 · Равновесие Cl2 <=> 2Cl: меняйте T и давление поршня — сдвиг по Ле Шателье"; break; }
     }
+    for (auto& o : fieldObjs) o.fromPreset = true;   // объекты сцены (сброс пересоздаёт их, объекты пользователя переносятся)
+    sceneMeasureReset();
     finishPreset();
     presetLoaded = false; showToast(std::string(T(presetTitle)) + (d3 ? "   [3D]" : ""));
+}
+// Загрузить сцену; keepUser — перенести объекты поля, поставленные пользователем (сброс сцены, повтор клавиши):
+// объекты самого пресета создаются заново, объекты пользователя включаются плавно (ramp с нуля — атомы уже на новых местах)
+static void loadPresetKeepObjs(int k, int variant, bool keepUser) {
+    std::vector<FieldObj> user;
+    if (keepUser) for (const FieldObj& o : fieldObjs) if (!o.fromPreset) { user.push_back(o); user.back().ramp = 0; user.back().acc = 0; }
+    loadPreset(k, variant);
+    if (user.empty()) return;
+    fieldObjs.insert(fieldObjs.end(), user.begin(), user.end());
+    computeForces(); resetEnergyRef();
 }
 // заменить случайную молекулу воды частицей по шаблону m (вставка в плотный раствор: место освобождает вода)
 static bool replaceWaterWith(const Tmpl& m) {
@@ -365,7 +454,138 @@ static void runScript() {
             updatePresence(); computeForces(); resetEnergyRef();
             showToast(ok ? "Добавлена порция NaOH (Na+ + OH−)" : "Не удалось добавить NaOH");
             break; }
+        case 20: {  // ударная труба / расширение Джоуля: мембрана лопается
+            double xw = 0, kl = 0, kr = 0; int nw = 0, nl = 0, nr = 0;
+            for (int i = 0; i < S.n; i++) if (S.ty[i] == E_WALL) { xw += S.x[i]; nw++; }
+            if (nw == 0) break;
+            xw /= nw;
+            for (int i = 0; i < S.n; i++) if (!EL[S.ty[i]].fixed) {
+                const double k2 = EL[S.ty[i]].m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]);
+                if (S.x[i] < xw) { nl++; kl += k2; } else { nr++; kr += k2; }
+            }
+            const double T4 = nl ? kl / (DIM * nl) : 1, T1 = nr ? kr / (DIM * nr) : 1;   // температуры до разрыва
+            measure();
+            SM::tOpen = S.t; SM::xOpen = xw; SM::T0 = EN.T; SM::Ep0 = EN.nmob ? potentialNow() / EN.nmob : 0; SM::front.clear(); SM::speedW = 0;
+            for (int i = S.n - 1; i >= 0; i--) if (S.ty[i] == E_WALL) removeAtom(i);
+            updatePresence(); computeForces(); resetEnergyRef(); resetMSD();
+            // теория ударной трубы для идеального газа (один газ, γ = (d+2)/d, скорости звука a = √(γkT/m)):
+            //   p4/p1 = p21·[1 − (γ−1)(a1/a4)(p21 − 1)/√(2γ(2γ + (γ+1)(p21 − 1)))]^(−2γ/(γ−1)),  Ms = √(1 + (γ+1)(p21 − 1)/(2γ))
+            const double g = (DIM + 2.0) / DIM, crossV = DIM == 3 ? (S.Ly - 1.6) * (S.Lz - 1.6) : S.Ly - 1.6;
+            SM::rhoR0 = nr / std::max(1e-9, (S.Lx - xw - 1.7) * crossV); SM::T1 = T1;
+            if (nr > 0 && nl > nr) {
+                const double p41 = (nl * T4 / std::max(1e-9, xw - 1.7)) / (nr * T1 / std::max(1e-9, S.Lx - xw - 1.7)), a14 = std::sqrt(T1 / T4);
+                auto f = [&](double p) { return p * std::pow(std::max(1e-9, 1 - (g - 1) * a14 * (p - 1) / std::sqrt(2 * g * (2 * g + (g + 1) * (p - 1)))), -2 * g / (g - 1)) - p41; };
+                double lo = 1, hi = p41;
+                for (int it = 0; it < 80; it++) { double mid = 0.5 * (lo + hi); if (f(mid) > 0) hi = mid; else lo = mid; }
+                const double p21 = 0.5 * (lo + hi), Ms = std::sqrt(1 + (g + 1) * (p21 - 1) / (2 * g));
+                SM::theoW = Ms * std::sqrt(g * T1 / EL[E_AR].m);
+                SM::rho21 = ((g + 1) * p21 + (g - 1)) / ((g - 1) * p21 + (g + 1));
+                showToast("Мембрана лопнула → ударная волна вправо, волна разрежения влево");
+            } else showToast("Перегородка исчезла → газ расширяется в пустоту");
+            break; }
         }
+    }
+}
+// теплопроводность, ударная волна, барометрическая формула, эффузия, спекание, сжатие — живые измерения
+static void sceneMeasure() {
+    const int k = currentPreset;
+    if (k < 21 || k > 25) return;
+    if (SM::tPrev >= 0 && S.t < SM::tPrev - 1e-9) sceneMeasureReset();   // время пошло назад (отмена, загрузка)
+    const double dt = SM::tPrev < 0 ? 0 : S.t - SM::tPrev; SM::tPrev = S.t;
+    const int B = A::TP_BINS; const bool d3 = DIM == 3;
+    std::string& N = A::sceneNote;
+    auto fitLine = [](const std::vector<std::pair<double, double>>& p, double& a, double& b) {   // y = a + b·x (МНК)
+        double sx = 0, sy = 0, sxx = 0, sxy = 0; int n = (int)p.size(); if (n < 2) return false;
+        for (auto& q : p) { sx += q.first; sy += q.second; sxx += q.first * q.first; sxy += q.first * q.second; }
+        double den = n * sxx - sx * sx; if (std::fabs(den) < 1e-12) return false;
+        b = (n * sxy - sx * sy) / den; a = (sy - b * sx) / n; return true;
+    };
+    switch (k) {
+    case 21: {   // поток тепла от стенок и градиент в средней части: κ = q/|dT/dx|
+        if (!SM::qInit || dt <= 0) { SM::q0 = heatWallQ[0]; SM::q1 = heatWallQ[1]; SM::qh = SM::qc = 0; SM::qInit = true; N = "поток тепла: измерение…"; break; }
+        const double a = std::min(1.0, dt / 8.0);
+        SM::qh += a * ((heatWallQ[0] - SM::q0) / dt - SM::qh); SM::qc += a * ((heatWallQ[1] - SM::q1) / dt - SM::qc);
+        SM::q0 = heatWallQ[0]; SM::q1 = heatWallQ[1];
+        const double area = d3 ? S.Ly * S.Lz : S.Ly, q = 0.5 * (SM::qh - SM::qc) / area;
+        std::vector<std::pair<double, double>> pts;
+        for (int b = B / 5; b < B - B / 5; b++) pts.push_back({(b + 0.5) * S.Lx / B, A::tprof[b]});
+        double a0, sl; if (!fitLine(pts, a0, sl)) break;
+        const double kap = sl < -1e-6 ? q / -sl : 0;
+        N = fmt("стенки: приток %.2f, отток %.2f ε/τ · q = %.4f ε/(τσ%s) · dT/dx = %.4f /σ · κ = q/|dT/dx| = %.2f k/(στ) ≈ %.3f Вт/(м·К)",
+                SM::qh, -SM::qc, q, d3 ? "²" : "", sl, kap, kap * 0.0406);
+        break; }
+    case 22: {
+        if (SM::tOpen < 0) { N = presetVariant == 0 ? "слева газ плотнее и давление выше; мембрана лопнет через 1τ" : "слева плотный газ, справа вакуум; перегородка исчезнет через 1τ"; break; }
+        if (presetVariant == 1) {   // расширение Джоуля: E = const, T падает, потенциальная энергия растёт
+            const double ep = EN.nmob ? potentialNow() / EN.nmob : 0;
+            N = fmt("T: %.3f → %.3f (%.0f → %.0f K) · Eпот на атом: %.3f → %.3f ε · полная E сохраняется — идеальный газ не остыл бы",
+                    SM::T0, EN.T, toKelvin(SM::T0), toKelvin(EN.T), SM::Ep0, ep);
+            break;
+        }
+        // фронт ударной волны: самая правая точка, где плотность пересекает середину скачка
+        const double bw = S.Lx / B, thr = SM::rhoR0 * (1 + 0.5 * (SM::rho21 - 1));
+        std::vector<double> rs(B);   // сглаживание по трём слоям — шум редкого газа не выдаётся за фронт
+        for (int b = 0; b < B; b++) rs[b] = (A::dprof[0][std::max(0, b - 1)] + A::dprof[0][b] + A::dprof[0][std::min(B - 1, b + 1)]) / 3;
+        double xs = -1;
+        for (int b = B - 2; b >= 1; b--) if (rs[b] > thr && rs[b - 1] > thr) {
+            double r0 = rs[b], r1 = rs[b + 1];
+            xs = (b + 0.5 + clampv((r0 - thr) / std::max(1e-9, r0 - r1), 0.0, 1.0)) * bw; break;
+        }
+        if (xs > SM::xOpen + 4 && xs < S.Lx - 8 && S.t > SM::tOpen + 2 && (SM::front.empty() || xs >= SM::front.back().second - 2)) SM::front.push_back({S.t, xs});
+        double a0, w; if (SM::front.size() >= 4 && SM::front.back().first - SM::front.front().first > 3 && fitLine(SM::front, a0, w)) SM::speedW = w;
+        if (xs < 0) { N = "ударная волна: фронт ещё не сформировался"; break; }
+        N = fmt("фронт x = %.0fσ · скорость %s · теория (идеальный газ): %.2f σ/τ, число Маха %.2f, сжатие в %.2f раза",
+                xs, SM::speedW > 0 ? fmt("%.2f σ/τ (%.0f м/с)", SM::speedW, SM::speedW * cfg::U_L_NM * 1e3 / cfg::U_T_PS).c_str() : "…",
+                SM::theoW, SM::theoW / std::sqrt((DIM + 2.0) / DIM * SM::T1 / EL[E_AR].m), SM::rho21);
+        break; }
+    case 23: {   // высота однородной атмосферы H = kT/(mg): теория и наклон ln ρ(y)
+        if (P.gravity <= 0 || A::dprofN == 0) { N.clear(); break; }
+        std::string s;
+        const double aw = std::min(1.0, dt / 10.0);   // профили, усреднённые за ~10τ (одиночный снимок редкого газа шумит)
+        for (int q = 0; q < A::dprofN; q++) {
+            std::vector<double>& av = SM::avg[q];
+            if ((int)av.size() != B) av = A::dprof[q]; else for (int b = 0; b < B; b++) av[b] += aw * (A::dprof[q][b] - av[b]);
+            const int t = A::dprofType[q];
+            // МНК для ln ρ(y) с весом ρ (слою с большим числом атомов — больший вес); крайние слои у стенок не берём
+            double sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+            for (int b = 1; b < B - 1; b++) if (av[b] > 1e-6) { double w = av[b], x = (b + 0.5) * S.Ly / B, y = std::log(av[b]); sw += w; sx += w * x; sy += w * y; sxx += w * x * x; sxy += w * x * y; }
+            const double den = sw * sxx - sx * sx, sl = std::fabs(den) > 1e-12 ? (sw * sxy - sx * sy) / den : 0;
+            const double Hth = P.Tset / (EL[t].m * P.gravity);
+            s += fmt("%s%s: kT/mg = %.1fσ, по профилю %s", q ? " · " : "", EL[t].sym, Hth, sl < 0 && S.t > 5 ? fmt("%.1fσ", -1 / sl).c_str() : "…");
+        }
+        N = "высота однородной атмосферы " + s + fmt(" · T одинакова по высоте: %.2f", EN.T);
+        break; }
+    case 24: {   // доли каждого газа за перегородкой; для равных камер N_R/N = (1 − e^{−2kt})/2 → k ∝ −ln(1 − 2f)
+        const double xm = 0.5 * S.Lx; const int He = typeOfZ(2);
+        int nH = 0, nHr = 0, nA = 0, nAr = 0;
+        for (int i = 0; i < S.n; i++) { if (S.ty[i] == He) { nH++; if (S.x[i] > xm) nHr++; } else if (S.ty[i] == E_AR) { nA++; if (S.x[i] > xm) nAr++; } }
+        if (!nH || !nA) { N.clear(); break; }
+        const double fH = (double)nHr / nH, fA = (double)nAr / nA;
+        std::string r = "…";
+        if (nAr >= 3 && fH < 0.45 && fA < 0.45) r = fmt("%.1f", std::log(1 - 2 * fH) / std::log(1 - 2 * fA));
+        else if (fH >= 0.45) r = "камеры почти выровнялись";
+        N = fmt("за перегородкой: He %d из %d (%.0f%%), Ar %d из %d (%.0f%%) · скорость эффузии He/Ar = %s · закон Грэма √(mAr/mHe) = %.2f",
+                nHr, nH, 100 * fH, nAr, nA, 100 * fA, r.c_str(), std::sqrt(EL[E_AR].m / EL[He].m));
+        break; }
+    case 25: {   // центры масс частиц, перешеек в плоскости контакта, взаимная диффузия
+        const int Au = typeOfZ(79), Ag = typeOfZ(47);
+        double c[2][3] = {{0, 0, 0}, {0, 0, 0}}; int n[2] = {0, 0};
+        for (int i = 0; i < S.n; i++) { int s = S.ty[i] == Au ? 0 : S.ty[i] == Ag ? 1 : -1; if (s < 0) continue; c[s][0] += S.x[i]; c[s][1] += S.y[i]; c[s][2] += S.z[i]; n[s]++; }
+        if (!n[0] || !n[1]) { N.clear(); break; }
+        for (int s = 0; s < 2; s++) for (int q = 0; q < 3; q++) c[s][q] /= n[s];
+        const double xc = 0.5 * (c[0][0] + c[1][0]), yc = 0.5 * (c[0][1] + c[1][1]), zc = 0.5 * (c[0][2] + c[1][2]);
+        std::vector<double> r; int mixA = 0, mixB = 0;
+        for (int i = 0; i < S.n; i++) {
+            int s = S.ty[i] == Au ? 0 : S.ty[i] == Ag ? 1 : -1; if (s < 0) continue;
+            if (s == 0 && S.x[i] > xc) mixA++; if (s == 1 && S.x[i] < xc) mixB++;
+            if (std::fabs(S.x[i] - xc) < 0.6) r.push_back(d3 ? std::hypot(S.y[i] - yc, S.z[i] - zc) : std::fabs(S.y[i] - yc));
+        }
+        std::sort(r.begin(), r.end());
+        const double neck = r.size() >= 3 ? 2 * r[r.size() - 2] + 2 * EL[Au].rmet / 3.405 : 0;   // без самого дальнего (адатом)
+        if (SM::V0 <= 0) SM::V0 = c[1][0] - c[0][0];   // начальное расстояние между центрами
+        N = fmt("перешеек %.1fσ (%.1f нм) · центры сблизились на %.2fσ · Au в «чужой» половине %.0f%%, Ag %.0f%% · T = %.2f",
+                neck, neck * cfg::U_L_NM, SM::V0 - (c[1][0] - c[0][0]), 100.0 * mixA / n[0], 100.0 * mixB / n[1], EN.T);
+        break; }
     }
 }
 
@@ -395,5 +615,9 @@ static const SceneInfo SCENES[] = {
     {18, 0, "меню", "Горение этанола", "C2H5OH + 3O2 → 2CO2 + 3H2O от искры", SG_CHEM},
     {19, 0, "меню", "Гремучая смесь", "взрыв 2H2 + O2 в закрытом сосуде: скачок T и P", SG_CHEM},
     {20, 0, "меню", "Катализ на платине", "H2 + O2 реагируют только на поверхности наночастицы Pt", SG_CHEM},
-};
+    {21, 0, "меню", "Теплопроводность", "горячая и холодная стенки: линейный профиль T(x), закон Фурье", SG_MATTER},
+    {22, 0, "меню", "Ударная труба", "ударная волна и волна разрежения; повтор — расширение Джоуля", SG_MATTER},
+    {23, 0, "меню", "Барометрическая формула", "газ в поле тяжести: ρ ∝ exp(−mgh/kT), Ar ниже Ne", SG_MATTER},
+    {24, 0, "меню", "Эффузия", "закон Грэма: He утекает через щели в √10 раз быстрее Ar", SG_MATTER},
+    {25, 0, "меню", "Спекание наночастиц", "Au и Ag срастаются в твёрдом состоянии: перешеек, диффузия", SG_MATTER},};
 static const char* SG_NAMES[SG_N] = {"Вещество: фазы, перенос, механика", "Химия и растворы"};

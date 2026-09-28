@@ -209,7 +209,7 @@ static std::wstring fileDialog(bool save) {
 }
 static void cmdSave() { std::wstring p = fileDialog(true); if (!p.empty()) saveState(p, false); }
 static void cmdLoad() { std::wstring p = fileDialog(false); if (!p.empty()) loadState(p); }
-static void cmdReset() { pushUndo(); loadPreset(currentPreset, presetVariant); viewFitPending = true; followAtom = -1; clearToolState(); }
+static void cmdReset() { pushUndo(); loadPresetKeepObjs(currentPreset, presetVariant, true); viewFitPending = true; followAtom = -1; clearToolState(); }
 static void cmdUndo() { popUndo(); clearToolState(); showToast("Отмена"); }
 // Экспорт графиков в CSV: RU — разделитель «;» и десятичная запятая (Excel с русской локалью),
 // EN — разделитель «,» и десятичная точка; заголовки — на языке интерфейса, текст с разделителем — в кавычках
@@ -376,12 +376,7 @@ static void selectAll() {
     std::vector<int> v; for (int i = 0; i < S.n; i++) if (!EL[S.ty[i]].fixed) v.push_back(i);
     selSetList(v); showToast(fmt("Выделено атомов: %d", (int)v.size()));
 }
-static void loadPresetKey(int p) {
-    pushUndo(); ptOn = menuOn = false;
-    bool same = p == currentPreset;
-    loadPreset(p, same ? presetVariant + 1 : 0); viewFitPending = true; followAtom = -1;
-    clearToolState(); if (!same) { fieldObjs.clear(); selFieldObj = -1; }
-}
+static void loadPresetKey(int p) { openScene(p); }   // повтор той же клавиши — следующий вариант, объекты пользователя сохраняются
 static void handleKeys() {
     for (int k : in.keys) {
         const bool ctrl = isDown(VK_CONTROL), shift = isDown(VK_SHIFT), d3 = DIM == 3, fly = d3 && camMode == 1;
@@ -833,7 +828,7 @@ static int selftest() {
     for (int dim : {2, 3}) {
         DIM = dim; onDimChanged();
         fprintf(f, "\n==================== %dD ====================\n", dim);
-        int presets[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 11, 12, 13, 14, 15};
+        int presets[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 11, 12, 13, 14, 15, 21, 22, 23, 24, 25};
         for (int k : presets) {
             loadPreset(k, 0);
             auto t0 = std::chrono::high_resolution_clock::now();
@@ -847,7 +842,9 @@ static int selftest() {
             fprintf(f, "  phase=%s  ord=%.2f coord=%.2f cryst=%.2f (FCC %d HCP %d BCC %d SC %d) D=%.4f  reactions a/e/d=%lld/%lld/%lld ions %d/%d\n  molecules:",
                     A::phase.c_str(), A::psiMean, A::meanCoord, A::fCryst, A::stCount[ST_FCC], A::stCount[ST_HCP], A::stCount[ST_BCC], A::stCount[ST_SC], A::D, CH.assoc, CH.exch, CH.diss, A::ionsFree, A::ionsTotal);
             int shown = 0; for (auto& kv : A::mol) if (shown++ < 12) fprintf(f, " %s:%d", kv.first.c_str(), kv.second);
-            fprintf(f, "\n"); fflush(f);
+            fprintf(f, "\n");
+            if (!A::sceneNote.empty()) fprintf(f, "  note: %s\n", A::sceneNote.c_str());
+            fflush(f);
         }
         // распознавание решёток: все варианты пресета 2 при низкой T (без нагрева)
         fprintf(f, "\nLATTICES (%dD): 400 шагов при T=0.1\n", dim);
@@ -1136,7 +1133,7 @@ static void buildUiTest() {
         keyMod(VK_CONTROL, 'Z'); keyMod(VK_CONTROL, 'Z'); keyMod(VK_CONTROL, 'Z');
         key(VK_F11, 10); run(20); key(VK_F11, 10); add("Alt+Enter", 10, [](int fr) { if (fr == 0) in.keys.push_back(VK_F11); }); key(VK_ESCAPE, 10);
         // меню сцен (мышью) и новые сцены с клавиатуры
-        for (int sc : {11, 12, 13, 14, 15}) { key(VK_TAB, 3); click(600 + sc); run(20); }
+        for (int sc : {11, 12, 13, 14, 15, 21, 22, 22, 23, 24, 25}) { key(VK_TAB, 3); click(600 + sc); run(20); }
         key(VK_TAB, 3); key(VK_TAB, 3);
         for (int d = 1; d <= 5; d++) keyMod(VK_SHIFT, '0' + d);
         key('7', 20);
@@ -1304,7 +1301,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         auto t0 = std::chrono::high_resolution_clock::now();
         for (int s = 0; s <= steps; s++) {
             runScript(); mdStep(); advanceFlashes(0.002f);
-            if (s % std::max(1, steps / 12) == 0) {
+            const bool rep = s % std::max(1, steps / 12) == 0;
+            if (s % 32 == 0 && !rep) analysisTick();   // как в окне: анализ каждые ~4 кадра (сглаженные профили, живые измерения)
+            if (rep) {
                 analysisTick(); computeMolecules();
                 double sec = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count();
                 fprintf(f, "t=%6.1f T=%.3f P=%.3f %s cryst=%.2f ICE %d FCC %d HCP %d BCC %d SC %d ions %d/%d coord=%.2f D=%.4f drift=%.4f%% a/e/d=%lld/%lld/%lld dt=%.4f (%.0f steps/s)\n   mol:", S.t, EN.T, EN.P, A::phase.c_str(), A::fCryst,
@@ -1319,7 +1318,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
                     for (int i = 0; i < S.n; i++) { if (S.ty[i] == E_NA) { vp += S.vx[i]; np++; } else if (S.ty[i] == E_CLM) { vm += S.vx[i]; nm2++; } }
                     fprintf(f, "\n   E=%.2f  <vx> Na+ %+.4f  Cl- %+.4f", P.efield, np ? vp / np : 0.0, nm2 ? vm / nm2 : 0.0);
                 }
-                fprintf(f, "\n");
+                if (!A::sceneNote.empty()) fprintf(f, "\n   note: %s", A::sceneNote.c_str());                fprintf(f, "\n");
                 fflush(f);
             }
         }

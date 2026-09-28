@@ -29,17 +29,24 @@ static double progress = 0; static std::string progressLabel;
 static int ionsTotal = 0, ionsFree = 0;
 static std::vector<std::pair<float, float>> arr; static double arrTsum = 0, arrTime = 0; static long long arrEv = 0;
 static double arrEa = 0; static bool arrFit = false;
-static const int TP_BINS = 24; static std::vector<double> tprof(TP_BINS, 0.0); static int tprofAxis = 0;
+static const int TP_BINS = 32; static std::vector<double> tprof(TP_BINS, 0.0); static int tprofAxis = 0;
+// профили плотности вдоль той же оси для двух самых многочисленных подвижных типов (dprofN = 0, 1 или 2)
+static std::vector<double> dprof[2] = {std::vector<double>(TP_BINS, 0.0), std::vector<double>(TP_BINS, 0.0)};
+static int dprofType[2] = {-1, -1}, dprofN = 0; static bool profInit = false;
+static std::string sceneNote;   // живое измерение сцены (закон Фурье, скорость ударной волны …) — строка под заголовком
 static std::vector<double> eHist; static double Cv = 0;
 static std::string phase = "—";
 static double lastT = 0;
 }
 
 static void resetPhaseTracking();
+static void sceneMeasure();   // presets.inl: измерения, специфичные для сцены (A::sceneNote)
 static void resetAnalysis() {
     resetPhaseTracking();
     A::grInit = false; std::fill(A::gr.begin(), A::gr.end(), 0.0); std::fill(A::vh.begin(), A::vh.end(), 0.0);
     std::fill(A::tprof.begin(), A::tprof.end(), 0.0);
+    for (auto& d : A::dprof) std::fill(d.begin(), d.end(), 0.0);
+    A::dprofN = 0; A::dprofType[0] = A::dprofType[1] = -1; A::profInit = false; A::sceneNote.clear();
     A::sT.clear(); A::sP.clear(); A::sEk.clear(); A::sEp.clear(); A::sEt.clear(); A::sTime.clear();
     A::msdN = -1; A::msdT.clear(); A::msdV.clear(); A::msdBig.clear(); A::D = A::Dbig = 0;
     A::mol.clear(); A::mol0.clear(); A::species.clear(); A::conc.clear(); A::concT.clear();
@@ -498,16 +505,44 @@ static double maxwellF(double v, double m, double T) {
     if (DIM == 3) return 4 * PI * v * v * std::pow(m / (2 * PI * T), 1.5) * std::exp(-m * v * v / (2 * T));
     return m * v / T * std::exp(-m * v * v / (2 * T));
 }
+// Профили вдоль x (при гравитации или горячем дне — вдоль y), сглаженные по времени:
+//   температура слоя — по скоростям относительно его среднего движения V = Σmv/Σm: kT = Σm|v − V|²/(d(c − 1))
+//   (поток газа — ударная волна, конвекция — не выдаётся за нагрев), плотность — атомов на σ² (σ³) для двух
+//   самых многочисленных подвижных веществ.
 static void computeTProfile() {
     A::tprofAxis = (P.heatWalls == 2 || (P.gravity > 0 && !isPer())) ? 1 : 0;
-    std::vector<double> ke(A::TP_BINS, 0.0); std::vector<int> c(A::TP_BINS, 0);
-    for (int i = 0; i < S.n; i++) {
-        const Element& e = EL[S.ty[i]]; if (frozenAt(i)) continue;
-        double u = A::tprofAxis ? S.y[i] / S.Ly : S.x[i] / S.Lx;
-        int b = clampv((int)(u * A::TP_BINS), 0, A::TP_BINS - 1);
-        ke[b] += e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]) / DIM; c[b]++;   // kT = m v²/d
+    const int B = A::TP_BINS;
+    std::vector<double> m(B, 0.0), px(B, 0.0), py(B, 0.0), pz(B, 0.0), mv2(B, 0.0), cs[2] = {std::vector<double>(B, 0.0), std::vector<double>(B, 0.0)};
+    std::vector<int> c(B, 0);
+    int cnt[NEL] = {0};
+    for (int i = 0; i < S.n; i++) if (!frozenAt(i)) cnt[S.ty[i]]++;
+    int t0 = -1, t1 = -1;
+    for (int t = 0; t < NEL; t++) {
+        if (cnt[t] == 0) continue;
+        if (t0 < 0 || cnt[t] > cnt[t0]) { t1 = t0; t0 = t; } else if (t1 < 0 || cnt[t] > cnt[t1]) t1 = t;
     }
-    for (int k = 0; k < A::TP_BINS; k++) { double T = c[k] ? ke[k] / c[k] : 0; A::tprof[k] = 0.9 * A::tprof[k] + 0.1 * T; }
+    if (t1 >= 0 && cnt[t1] < 0.15 * cnt[t0]) t1 = -1;   // вторая линия — только для заметной примеси
+    if (t0 != A::dprofType[0] || t1 != A::dprofType[1]) { A::dprofType[0] = t0; A::dprofType[1] = t1; A::profInit = false; }
+    A::dprofN = t0 < 0 ? 0 : (t1 < 0 ? 1 : 2);
+    const double L = A::tprofAxis ? S.Ly : S.Lx;
+    for (int i = 0; i < S.n; i++) {
+        if (frozenAt(i)) continue;
+        const double mi = EL[S.ty[i]].m;
+        int b = clampv((int)((A::tprofAxis ? S.y[i] : S.x[i]) / L * B), 0, B - 1);
+        m[b] += mi; px[b] += mi * S.vx[i]; py[b] += mi * S.vy[i]; pz[b] += mi * S.vz[i];
+        mv2[b] += mi * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]); c[b]++;
+        if (S.ty[i] == t0) cs[0][b] += 1; else if (S.ty[i] == t1) cs[1][b] += 1;
+    }
+    const double binV = boxVolume() / B;
+    const double aT = A::profInit ? 0.15 : 1.0, aD = A::profInit ? 0.3 : 1.0;
+    for (int k = 0; k < B; k++) {
+        if (c[k] >= 2) {
+            double T = (mv2[k] - (px[k] * px[k] + py[k] * py[k] + pz[k] * pz[k]) / m[k]) / (DIM * (c[k] - 1));
+            A::tprof[k] += aT * (std::max(0.0, T) - A::tprof[k]);
+        } else if (!A::profInit || c[k] == 0) A::tprof[k] += aT * (0.0 - A::tprof[k]);
+        for (int s = 0; s < 2; s++) A::dprof[s][k] += aD * (cs[s][k] / binV - A::dprof[s][k]);
+    }
+    A::profInit = true;
 }
 // Словесное описание состояния по долям фаз атомов (сглаженным) и степени кристалличности
 static void updatePhase() {
@@ -541,7 +576,8 @@ static void analysisTick() {
     measure();
     A::sT.push((float)EN.T); A::sP.push((float)EN.P);
     A::sEk.push((float)EN.ek); A::sEp.push((float)(EN.enb + EN.egrav + EN.ebond)); A::sEt.push((float)EN.total()); A::sTime.push((float)S.t);
-    if (anaTick % 3 == 0) { computeGr(); computeVelHist(); computeTProfile(); }
+    if (anaTick % 3 == 0) { computeGr(); computeVelHist(); }
+    computeTProfile();   // каждый отсчёт: фронт ударной волны и оседание газа должны быть видны без запаздывания
     computeOrder();
     updateAtomPhase(); detectTransitions();
     // MSD(t) = <|r(t) − r(0)|²>;  D = MSD/(2d·t)
@@ -603,5 +639,6 @@ static void analysisTick() {
         }
     } else { A::eHist.clear(); A::Cv = 0; }
     updatePhase();
+    sceneMeasure();
 }
 
