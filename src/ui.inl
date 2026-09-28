@@ -688,11 +688,22 @@ static void selChangeElement(int t) {
         if (bad) skipped++; else ok.push_back(i);
     }
     if (ok.empty()) { showToast("Смена элемента невозможна: новые атомы не помещаются среди соседей"); return; }
+    // допустимый прирост энергии: энергия разрываемых связей + 25ε на атом (перестройка окружения)
+    double allowE = 50.0 + 25.0 * ok.size();
+    for (int i : ok) for (int k = 0; k < S.nbc[i]; k++) { int j = S.nb[i][k]; allowE += BT[S.ty[i]][S.ty[j]].D[std::min<int>(S.bo[i][k], 3)]; }
     pushUndo(); userBegin();
     for (int i : ok) { S.ty[i] = t; S.q[i] = EL[t].fq; if (EL[t].fixed) S.vx[i] = S.vy[i] = S.vz[i] = 0; }
     for (int i : ok) { if (S.nbc[i]) breakAllBondsGhost(i); }   // бывшие соседи по связи — «призраки» (с новым размером)
     for (int i : selList) updateCharge(i);
-    updatePresence(); nlValid = false; userEnd();
+    updatePresence(); nlValid = false;
+    // проверка по факту: если новые атомы всё же сильно перекрылись (плотное окружение, связанные соседи) — отмена
+    computeForces(); measure();
+    if (const double dE = EN.total() - userE0; dE > allowE) {
+        userOpen = false; popUndo();
+        showToast(fmt("Смена элемента отменена: %s не помещается среди соседей (скачок энергии %.0f ε)", EL[t].sym, dE));
+        return;
+    }
+    userEnd();
     showToast(skipped ? fmt("Элемент %s: заменено %d, пропущено %d (не помещаются)", EL[t].sym, (int)ok.size(), skipped)
                       : fmt("Элемент выделенных атомов: %s — %s", EL[t].sym, T(EL[t].name)));
 }
@@ -1653,6 +1664,32 @@ static void drawPeriodicTable() {
             drawText(fontU, tx, ty, fmt("%s%s · атомная масса %.3f", T(CAT_NAMES[d.cat]), isRadioactive(z) ? T(" · радиоактивен") : "", d.mass), C_TEXT); ty += fontU.h + uiPx(2);
             std::string chi = d.chi > 0 ? fmt("χ = %.2f", d.chi) : std::string(T("χ — нет"));
             drawText(fontU, tx, ty, chi + fmt(" · валентность %d · r_ков = %.2f Å%s", d.val, d.rcov, isMetalT(t) ? fmt(" · r_мет = %.2f Å", d.rsig).c_str() : ""), C_TEXT); ty += fontU.h + uiPx(2);
+            {   // группа, период, электронная конфигурация; свойства простого вещества
+                int grp, per; zGroupPeriod(z, grp, per);
+                std::string gp = grp ? fmt("группа %d · период %d", grp, per) : fmt("период %d · f-элемент", per);
+                drawText(fontU, tx, ty, gp + " · " + zElectronConfig(z), C_TEXT); ty += fontU.h + uiPx(2);
+                const ZPhys& p = ZP[z]; const char* ap = zpEstimated(z) ? "≈" : "";
+                auto tc = [&](double K) { return fmt("%s%.0f °C", ap, K - 273.15); };
+                if (p.mp <= 0 && p.bp == 0 && p.ie <= 0) {
+                    drawText(fontU, tx, ty, "свойства простого вещества не измерены: атомы живут секунды и меньше", C_DIM); ty += fontU.h + uiPx(2);
+                } else {
+                    std::string s;
+                    if (p.bp < 0) s = fmt("возгонка %s (при 1 атм не плавится)", tc(-p.bp).c_str());
+                    else {
+                        s = p.mp > 0 ? fmt("t плавления %s", tc(p.mp).c_str()) : std::string(T("при 1 атм не твердеет"));
+                        if (p.bp > 0) s += fmt(" · t кипения %s", tc(p.bp).c_str());
+                    }
+                    drawText(fontU, tx, ty, s, C_TEXT); ty += fontU.h + uiPx(2);
+                    const double T20 = 293.15;
+                    const char* st = p.bp < 0 ? "твёрдое" : (p.mp > 0 && T20 < p.mp) ? "твёрдое" : (p.bp > 0 && T20 < p.bp) ? "жидкость" : p.bp > 0 ? "газ" : "";
+                    const bool gas = p.bp > 0 && T20 >= p.bp;
+                    std::string s2;
+                    if (p.rho > 0) s2 = gas ? fmt("ρ = %.4g г/л", p.rho * 1000) : fmt("ρ = %.4g г/см³", p.rho);
+                    if (p.ie > 0) { if (!s2.empty()) s2 += " · "; s2 += fmt("E ионизации %s%.2f эВ", ap, p.ie); }
+                    if (*st) { if (!s2.empty()) s2 += " · "; s2 += fmt("при 20 °C — %s", T(st)); }
+                    drawText(fontU, tx, ty, s2, C_TEXT); ty += fontU.h + uiPx(2);
+                }
+            }
             if (ty + fontXS.h < cy + ch) drawWrapped(fontXS, tx, ty, cw - bs - uiPx(32), elementModelNote(t), C_DIM);
             popClip();
         }

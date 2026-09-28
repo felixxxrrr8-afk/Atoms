@@ -593,7 +593,7 @@ static void sceneMeasure() {
             const double Hth = P.Tset / (EL[t].m * P.gravity);
             s += fmt("%s%s: kT/mg = %.1fσ, по профилю %s", q ? " · " : "", EL[t].sym, Hth, sl < 0 && S.t > 5 ? fmt("%.1fσ", -1 / sl).c_str() : "…");
         }
-        N = "высота однородной атмосферы " + s + fmt(" · T одинакова по высоте: %.2f", EN.T);
+        N = T("высота однородной атмосферы ") + s +fmt(" · T одинакова по высоте: %.2f", EN.T);
         break; }
     case 24: {   // доли каждого газа за перегородкой; для равных камер N_R/N = (1 − e^{−2kt})/2 → k ∝ −ln(1 − 2f)
         const double xm = 0.5 * S.Lx; const int He = typeOfZ(2);

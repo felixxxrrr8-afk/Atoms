@@ -1,6 +1,6 @@
 // ===================================== ПАНЕЛЬ «ХИМИЯ» (владелец — химия) =====================
 // Рисуется внутри вкладки боковой панели; элементы — из ui.inl, цвета — палитра C_* (render.inl).
-// id элементов: 1200–1399. Прокручиваемая область № 4.
+// id элементов: 1200–1399, кнопки библиотеки — 1400 + номер структуры. Прокручиваемая область № 4.
 static std::string chemSelEq;          // выбранная реакция журнала (для кинетики); пусто — самая частая
 static bool chemLibAll = false;        // показать всю библиотеку (иначе — первые строки)
 
@@ -114,16 +114,23 @@ static void drawChemPanel(float x, float y, float w, float h) {
     {
         const int cols = std::max(3, (int)(W / uiPx(66)));
         const float cw = std::floor((W - (cols - 1) * g) / cols), chh = uiPx(22);
-        const int shown = chemLibAll ? (int)ML_N : std::min((int)ML_N, cols * 4);
-        for (int k = 0; k < shown; k++) {
-            float bx = x + (k % cols) * (cw + g), by = yy + (k / cols) * (chh + g);
-            bool on = chemStampActive() && chemStampMol == k;
-            bool chemLabel = true; for (const char* c = MOL_LIB_NAMES[k]; *c; c++) if ((unsigned char)*c >= 0x80) chemLabel = false;
-            if (uiButton(1220 + k, bx, by, cw, chh, MOL_LIB_NAMES[k], on, chemLabel, MOL_LIB_DESC[k])) selectLibMolecule(k);
+        // разделы; в свёрнутом виде — по одной строке из каждого (выбранная структура видна всегда)
+        for (int gi = 0; gi < MLG_N; gi++) {
+            const int k0 = ML_GROUP_START[gi], k1 = ML_GROUP_START[gi + 1];
+            drawText(fontXS, x, yy, fmt("%s (%d)", T(MLG_NAMES[gi]), k1 - k0), C_DIM); yy += fontXS.h + uiPx(2);
+            int shown = chemLibAll ? k1 - k0 : std::min(k1 - k0, cols);
+            if (!chemLibAll && chemStampActive() && chemStampMol >= k0 + shown && chemStampMol < k1) shown = std::min(k1 - k0, (chemStampMol - k0) / cols * cols + cols);
+            for (int q = 0; q < shown; q++) {
+                const int k = k0 + q;
+                float bx = x + (q % cols) * (cw + g), by = yy + (q / cols) * (chh + g);
+                bool on = chemStampActive() && chemStampMol == k;
+                bool chemLabel = true; for (const char* c = MOL_LIB_NAMES[k]; *c; c++) if ((unsigned char)*c >= 0x80) chemLabel = false;
+                if (uiButton(1400 + k, bx, by, cw, chh, MOL_LIB_NAMES[k], on, chemLabel, MOL_LIB_DESC[k])) selectLibMolecule(k);
+            }
+            yy += ((shown + cols - 1) / cols) * (chh + g) + uiPx(2);
         }
-        yy += ((shown + cols - 1) / cols) * (chh + g);
         float w1 = std::floor((W - g) / 2);
-        if (uiButton(1259, x, yy, W, uiPx(20), chemLibAll ? "свернуть" : fmt("вся библиотека (%d)", (int)ML_N), false, false, "Показать все структуры: ионы, кристаллы, кластеры металлов")) chemLibAll = !chemLibAll;
+        if (uiButton(1259, x, yy, W, uiPx(20), chemLibAll ? "свернуть" : fmt("вся библиотека (%d)", (int)ML_N), false, false, "Показать все структуры: молекулы, ионы, кристаллы, кластеры металлов")) chemLibAll = !chemLibAll;
         yy += uiPx(20) + g;
         if (chemStampActive()) {
             yy += drawWrapped(fontXS, x, yy, W, fmt("Выбрано: %s — %s. ЛКМ в сцене (инструмент «добавить») вставляет со случайной ориентацией.", T(MOL_LIB_NAMES[chemStampMol]), T(MOL_LIB_DESC[chemStampMol])), C_TEXT) + g;
@@ -190,7 +197,7 @@ static void drawChemPanel(float x, float y, float w, float h) {
         pushClip(x, yy, W, fontXS.h + uiPx(4)); drawEquation(fontXS, x, yy, selEq, C_TEXT_HI); popClip();
         yy += fontXS.h + uiPx(4);
         double w0 = 0, r = rxRate(st, win, &w0);
-        kv("скорость", fmt("%.3g соб./τ", r), fmt("за %.1fτ · %.3g соб./пс", w0, r / cfg::U_T_PS));
+        kv("скорость реакции", fmt("%.3g соб./τ", r), fmt("за %.1fτ · %.3g соб./пс", w0, r / cfg::U_T_PS));
         double kS, kR; int ord;
         if (rxRateConst(st, r, kS, kR, ord)) {
             const char* ru = T(ord == 1 ? "1/с" : ord == 2 ? "л/(моль·с)" : "л²/(моль²·с)");

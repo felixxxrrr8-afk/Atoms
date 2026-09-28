@@ -311,13 +311,21 @@ static inline bool chemFormula(std::string_view s) {
     return true;
 }
 // химическая формула: цифры после букв — нижний индекс, +/- в конце — верхний
+// индекс — цифры после символа элемента или «)» (H2O, (CH3)2CO); заряд — последний «+»/«−» (H3O+, NH4+, OH-)
+static inline bool chemSub(std::string_view s, size_t k, char prev) {
+    const char ch = s[k];
+    return ch >= '0' && ch <= '9' && (std::isalpha((unsigned char)prev) || prev == ')' || (prev >= '0' && prev <= '9' && k > 1 && !(s[k - 2] == ' ')));
+}
+static inline bool chemSup(std::string_view s, size_t k, char prev) {
+    const char ch = s[k];
+    return (ch == '+' || ch == '-') && k + 1 == s.size() && (std::isalpha((unsigned char)prev) || (prev >= '0' && prev <= '9'));
+}
 static float drawChem(const Font& f, float x, float y, std::string_view s, RGBA c) {
     if (!chemFormula(s)) return drawTextRaw(f, x, y, Tsv(s, "drawChem"), c);   // не формула (кириллица → перевод)
     float x0 = x; char prev = 0;
     for (size_t k = 0; k < s.size(); k++) {
         char ch = s[k]; std::string_view one = s.substr(k, 1);
-        bool sub = (ch >= '0' && ch <= '9') && (std::isalpha((unsigned char)prev) || (prev >= '0' && prev <= '9' && k > 1));
-        bool sup = (ch == '+' || ch == '-') && k + 1 == s.size() && std::isalpha((unsigned char)prev);
+        bool sub = chemSub(s, k, prev), sup = chemSup(s, k, prev);
         if (sub) x += drawTextRaw(fontXS, x, y + f.h * 0.34f, one, c);
         else if (sup) x += drawTextRaw(fontXS, x, y - f.h * 0.22f, ch == '-' ? "−" : "+", c);
         else x += drawTextRaw(f, x, y, one, c);
@@ -329,7 +337,7 @@ static float chemW(const Font& f, std::string_view s) {
     if (!chemFormula(s)) return textWRaw(f, Tsv(s, "chemW"));
     float w = 0; char prev = 0;
     for (size_t k = 0; k < s.size(); k++) {
-        char ch = s[k]; bool small = ((ch >= '0' && ch <= '9') && std::isalpha((unsigned char)prev)) || ((ch == '+' || ch == '-') && k + 1 == s.size());
+        char ch = s[k]; bool small = chemSub(s, k, prev) || chemSup(s, k, prev);
         w += textWRaw(small ? fontXS : f, s.substr(k, 1)); prev = ch;
     }
     return w;

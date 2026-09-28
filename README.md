@@ -24,7 +24,7 @@ they emerge on their own from interaction potentials and conservation laws.
 
 <br>
 
-<img src="docs/screenshots/nacl-water-3d.png" alt="A NaCl crystal dissolving in hot water, 3D">
+<img src="docs/screenshots/en/nacl-water-3d.png" alt="A NaCl crystal dissolving in hot water, 3D">
 
 <sub>A NaCl crystal dissolving in hot water: ions leave the lattice and collect hydration shells</sub>
 
@@ -33,7 +33,7 @@ they emerge on their own from interaction potentials and conservation laws.
 <br>
 
 > [!NOTE]
-> The program's interface is in Russian. The full manual comes in English ([MANUAL.html](MANUAL.html)) and gives the Russian label next to every control, so you can find it on screen. Scenes start from the <kbd>Tab</kbd> menu, and every button, slider and atom shows a tooltip on hover.
+> The interface speaks English and Russian: switch with the **RU | EN** buttons in the top bar or <kbd>Ctrl</kbd>+<kbd>L</kbd>, right in the middle of a simulation. The choice is remembered; on first start the program follows the Windows language. Scenes start from the <kbd>Tab</kbd> menu, and every button, slider and atom shows a tooltip on hover.
 
 ## Features
 
@@ -54,7 +54,8 @@ they emerge on their own from interaction potentials and conservation laws.
 - Bonds form, break and hop between atoms; reaction heat turns into motion
 - Combustion, acids and bases, Grotthuss proton hopping, pH
 - Catalysis on metal surfaces, photodissociation by light
-- All 118 elements of the periodic table and a library of 32 structures
+- All 118 elements with a property card: electron configuration, melting and boiling points, density, ionization energy
+- A library of 65 structures: inorganic and organic molecules, ions, crystals, metal clusters
 
 </td>
 </tr>
@@ -65,6 +66,7 @@ they emerge on their own from interaction potentials and conservation laws.
 - Tweezers, heating and cooling brush, eraser, bond scissors, shock wave
 - Field objects: attractor, heater, wind, vortex, trap, source, sink, barrier
 - Selection, copy and paste, pinning atoms; ruler and protractor
+- A monochrome interface where only the atoms keep their colors; English and Russian
 
 </td>
 <td valign="top">
@@ -83,24 +85,32 @@ they emerge on their own from interaction potentials and conservation laws.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/quench-polycrystal.png" alt="Quench"><br><sub><b>Quench.</b> A polycrystal colored by grain orientation, with grain boundaries and dislocations</sub></td>
-<td width="50%"><img src="docs/screenshots/hydrogen-combustion.png" alt="Hydrogen combustion"><br><sub><b>Hydrogen combustion.</b> 2H₂ + O₂ → 2H₂O from a spark; event log and mixture composition on the right</sub></td>
+<td width="50%"><img src="docs/screenshots/en/quench-polycrystal.png" alt="Quench"><br><sub><b>Quench.</b> A polycrystal colored by grain orientation, with grain boundaries and dislocations</sub></td>
+<td width="50%"><img src="docs/screenshots/en/hydrogen-combustion.png" alt="Hydrogen combustion"><br><sub><b>Hydrogen combustion.</b> 2H₂ + O₂ → 2H₂O from a spark; event log and mixture composition on the right</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/gold-nanoparticle-3d.png" alt="Gold nanoparticle"><br><sub><b>Gold nanoparticle.</b> Colored by local structure: FCC inside, melting starts at the surface</sub></td>
-<td><img src="docs/screenshots/crystal-melting-3d.png" alt="Crystal melting"><br><sub><b>Crystal melting.</b> The physics tab: the model's phase diagram and the current state</sub></td>
+<td><img src="docs/screenshots/en/gold-nanoparticle-3d.png" alt="Gold nanoparticle"><br><sub><b>Gold nanoparticle.</b> Colored by local structure: FCC inside, melting starts at the surface</sub></td>
+<td><img src="docs/screenshots/en/crystal-melting-3d.png" alt="Crystal melting"><br><sub><b>Crystal melting.</b> The physics tab: the model's phase diagram and the current state</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/acid-ph.png" alt="Acid in water"><br><sub><b>Acid in water.</b> HCl + H₂O → H₃O⁺ + Cl⁻, a pH scale and a proton transfer counter</sub></td>
-<td><img src="docs/screenshots/condensation-graphs.png" alt="Condensation"><br><sub><b>Condensation.</b> Supersaturated vapor gathers into droplets; plots of f(v), g(r), T, P, E, MSD</sub></td>
+<td><img src="docs/screenshots/en/methane-chlorination-3d.png" alt="Methane chlorination"><br><sub><b>Methane chlorination.</b> UV flashes split Cl₂, a radical chain makes CH₃Cl and HCl; the molecule library on the right</sub></td>
+<td><img src="docs/screenshots/en/nickel-hydrogenation-3d.png" alt="Hydrogenation on nickel"><br><sub><b>Hydrogenation on nickel.</b> H₂ dissociates on a Ni cluster and adds to ethylene: C₂H₄ + H₂ → C₂H₆</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/field-objects-3d.png" alt="Field objects"><br><sub><b>Field objects and measurements.</b> A heater, a barrier, a selection and an angle measurement in 3D</sub></td>
-<td><img src="docs/screenshots/platinum-catalysis-3d.png" alt="Platinum catalysis"><br><sub><b>Platinum catalysis.</b> H₂ and O₂ react only on the surface of a Pt nanoparticle</sub></td>
+<td><img src="docs/screenshots/en/shock-tube.png" alt="Shock tube"><br><sub><b>Shock tube.</b> The membrane bursts: a shock wave runs into the thin gas; the measured front speed is compared with theory</sub></td>
+<td><img src="docs/screenshots/en/heat-conduction.png" alt="Heat conduction"><br><sub><b>Heat conduction.</b> Hot and cold walls, a linear T(x) profile and the thermal conductivity κ in W/(m·K)</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/periodic-table.png" alt="Periodic table"><br><sub><b>Periodic table.</b> 118 elements, each card explains how the element is modeled</sub></td>
-<td><img src="docs/screenshots/scenes-menu.png" alt="Scene menu"><br><sub><b>Scene menu.</b> 20 ready-made experiments, many with variants</sub></td>
+<td><img src="docs/screenshots/en/acid-ph.png" alt="Acid in water"><br><sub><b>Acid in water.</b> HCl + H₂O → H₃O⁺ + Cl⁻, a pH scale and a proton transfer counter</sub></td>
+<td><img src="docs/screenshots/en/condensation-graphs.png" alt="Condensation"><br><sub><b>Condensation.</b> Supersaturated vapor gathers into droplets; plots of f(v), g(r), T, P, E, MSD</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/en/field-objects-3d.png" alt="Field objects"><br><sub><b>Field objects and measurements.</b> A heater, a barrier, a selection and an angle measurement in 3D</sub></td>
+<td><img src="docs/screenshots/en/platinum-catalysis-3d.png" alt="Platinum catalysis"><br><sub><b>Platinum catalysis.</b> H₂ and O₂ react only on the surface of a Pt nanoparticle</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/en/periodic-table.png" alt="Periodic table"><br><sub><b>Periodic table.</b> 118 elements; the card shows the electron configuration, melting and boiling points, density, ionization energy and how the element is modeled</sub></td>
+<td><img src="docs/screenshots/en/scenes-menu.png" alt="Scene menu"><br><sub><b>Scene menu.</b> 30 ready-made experiments in two sections, many with variants</sub></td>
 </tr>
 </table>
 
@@ -108,7 +118,7 @@ they emerge on their own from interaction potentials and conservation laws.
 
 1. Download `atoms-windows-x64.zip` from [Releases](https://github.com/felixxxrrr8-afk/atoms-md/releases/latest).
 2. Unzip it anywhere and run `atoms.exe`. Nothing to install.
-3. <kbd>Tab</kbd> opens the scene menu, <kbd>D</kbd> toggles 2D ↔ 3D, <kbd>E</kbd> opens the periodic table, <kbd>H</kbd> shows a cheat sheet. `MANUAL.html` next to the program is the full manual in English.
+3. <kbd>Tab</kbd> opens the scene menu, <kbd>D</kbd> toggles 2D ↔ 3D, <kbd>E</kbd> opens the periodic table, <kbd>H</kbd> shows a cheat sheet, <kbd>Ctrl</kbd>+<kbd>L</kbd> switches English ↔ Russian. `MANUAL.html` next to the program is the full manual.
 
 Requires Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn that the program is unsigned: click "More info" → "Run anyway".
 
@@ -136,12 +146,24 @@ Requires Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn
 | menu | Ethanol combustion | C₂H₅OH + 3O₂ from a spark |
 | menu | Oxyhydrogen | 2H₂ + O₂ in a closed vessel: a jump in T and P |
 | menu | Platinum catalysis | the reaction runs only on the Pt surface |
+| menu | Heat conduction | hot and cold walls, a linear T(x) profile, Fourier's law and κ |
+| menu | Shock tube | shock and rarefaction waves, front speed against theory; variant: Joule expansion |
+| menu | Barometric formula | gas under gravity, ρ ∝ exp(−mgh/kT): heavy Ar stays below light Ne |
+| menu | Effusion | Graham's law: He leaks through slits √10 ≈ 3.2 times faster than Ar |
+| menu | Nanoparticle sintering | Au and Ag fuse in the solid state: a neck grows, atoms intermix |
+| menu | Methane chlorination | CH₄ + Cl₂ → CH₃Cl + HCl, a radical chain started by UV light |
+| menu | Equilibrium H₂ + I₂ ⇌ 2HI | Bodenstein's experiment: forward and reverse reactions, K<sub>c</sub> |
+| menu | Hydrogenation on nickel | C₂H₄ + H₂ → C₂H₆, H₂ dissociates on the Ni surface |
+| menu | Peroxide decomposition | 2H₂O₂ → 2H₂O + O₂: OH radicals, platinum |
+| menu | Acetylene combustion | 2C₂H₂ + 5O₂ → 4CO₂ + 2H₂O from a spark |
 
 ## Controls
 
 | | |
 |---|---|
 | <kbd>Tab</kbd> | scene menu (picking the same scene again opens its variant) |
+| <kbd>Ctrl</kbd>+<kbd>L</kbd> | interface language: English / Russian |
+| <kbd>F1</kbd> | the manual in the current language |
 | <kbd>D</kbd> | 2D / 3D |
 | <kbd>Space</kbd> · <kbd>S</kbd> · <kbd>R</kbd> | pause · single step · reset scene |
 | <kbd>E</kbd> | periodic table |
@@ -155,7 +177,7 @@ Requires Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn
 | <kbd>F5</kbd> / <kbd>F9</kbd>, <kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Ctrl</kbd>+<kbd>O</kbd> | quick and regular save and load of `.atoms` files |
 | <kbd>F12</kbd> · <kbd>Ctrl</kbd>+<kbd>F12</kbd> · <kbd>Ctrl</kbd>+<kbd>E</kbd> | PNG snapshot · frame recording · export plots to CSV |
 
-The full manual with every key, tool and the physics behind them: [MANUAL.html](MANUAL.html) in English and [ИНСТРУКЦИЯ.html](ИНСТРУКЦИЯ.html) in Russian. Both come in the release archive; <kbd>F1</kbd> in the program opens the Russian one, which links to the English one.
+The full manual with every key, tool and the physics behind them: [MANUAL.html](MANUAL.html) in English and [ИНСТРУКЦИЯ.html](ИНСТРУКЦИЯ.html) in Russian. Both come in the release archive; <kbd>F1</kbd> in the program opens the one that matches the interface language.
 
 ## How it works
 
@@ -174,7 +196,7 @@ flowchart LR
 
 **Interactions.** Van der Waals forces use the Lennard-Jones potential with Lorentz–Berthelot mixing rules. Electrostatics is a screened Coulomb interaction, with atomic charges derived from electronegativities. Covalent bonds use the Morse potential, VSEPR bond angles and multiple bonds. Hydrogen bonds use the directional DREIDING term, and water also gets a three-body tetrahedral term, as in the mW model. Metals use the many-body Gupta (Cleri–Rosato) potential, so surfaces, melting and nanoparticle faceting behave plausibly.
 
-**Chemistry.** Reactions are events inside the same molecular dynamics, not animations. A bond forms when two approaching atoms both have a free valence, breaks when it is overstretched, and an atom switches partners when it overcomes a barrier. The energy of every event is accounted for exactly, so combustion heats the mixture by itself. Bond energies come from tables for about 60 atom pairs and from Pauling's rules for the rest. Barriers follow the Evans–Polanyi rule.
+**Chemistry.** Reactions are events inside the same molecular dynamics, not animations. A bond forms when two approaching atoms both have a free valence, breaks when it is overstretched, and an atom switches partners when it overcomes a barrier. The energy of every event is accounted for exactly, so combustion heats the mixture by itself. Bond energies come from tables for about 70 atom pairs and from Pauling's rules for the rest. Barriers follow the Evans–Polanyi rule.
 
 **Units.** The model is calibrated to argon: σ = 0.3405 nm, and ε/k = 139.8 K is chosen so that the model's critical point matches argon's (150.7 K). The triple point then comes out at ≈ 87 K against the measured 83.8 K. The program shows both model and real quantities everywhere: K, bar, g/cm³, ps, kJ/mol.
 
@@ -188,7 +210,9 @@ atoms.exe --gradcheck D K N          # forces against −∇U by numerical diffe
 atoms.exe --evcheck D K N            # exact energy balance of every reaction
 atoms.exe --kin K D N T V            # long run of a scene: phase, reactions, composition
 atoms.exe --phystest MODE D K N      # coex, melt, npt, vir, fo, guard
-atoms.exe --shot K N [3d] png        # render scene K and save a window snapshot
+atoms.exe --chemtest lib D           # insert every library structure and check it stays intact
+atoms.exe --uitest [--langcheck]     # click through the whole interface; list untranslated strings
+atoms.exe --lang en --shot K N [3d] png   # render scene K and save a window snapshot
 ```
 
 Reports are written to `.log` files next to the program. The screenshots in this README were made with `--shot`.
@@ -212,7 +236,7 @@ Every push to `main` is built by [GitHub Actions](https://github.com/felixxxrrr8
 
 ### Layout
 
-The whole program is a single translation unit: `main.cpp` includes the modules from `src/` in order, about 9,000 lines in total. Code comments are in Russian.
+The whole program is a single translation unit: `main.cpp` includes the modules from `src/` in order, about 10,000 lines of code plus the translation table. Code comments are in Russian.
 
 | File | Contents |
 |---|---|
@@ -226,6 +250,8 @@ The whole program is a single translation unit: `main.cpp` includes the modules 
 | [`src/ui.inl`](src/ui.inl) | interface: panels, tools, plots, periodic table, scene menu |
 | [`src/panel_phys.inl`](src/panel_phys.inl), [`src/panel_chem.inl`](src/panel_chem.inl) | the Physics and Chemistry tabs and their headless checks |
 | [`src/app.inl`](src/app.inl) | window and main loop, keyboard and mouse, saving, PNG, self-tests |
+| [`src/lang.inl`](src/lang.inl), [`src/lang_table.inl`](src/lang_table.inl) | interface language switching and the Russian → English string table |
+| [`tools/i18n.py`](tools/i18n.py) | extracts interface strings, checks the translation table (`check`, `todo`, `merge`) |
 
 ## Simplifications
 
