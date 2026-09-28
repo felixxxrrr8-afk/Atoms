@@ -66,10 +66,12 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <div class="wrap">
 <nav>
   <div class="brand">ATOMS</div>
-  <div class="sub">molecular dynamics · 2D/3D</div>
+  <div class="sub">molecular dynamics · 2D/3D · v3.0</div>
   <a class="lang" href="ИНСТРУКЦИЯ.html">Русская версия</a>
   <a href="#start">Quick start</a>
   <a href="#layout">Screen</a>
+  <a href="#colors">Colors</a>
+  <a href="#lang">Interface language</a>
   <a href="#tools">Tools</a>
   <a href="#field">Field objects</a>
   <a href="#select">Selection and measurements</a>
@@ -82,65 +84,86 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
   <a href="#table">Periodic table</a>
   <a href="#files">Files, snapshots, export</a>
   <a href="#cli">Headless checks</a>
+  <a href="#new">What's new in 3.0</a>
 </nav>
 <main>
 <h1>Atoms — a nano sandbox</h1>
-<p class="lead">Interactive molecular dynamics: gas, liquid, crystal, phase transitions and chemical reactions emerge from interaction potentials and conservation laws, not from prepared scripts.</p>
-<div class="note">The program's interface is in Russian. This manual gives the Russian label next to the English one where it helps, <span class="ru">like this</span>, so you can find each control on screen. Every button, slider and atom also shows a tooltip on hover.</div>
+<p class="lead">Interactive molecular dynamics: gas, liquid, crystal, phase transitions and chemical reactions emerge from interaction potentials and conservation laws, not from prepared scripts. This manual describes version 3.0.</p>
+<div class="note">This manual uses the labels of the English interface. The program is also fully available in Russian: the <b>RU | EN</b> buttons in the top bar or <kbd>Ctrl+L</kbd> switch the language (see <a href="#lang">Interface language</a>); the Russian manual is <a href="ИНСТРУКЦИЯ.html">ИНСТРУКЦИЯ.html</a>. Every button, slider and atom also shows a tooltip on hover.</div>
 
 <h2 id="start">Quick start</h2>
 <ul>
   <li><kbd>Tab</kbd> — scene menu. Pick any scene: it starts right away.</li>
-  <li><kbd>D</kbd> — switch 2D ↔ 3D. <kbd>Space</kbd> — pause, <kbd>R</kbd> — restart the scene.</li>
+  <li><kbd>D</kbd> — switch 2D ↔ 3D. <kbd>Space</kbd> — pause, <kbd>R</kbd> — reset the scene.</li>
   <li><kbd>E</kbd> — periodic table: pick an element, then LMB in the scene to add atoms.</li>
   <li>LMB on an atom — "tweezers". RMB — heat, <kbd>Shift</kbd>+RMB — cool, wheel — zoom.</li>
-  <li><kbd>H</kbd> — a short key cheat sheet inside the program, <kbd>F1</kbd> — the full manual (opens the Russian version).</li>
+  <li><kbd>H</kbd> — a short key cheat sheet inside the program, <kbd>F1</kbd> — the full manual in the interface language (this file when the interface is English).</li>
+  <li><kbd>Ctrl+L</kbd> or the <b>RU | EN</b> buttons — switch the interface language instantly.</li>
   <li>Hover over any button, slider or atom to see a tooltip.</li>
 </ul>
 
 <h2 id="layout">Screen</h2>
 <div class="grid2">
-  <div class="card"><b>Top: the command bar.</b> Scenes, periodic table, pause/step/reset/undo, open/save, snapshot, frame recording, 2D|3D, hide panel, help. On the right: model time (ps), time step and frames per second.</div>
+  <div class="card"><b>Top: the command bar.</b> <b>Scenes</b>, <b>Table</b> (periodic table), pause/step/reset/undo, open/save, snapshot, frame recording, <b>2D | 3D</b>, side panel, <b>Help</b>, and the <b>RU | EN</b> language switch. On the right: model time (ps), step number and frames per second.</div>
   <div class="card"><b>Left: tools</b> (what LMB does in the scene). Icons with tooltips; quick selection with <kbd>Alt</kbd>+digit.</div>
-  <div class="card"><b>Top right: readings</b>: T, P, density (σ⁻ᵈ and g/cm³), number of atoms, total energy E, external work W, energy drift, Ek/Ep/Ebond, time step dt, phase with a fraction bar, and stability alerts. Everything in both model and real units.</div>
-  <div class="card"><b>Right: tabs</b>: Control <span class="ru">«Управление»</span> (thermostat, pressure and boundaries, system), Physics <span class="ru">«Физика»</span>, Chemistry <span class="ru">«Химия»</span>, Plots <span class="ru">«Графики»</span>, Object <span class="ru">«Объект»</span> (inspector for the selection, field objects and measurements).</div>
-  <div class="card"><b>Below the scene: the substance palette</b> — elements and molecules for the Add tool. The first cell holds the element picked in the periodic table or a molecule from the library.</div>
+  <div class="card"><b>Top right: readings</b>: T, P, density ρ (σ⁻ᵈ and g/cm³), N (number of atoms), total energy E, external work W, energy <b>drift</b>, Ek/Ep/Ebond, time step dt, <b>phase</b> with a phase fraction bar, and stability alerts. Everything in both model and real units. Values that need attention are shown on a light plate; errors are inverted (see <a href="#colors">Colors</a>).</div>
+  <div class="card"><b>Right: tabs</b>: <b>Control</b> (Thermostat, Pressure and boundaries, Thermal walls, System, Chemistry, Integration and tools, Display), <b>Physics</b>, <b>Chemistry</b>, <b>Plots</b>, <b>Object</b> (inspector for the selection, field objects, measurements and the atom under the cursor).</div>
+  <div class="card"><b>Below the scene: the substance palette</b> — elements and molecules for the Add tool. The first cell holds the element picked in the periodic table or a structure from the library.</div>
   <div class="card"><b>Bottom: the status bar</b>: current tool, what the mouse does, cursor coordinates in nm, pause, recording.</div>
 </div>
 <p>The scene background is black; in 3D you see a thin box frame, axes and depth shading, and a scale bar in nm in the corner. <kbd>G</kbd> hides the side panel, <kbd>F11</kbd> or <kbd>Alt</kbd>+<kbd>Enter</kbd> — full screen. The interface scales from 1280×720 up to 4K.</p>
+
+<h3 id="colors">Colors</h3>
+<p>The interface is monochrome: panels, buttons, text, plots, the grid, toasts and field objects use shades of gray only, so that color always means something about the atoms.</p>
+<ul>
+  <li><b>Atoms keep their colors</b>: element (CPK) colors and every coloring mode (<kbd>C</kbd>) — element, speed, energy, order, coordination, phase. The legend in the scene corner, the palette swatches, the phase fraction bar in the readings and the color square on the element card are colored too, so every atom color can be read off.</li>
+  <li><b>Plot series</b> are told apart by line style — solid, dashed, dotted, dash-dot — and brightness; each legend shows a sample of the line.</li>
+  <li><b>Warnings</b> appear on a light plate (e.g. energy drift above 0.2 %, a reduced time step, capped forces); a stability alert is a white-text line marked with a white bar. <b>Errors</b> are inverted: a white plate with black text (e.g. energy drift above 1 %).</li>
+  <li>An active or selected control has a white frame. Heat and energy release are drawn bright and solid; cold and absorption dim and dashed. Partial charges (<b>charges</b> on the Control tab): + — a bright solid ring, − — a gray dashed ring.</li>
+</ul>
+
+<h2 id="lang">Interface language</h2>
+<ul>
+  <li>The interface is available in English and Russian. The <b>RU | EN</b> buttons in the top bar or <kbd>Ctrl+L</kbd> switch the language instantly, without a restart: labels, tooltips, toasts, scene titles and the cheat sheet all change.</li>
+  <li>The choice is saved in <code>atoms.ini</code> next to atoms.exe. On the first start the language follows the Windows UI language.</li>
+  <li>Command line: <code>atoms.exe --lang en</code> or <code>--lang ru</code> sets the language for that run (it takes priority over atoms.ini and is not saved).</li>
+  <li><kbd>F1</kbd> opens <b>MANUAL.html</b> when the interface is English and <b>ИНСТРУКЦИЯ.html</b> when it is Russian (if one file is missing, the other one opens).</li>
+  <li>CSV export follows the language: English uses a comma separator and a decimal point, Russian a semicolon and a decimal comma (for Excel with a Russian locale). Column headers are in the interface language.</li>
+</ul>
 
 <h2 id="tools">LMB tools</h2>
 <div class="tbl"><table>
 <tr><th>Key</th><th>Tool</th><th>What it does</th></tr>
 <tr><td><kbd>Alt+1</kbd></td><td>Camera</td><td>Rotate (3D) or pan the view (2D); <kbd>Shift</kbd> — pan in 3D. In any tool, <kbd>Ctrl</kbd>+LMB controls the camera.</td></tr>
 <tr><td><kbd>Alt+2</kbd></td><td>Selection</td><td>Box select; clicking an atom selects its whole molecule. See <a href="#select">below</a>.</td></tr>
-<tr><td><kbd>Alt+3</kbd></td><td>Ruler and protractor</td><td>2 atoms — distance (Å), 3 — angle, 4 — dihedral angle (3D).</td></tr>
-<tr><td><kbd>Alt+4</kbd></td><td>Add / tweezers</td><td>On empty space — paint the selected substance with a brush; on an atom — pull it with a spring; double click — follow the atom with the camera.</td></tr>
+<tr><td><kbd>Alt+3</kbd></td><td>Ruler &amp; protractor</td><td>2 atoms — distance (Å), 3 — angle, 4 — dihedral angle (3D).</td></tr>
+<tr><td><kbd>Alt+4</kbd></td><td>Add / tweezers</td><td>On empty space — add the selected substance with a brush; on an atom — pull it with a spring; double click — follow the atom with the camera.</td></tr>
 <tr><td><kbd>Alt+5</kbd></td><td>Eraser</td><td>Erases molecules under the brush (also the middle mouse button).</td></tr>
-<tr><td><kbd>Alt+6</kbd> / <kbd>Alt+7</kbd></td><td>Heat / cool</td><td>Changes the speeds of atoms under the brush (also RMB and <kbd>Shift</kbd>+RMB).</td></tr>
+<tr><td><kbd>Alt+6</kbd> / <kbd>Alt+7</kbd></td><td>Heat / Cool</td><td>Changes the speeds of atoms under the brush (also RMB and <kbd>Shift</kbd>+RMB).</td></tr>
 <tr><td><kbd>Alt+8</kbd></td><td>Push</td><td>Pushes atoms away from the cursor; with <kbd>Shift</kbd> — pulls them in.</td></tr>
 <tr><td><kbd>Alt+9</kbd></td><td>Shock wave</td><td>A click sends a radial impulse around the point.</td></tr>
 <tr><td><kbd>Alt+0</kbd></td><td>Scissors</td><td>Drag the cursor across bonds to break them.</td></tr>
 <tr><td><kbd>Alt+F</kbd></td><td>Field objects</td><td>Places "instruments" in the box — see the next section.</td></tr>
 </table></div>
+<p>The brush radius is the <b>brush R</b> slider, the strength of push, shock wave and throw is <b>tool strength</b> (Control tab → Integration and tools).</p>
 <div class="note">Everything you do by hand (heating, pushing, shock waves, breaking bonds, inserting and deleting, field objects, resizing the box) is counted as <b>external work W</b>. So E − W is conserved, and its "drift" shows how honest the integration is.</div>
 
 <h2 id="field">Field objects</h2>
-<p>Permanent "instruments" inside the box. Tool <kbd>Alt+F</kbd>; pick the object type on the small panel at the left edge of the scene. LMB — place it; wind and source — drag to set the direction; barrier — drag from point to point. In 3D an object is placed on the plane through the box center, perpendicular to the view.</p>
+<p>Permanent "instruments" inside the box. Tool <kbd>Alt+F</kbd>; pick the object type on the small panel at the left edge of the scene. LMB — place it; wind and source — drag to set the direction; barrier — drag from point to point. In 3D an object is placed on the plane through the box center, perpendicular to the view. Object zones and icons are drawn in gray.</p>
 <div class="tbl"><table>
 <tr><th>Object</th><th>Effect</th></tr>
-<tr><td>Attractor</td><td>A smooth potential well of radius R — gathers atoms.</td></tr>
-<tr><td>Repeller</td><td>A potential "hill" — pushes atoms apart.</td></tr>
-<tr><td>Heater</td><td>A local Langevin thermostat: atoms inside R approach the zone temperature T.</td></tr>
-<tr><td>Cooler</td><td>The same with a low T — a condenser, a "cold finger".</td></tr>
-<tr><td>Wind</td><td>A constant force along a direction within R — a flow.</td></tr>
-<tr><td>Vortex</td><td>A tangential force — swirls the matter.</td></tr>
-<tr><td>Trap</td><td>A harmonic well — holds particles (optical tweezers).</td></tr>
-<tr><td>Source</td><td>Emits atoms of the chosen element at a set rate and speed (the element comes from the periodic table or the palette).</td></tr>
-<tr><td>Sink</td><td>Absorbs molecules that get inside — pumping out.</td></tr>
-<tr><td>Barrier</td><td>An impenetrable wall: a segment in 2D, a plate in 3D.</td></tr>
+<tr><td>attractor</td><td>A smooth potential well of radius R — gathers atoms.</td></tr>
+<tr><td>repeller</td><td>A potential "hill" — pushes atoms apart.</td></tr>
+<tr><td>heater</td><td>A local Langevin thermostat: atoms inside R approach the zone temperature T.</td></tr>
+<tr><td>cooler</td><td>The same with a low T — a condenser, a "cold finger".</td></tr>
+<tr><td>wind</td><td>A constant force along a direction within R — a flow.</td></tr>
+<tr><td>vortex</td><td>A tangential force — swirls the matter.</td></tr>
+<tr><td>trap</td><td>A harmonic well — holds particles (optical tweezers).</td></tr>
+<tr><td>source</td><td>Emits atoms of the chosen element at a set rate and speed (the element comes from the periodic table or the palette).</td></tr>
+<tr><td>sink</td><td>Absorbs molecules that get inside — pumping out.</td></tr>
+<tr><td>barrier</td><td>An impenetrable wall: a segment in 2D, a plate in 3D.</td></tr>
 </table></div>
-<p>Over an object: wheel — radius, <kbd>Shift</kbd>+wheel — strength, <kbd>N</kbd> — on/off, <kbd>Del</kbd> or RMB — delete, drag — move. All parameters (R, strength, zone T, element, coordinates in nm) are on the Object <span class="ru">«Объект»</span> tab. A new object switches on smoothly (≈1τ) to avoid a jolt.</p>
+<p>Over an object: wheel — radius, <kbd>Shift</kbd>+wheel — strength, <kbd>N</kbd> — on/off, <kbd>Del</kbd> or RMB — delete, drag — move. All parameters (radius R, strength A, zone T, element, coordinates in nm) and the buttons <b>on/off</b>, <b>copy</b>, <b>delete</b> are on the <b>Object</b> tab. A new object switches on smoothly (≈1τ) to avoid a jolt.</p>
 
 <h2 id="select">Selection and measurements</h2>
 <ul>
@@ -148,15 +171,16 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
   <li>Drag the selection — move it; <kbd>Alt</kbd>+drag — "throw" (set a velocity); <kbd>Alt</kbd>+wheel — rotate.</li>
   <li><kbd>Del</kbd> — delete, <kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> / <kbd>Ctrl+X</kbd> — copy / paste at the cursor / cut.</li>
   <li><kbd>I</kbd> — pin/unpin: pinned atoms stay still (a substrate, a clamp, an "anchor") and do not count toward the temperature.</li>
-  <li>The Object <span class="ru">«Объект»</span> tab: composition, temperature of the selection, center of mass, momentum, mass; buttons to heat, cool, stop, change the element, rotate and follow.</li>
-  <li>Moving, pasting and changing the element are refused if atoms would overlap, so the sandbox does not "explode".</li>
+  <li>The <b>Object</b> tab: composition, T (excl. CM), center of mass, momentum |p|, mass; buttons <b>pin</b>/<b>unpin</b>, <b>stop</b>, <b>heat ×1.5 T</b>, <b>cool ×0.67 T</b>, <b>element → X</b> (X is the current palette substance), <b>delete</b>, <b>copy</b>, <b>paste</b>, <b>rotate −15°</b> / <b>rotate +15°</b>, <b>follow</b>, <b>deselect</b>.</li>
+  <li>Moving, rotating, pasting and changing the element are refused if atoms would overlap, so the sandbox does not "explode". <b>element → X</b> checks this after the replacement: if the new atoms would overlap their neighbors, the change cancels itself and a toast says so.</li>
+  <li>Ruler (<kbd>Alt+3</kbd>): the <b>Measurement</b> block on the Object tab shows distance 1–2, angle 1–2–3 and the dihedral angle.</li>
 </ul>
 
 <h2 id="camera">3D camera</h2>
 <ul>
   <li><kbd>Ctrl</kbd>+LMB — rotate, <kbd>Ctrl+Shift</kbd>+LMB — pan, wheel — zoom, arrows — rotate, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> — closer/farther.</li>
   <li><kbd>F</kbd>/<kbd>Home</kbd> — fit the box, <kbd>O</kbd> — auto-rotation, <kbd>F2</kbd> front, <kbd>F3</kbd> side, <kbd>F4</kbd> top, <kbd>F6</kbd> isometric.</li>
-  <li><kbd>V</kbd> — fly mode: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Q</kbd>/<kbd>E</kbd> — up/down, <kbd>Shift</kbd> — faster.</li>
+  <li><kbd>V</kbd> — fly mode: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Q</kbd>/<kbd>E</kbd> — down/up, <kbd>Shift</kbd> — faster.</li>
   <li><kbd>X</kbd> — cross-section, <kbd>Shift</kbd>+wheel — position of the cutting plane.</li>
 </ul>
 
@@ -164,7 +188,7 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <div class="tbl"><table>
 <tr><th>Key</th><th>Action</th></tr>
 <tr><td><kbd>Tab</kbd></td><td>scene menu (picking the same scene again opens its variant)</td></tr>
-<tr><td><kbd>1</kbd>…<kbd>0</kbd>, <kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>5</kbd></td><td>quick scene launch</td></tr>
+<tr><td><kbd>1</kbd>…<kbd>0</kbd>, <kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>5</kbd></td><td>quick scene launch (the other scenes — from the menu)</td></tr>
 <tr><td><kbd>E</kbd></td><td>periodic table</td></tr>
 <tr><td><kbd>D</kbd></td><td>2D / 3D</td></tr>
 <tr><td><kbd>Space</kbd> / <kbd>S</kbd> / <kbd>R</kbd></td><td>pause / single step / reset scene</td></tr>
@@ -177,38 +201,60 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <tr><td><kbd>K</kbd></td><td>catalyst zone under the cursor</td></tr>
 <tr><td><kbd>L</kbd></td><td>flash of light (photodissociation)</td></tr>
 <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>compress / stretch the box along x</td></tr>
+<tr><td><kbd>Ctrl+L</kbd></td><td>interface language: Russian / English (saved in atoms.ini)</td></tr>
 <tr><td><kbd>F12</kbd> (<kbd>P</kbd>)</td><td>PNG snapshot of the scene; <kbd>Shift+F12</kbd> — the whole window; <kbd>Ctrl+F12</kbd> — record a series of frames</td></tr>
 <tr><td><kbd>F5</kbd> / <kbd>F9</kbd></td><td>quick save / load</td></tr>
 <tr><td><kbd>Ctrl+S</kbd> / <kbd>Ctrl+O</kbd></td><td>save / open an .atoms file</td></tr>
 <tr><td><kbd>Ctrl+E</kbd></td><td>export plots to CSV</td></tr>
 <tr><td><kbd>F11</kbd>, <kbd>Alt+Enter</kbd></td><td>full screen</td></tr>
-<tr><td><kbd>H</kbd> / <kbd>F1</kbd> / <kbd>Esc</kbd></td><td>cheat sheet / manual / close the window</td></tr>
+<tr><td><kbd>H</kbd> / <kbd>F1</kbd> / <kbd>Esc</kbd></td><td>cheat sheet / manual in the interface language / close the window</td></tr>
 </table></div>
 
 <h2 id="scenes">Scenes</h2>
+<p>The scene menu (<kbd>Tab</kbd> or <b>Scenes</b> in the top bar) has two sections. Picking the scene that is already open loads its variant. Scenes marked "menu" have no hotkey.</p>
+<h3>Matter: phases, transport, mechanics</h3>
 <div class="tbl"><table id="scenesTbl">
 <tr><th>Key</th><th>Scene</th><th>What to watch</th></tr>
 <tr><td>1</td><td>Ideal gas</td><td>PV = NkT, Maxwell distribution, pressure on the walls</td></tr>
-<tr><td>2</td><td>Crystal melting</td><td>constant-power heating: the T(t) plateau; repeat — other lattices</td></tr>
-<tr><td>3</td><td>Boiling</td><td>liquid under gravity, a hot bottom, evaporation</td></tr>
-<tr><td>4</td><td>Condensation</td><td>supersaturated vapor → nuclei → droplets</td></tr>
-<tr><td>5</td><td>Diffusion</td><td>gases mixing: MSD(t) and the coefficient D</td></tr>
-<tr><td>6</td><td>NaCl in water</td><td>salt dissolving, hydration shells</td></tr>
-<tr><td>7</td><td>Hydrogen combustion</td><td>2H₂ + O₂ → 2H₂O from a spark; repeat — H₂ + Cl₂</td></tr>
-<tr><td>8</td><td>Brownian motion</td><td>a heavy particle, MSD ∝ t</td></tr>
-<tr><td>9</td><td>Quench</td><td>polycrystal, grain boundaries; repeat — glass</td></tr>
-<tr><td>0</td><td>Chemical equilibrium</td><td>Cl₂ ⇌ 2Cl under a piston, Le Chatelier's principle</td></tr>
-<tr><td>Shift+1</td><td>Gold nanoparticle</td><td>metallic bonding, melting from the surface</td></tr>
-<tr><td>Shift+2</td><td>Iron oxidation</td><td>Fe + O₂ → oxide</td></tr>
-<tr><td>Shift+3</td><td>Sodium in chlorine</td><td>2Na + Cl₂ → 2NaCl</td></tr>
-<tr><td>Shift+4</td><td>Methane combustion</td><td>CH₄ + 2O₂ → CO₂ + 2H₂O</td></tr>
+<tr><td>2</td><td>Crystal melting</td><td>constant-power heating: T(t) plateau; repeat 2 — other lattices</td></tr>
+<tr><td>3</td><td>Boiling</td><td>liquid under gravity, hot bottom, evaporation from the surface</td></tr>
+<tr><td>4</td><td>Condensation</td><td>supersaturated vapor → nuclei → round droplets</td></tr>
+<tr><td>5</td><td>Diffusion</td><td>two gases mixing: MSD(t) and the coefficient D</td></tr>
+<tr><td>8</td><td>Brownian motion</td><td>a heavy particle among atoms, MSD ∝ t</td></tr>
+<tr><td>9</td><td>Quench</td><td>polycrystal, grain boundaries; repeat 9 — glass</td></tr>
+<tr><td>Shift+1</td><td>Gold nanoparticle</td><td>metallic bonding, melting starts at the surface</td></tr>
+<tr><td>menu</td><td>Heat conduction</td><td>hot and cold walls: linear T(x) profile, Fourier's law q = −κ·dT/dx; the measured heat flux, gradient and conductivity κ in W/(m·K)</td></tr>
+<tr><td>menu</td><td>Shock tube</td><td>the membrane bursts after 1τ: a shock wave runs into the cold thin gas, a rarefaction wave runs back; the measured front speed is compared with ideal-gas theory (Mach number, compression). Repeat — Joule expansion into vacuum: energy is conserved, yet the gas cools because the atoms work against their mutual attraction</td></tr>
+<tr><td>menu</td><td>Barometric formula</td><td>Ar and Ne in gravity: ρ ∝ exp(−mgh/kT), Ar below Ne; the scale height kT/mg against the fit of the profile, ρ(y) on the Plots tab</td></tr>
+<tr><td>menu</td><td>Effusion</td><td>Graham's law: He leaks through slits into vacuum √(mAr/mHe) ≈ 3.2 times faster than Ar; the share of each gas past the partition and the measured He/Ar rate</td></tr>
+<tr><td>menu</td><td>Nanoparticle sintering</td><td>Au and Ag fuse in the solid state: the neck width grows, the centers approach, the atoms intermix</td></tr>
+</table></div>
+<h3>Chemistry and solutions</h3>
+<div class="tbl"><table>
+<tr><th>Key</th><th>Scene</th><th>What to watch</th></tr>
+<tr><td>6</td><td>NaCl in water</td><td>salt dissolving, hydration shells of ions</td></tr>
+<tr><td>7</td><td>Hydrogen combustion</td><td>2H₂ + O₂ → 2H₂O from a spark; repeat 7 — H₂ + Cl₂</td></tr>
+<tr><td>0</td><td>Chemical equilibrium</td><td>Cl₂ ⇌ 2Cl under a piston: Le Chatelier's principle</td></tr>
+<tr><td>Shift+2</td><td>Iron oxidation</td><td>Fe + O₂ → oxide: oxidized atoms lose metallic bonding</td></tr>
+<tr><td>Shift+3</td><td>Sodium in chlorine</td><td>2Na + Cl₂ → 2NaCl: combustion and small salt crystals</td></tr>
+<tr><td>Shift+4</td><td>Methane combustion</td><td>CH₄ + 2O₂ → CO₂ + 2H₂O: chain reaction from a spark</td></tr>
 <tr><td>Shift+5</td><td>Electrophoresis</td><td>ions in water in an electric field, current I</td></tr>
 <tr><td>menu</td><td>Acid in water</td><td>HCl + H₂O → H₃O⁺ + Cl⁻; the proton hops along hydrogen bonds (Grotthuss mechanism), pH ≈ 0.3</td></tr>
-<tr><td>menu</td><td>Neutralization</td><td>H₃O⁺ + OH⁻ → 2H₂O, pH moves toward 7; repeat — titration: a portion of NaOH every 1.5τ</td></tr>
-<tr><td>menu</td><td>Ethanol combustion</td><td>C₂H₅OH + 3O₂ from a spark</td></tr>
-<tr><td>menu</td><td>Oxyhydrogen</td><td>2H₂ + O₂ in a closed vessel without a thermostat: a jump in T and P after the spark</td></tr>
-<tr><td>menu</td><td>Platinum catalysis</td><td>a Pt nanoparticle in an H₂ + O₂ mixture — the reaction runs on the surface without a spark</td></tr>
+<tr><td>menu</td><td>Neutralization</td><td>H₃O⁺ + OH⁻ → 2H₂O, heat and pH (toward 7); repeat — titration: a portion of NaOH every 1.5τ</td></tr>
+<tr><td>menu</td><td>Ethanol combustion</td><td>C₂H₅OH + 3O₂ → 2CO₂ + 3H₂O from a spark</td></tr>
+<tr><td>menu</td><td>Oxyhydrogen</td><td>2H₂ + O₂ explosion in a closed vessel without a thermostat: jump in T and P</td></tr>
+<tr><td>menu</td><td>Platinum catalysis</td><td>H₂ + O₂ react only on the surface of a Pt nanoparticle, without a spark</td></tr>
+<tr><td>menu</td><td>Methane chlorination</td><td>CH₄ + Cl₂ → CH₃Cl + HCl: UV flashes break only Cl₂, then a radical chain runs</td></tr>
+<tr><td>menu</td><td>Equilibrium H₂ + I₂ ⇌ 2HI</td><td>Bodenstein's experiment: forward and reverse reactions at once; K<sub>c</sub> on the Chemistry tab</td></tr>
+<tr><td>menu</td><td>Hydrogenation on nickel</td><td>C₂H₄ + H₂ → C₂H₆: H₂ dissociates on the Ni surface, the H atoms add to ethylene</td></tr>
+<tr><td>menu</td><td>Peroxide decomposition</td><td>2H₂O₂ → 2H₂O + O₂: the weak O–O bond breaks, OH radicals carry the chain, platinum binds OH</td></tr>
+<tr><td>menu</td><td>Acetylene combustion</td><td>2C₂H₂ + 5O₂ → 4CO₂ + 2H₂O from a spark</td></tr>
 </table></div>
+<ul>
+  <li>The physics scenes heat conduction, shock tube, barometric formula, effusion and sintering show a live measurement line under the scene title.</li>
+  <li>Field objects placed by a scene are kept when it loads. <b>Reset scene</b> (<kbd>R</kbd>) recreates the scene's own objects and keeps the ones you placed.</li>
+  <li>The "NaCl in water" (2D) and "Iron oxidation" scenes were reworked in 3.0.</li>
+</ul>
 
 <h2 id="physics">Physics</h2>
 <h3>Model</h3>
@@ -225,49 +271,68 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <h3>Thermostats and barostat</h3>
 <ul>
   <li><b>NVE</b> — an isolated system, energy is conserved.</li>
-  <li><b>Bussi (CSVR)</b> and <b>Langevin</b> — a correct canonical ensemble; <b>Nosé–Hoover</b> — deterministic; <b>Berendsen</b> — fast, gentle approach to T; <b>power heating</b> <span class="ru">«нагрев P»</span> — constant power (for the melting plateau).</li>
-  <li><b>NPT</b> — the C-rescale barostat (Bernetti–Bussi): the box "breathes" toward the set pressure with correct volume fluctuations. Periodic boundaries only; with walls there is a piston.</li>
+  <li><b>Bussi</b> (CSVR) and <b>Langevin</b> — a correct canonical ensemble; <b>Nosé–Hoover</b> — deterministic; <b>Berendsen</b> — fast, gentle approach to T; <b>power heating</b> — constant power (for the melting plateau, set with the <b>heating power</b> slider).</li>
+  <li><b>NPT barostat (C-rescale)</b> on the Physics tab (Bernetti–Bussi): the box "breathes" toward the set pressure <b>P* external</b> with correct volume fluctuations. Periodic boundaries only; with walls there is a <b>piston</b>.</li>
   <li>Pressure comes from the virial theorem with all contributions (pair, many-body, bonds, angles).</li>
 </ul>
 <h3>External influences</h3>
-<p>Gravity, an electric field E along x (current I in the top panel), thermal walls (hot/cold, hot bottom), wall wetting, field objects, tools.</p>
+<p><b>gravity g</b>, <b>electric field E</b> along x (field E and current I in the readings), <b>Thermal walls</b> (hot left / cold right, or a hot bottom), <b>wall wetting</b>, field objects, tools.</p>
 <h3>Stability guard</h3>
-<p>The program keeps two state snapshots (every 200 steps). If non-numbers appear or the temperature "explodes" with a broken energy balance, it rolls back to a snapshot, reduces the step and continues. An amber line in the readings reports this.</p>
+<p>The program keeps two state snapshots (every 200 steps). If non-finite numbers appear or the temperature "explodes" with a broken energy balance, it rolls back to a snapshot, reduces the step and continues. An alert line in the readings, marked with a white bar, reports this; the <b>Integration stability</b> block on the Physics tab counts the rollbacks.</p>
 
 <h2 id="phases">States of matter</h2>
 <ul>
-  <li>Each atom gets a phase — <b>gas, liquid, solid</b> — from its local structure (Steinhardt order parameters in 3D, ψ₆ in 2D), number of neighbors and mobility. The "phase" coloring mode (<kbd>C</kbd>) colors atoms by it.</li>
-  <li>The readings show a phase fraction bar and a description of the state ("melting: crystal + liquid", "boiling" and so on).</li>
-  <li>The Physics <span class="ru">«Физика»</span> tab: a mini T–ρ phase diagram of the model (binodal, critical and triple points) with the trace of your state; a log of transitions (melting, crystallization, boiling, condensation, sublimation) with temperature and time; heat of transition from the T plateau.</li>
-  <li>The "order" coloring mode shows the lattice: FCC, HCP, BCC, NaCl, ice.</li>
+  <li>Each atom gets a phase — <b>gas, liquid, solid</b> — from its local structure (Steinhardt order parameters in 3D, ψ₆ in 2D), number of neighbors and mobility. The <b>phase</b> coloring mode (<kbd>C</kbd>) colors atoms by it.</li>
+  <li>The readings show a phase fraction bar (in the phase colors) and a description of the state ("melting: crystal + liquid", "evaporation: liquid + vapor" and so on).</li>
+  <li>The <b>Physics</b> tab: a mini T–ρ phase diagram of the model with the trace of your state. <b>Solid gray line</b> — the liquid–vapor binodal, <b>white dashed</b> — melting/freezing, <b>fine dots</b> — the triple line, <b>C</b> — the critical point; a <b>white square with a dot</b> is the current state and a light line its path. Below it: <b>State of matter</b>, the <b>Transition log</b> (melting, crystallization, boiling, condensation, sublimation) with temperature and time, and the heat of transition from the T plateau.</li>
+  <li>The <b>order</b> coloring mode shows the lattice: FCC, HCP, BCC, SC/NaCl, ice.</li>
 </ul>
-<div class="note">Try this: scene 2 → thermostat "power heating" <span class="ru">«нагрев P»</span> → watch the T(t) plateau on the plot and the transition log. Then place a cooler (<kbd>Alt+F</kbd>) and watch crystallization start from the cold zone.</div>
+<div class="note">Try this: scene 2 → thermostat <b>power heating</b> → watch the T(t) plateau on the Plots tab and the transition log. Then place a cooler (<kbd>Alt+F</kbd>) and watch crystallization start from the cold zone.</div>
 
 <h2 id="chem">Chemistry</h2>
 <h3>How reactions happen</h3>
 <p>Chemistry here is not an animation but events within the same molecular dynamics: a bond forms when atoms come close and have a free valence; it breaks when overstretched; an atom switches to another partner (exchange) if the barrier is overcome. The energy of each event is computed exactly: reaction heat goes into atomic motion, so combustion heats the mixture by itself, and endothermic reactions cool it.</p>
 <ul>
-  <li><b>Bond energies and lengths</b> — real tabulated values for ~60 pairs and bond orders (H–H 4.52 eV, O=O 5.12, N≡N 9.79, C–H 4.3, O–H 4.8…); for other pairs — Pauling's rules from electronegativities. Scale: 1 eV = 4ε.</li>
-  <li><b>Barriers</b> — the Evans–Polanyi rule: Ea = E₀ + α·ΔH, but not below ΔH. The "reaction barriers ×" slider <span class="ru">«барьеры реакций ×»</span> changes the kinetics without touching the thermodynamics.</li>
+  <li><b>Bond energies and lengths</b> — real tabulated values for the common pairs and bond orders (H–H 4.52 eV, O=O 5.12, N≡N 9.79, C–H 4.3, O–H 4.8…). H–F, H–Br, H–I, H–S, H–P, H–Si, F–F, Br–Br, I–I, C–F, C–Br, C–I and Si–Si also come from reference tables; the remaining pairs follow Pauling's rules from electronegativities. Scale: 1 eV = 4ε.</li>
+  <li><b>Barriers</b> — the Evans–Polanyi rule: Ea = E₀ + α·ΔH, but not below ΔH. The <b>reaction barriers ×</b> slider changes the kinetics without touching the thermodynamics.</li>
   <li><b>Charges</b> — partial, from electronegativity differences; for ions (H₃O⁺, OH⁻, NH₄⁺…) the charge is distributed by atomic hardness (a simplified electronegativity equalization).</li>
   <li><b>Acids and bases</b> — proton transfer: HCl + H₂O → H₃O⁺ + Cl⁻, H⁺ hopping along a chain of water molecules (Grotthuss), neutralization H₃O⁺ + OH⁻ → 2H₂O, NH₃ + H₃O⁺ → NH₄⁺. Water autoionization is not modeled: in a box of ~10⁻²³ L its equilibrium is zero ions.</li>
   <li><b>Catalysis</b> — a catalyst zone (<kbd>K</kbd>; barriers ×0.25) and the surface of metals Pt, Pd, Ni, Fe, Cu, Ru, Rh, Ag… (×0.3): only the kinetic part of the barrier is lowered.</li>
-  <li><b>Metals with non-metals</b> — oxides and salts through ionic-covalent bonds; an oxidized atom loses its metallic bonding. An atom's oxidation state is shown in the Chemistry tab on hover.</li>
+  <li><b>Metals with non-metals</b> — oxides and salts through ionic-covalent bonds; an oxidized atom loses its metallic bonding. An atom's oxidation state is shown on the Chemistry tab (<b>Atom: charges and oxidation</b>) on hover.</li>
   <li><b>Flash of light</b> (<kbd>L</kbd>) — photodissociation of weak bonds (Cl₂ → 2Cl starts a chain reaction).</li>
 </ul>
-<h3>The Chemistry tab <span class="ru">«Химия»</span></h3>
+<h3>The Chemistry tab</h3>
 <ul>
-  <li>Switches: reactions, acids and bases, catalysis by metal surfaces, catalyst zone, barrier multiplier.</li>
-  <li>A <b>pH</b> scale with H₃O⁺, OH⁻ and water concentrations in mol/L.</li>
-  <li>The <b>structure library</b> — 32 items: H₂O, H₂O₂, CO₂, CO, CH₄, C₂H₆, C₂H₄, C₂H₂, CH₃OH, C₂H₅OH, C₆H₆, NH₃, HCl, N₂, O₂, O₃, ions, a small NaCl crystal, diamond, graphene, ice (3D), SiO₂, Pt/Au/Fe/Ni clusters. Real geometry (VSEPR); after insertion the structure is relaxed right away. Pick a structure — it goes into the first palette cell — then LMB in the scene.</li>
+  <li><b>Reactions</b>: switches <b>chemical reactions</b>, <b>acids and bases</b>, <b>metal surface catalysis</b>, <b>catalyst zone</b>, the <b>reaction barriers ×</b> slider, event and heat counters.</li>
+  <li><b>Acidity (pH)</b> — a pH scale with H₃O⁺, OH⁻ and water concentrations in mol/L.</li>
+  <li><b>Molecule and structure library</b> — 65 structures in four sections. Collapsed, it shows one row per section; <b>full library (65)</b> expands it, <b>collapse</b> folds it back.
+    <ul>
+      <li><b>inorganic molecules</b> (22): H₂O, H₂O₂, CO₂, CO, NH₃, HCl, HF, HBr, HI, H₂S, PH₃, SiH₄, HCN, N₂H₄, O₃, N₂, O₂, H₂, F₂, Cl₂, Br₂, I₂;</li>
+      <li><b>organic molecules</b> (24): CH₄, C₂H₆, C₃H₈, C₄H₁₀, C₂H₄, C₂H₂, C₆H₆, phenol C₆H₅OH, toluene C₆H₅CH₃, CH₃OH, C₂H₅OH, dimethyl ether CH₃OCH₃, HCHO, CH₃CHO, acetone (CH₃)₂CO, HCOOH, CH₃COOH, CH₃Cl, CH₂Cl₂, CHCl₃, CCl₄, CH₃NH₂, urea CO(NH₂)₂, glycine;</li>
+      <li><b>ions</b> (5): H₃O⁺, OH⁻, NH₄⁺, NaOH, NaCl (ion pair);</li>
+      <li><b>crystals and metal clusters</b> (14): NaCl crystal, diamond, graphene, ice (3D only), silicon crystal, SiO₂, and Pt, Au, Fe, Ni, Cu, Ag, Al, Pd clusters.</li>
+    </ul>
+    Real geometry (VSEPR); after insertion the structure is relaxed right away. Pick a structure — it goes into the first palette cell — then LMB in the scene, or use <b>to box center</b> / <b>5 at random spots</b>.</li>
   <li><b>Mixture composition</b> — molecular formulas, their counts and charges.</li>
-  <li><b>Reaction log</b> — equations, event counts, ΔH in kJ/mol and eV, rate, rate constant k (L/(mol·s)) and equilibrium constant K<sub>c</sub> for the selected reaction, with forward and reverse reactions side by side.</li>
+  <li><b>Reaction log</b> — equations, event counts, ΔH in kJ/mol and eV. Click a reaction to select it.</li>
+  <li><b>Kinetics and equilibrium</b> for the selected reaction: <b>reaction rate</b> (events per τ and per ps), rate constant k (L/(mol·s)), the reverse reaction next to it, equilibrium constant K<sub>c</sub> from the current concentrations, and Ea (Arrhenius).</li>
 </ul>
-<div class="note">Experiments: "Acid in water" → watch the pH and the H⁺ transfer counter on the Chemistry tab. "Platinum catalysis" → erase the platinum with the eraser and the mixture stops reacting. "Chemical equilibrium" → move the piston and watch the Cl / Cl₂ fractions shift (Le Chatelier's principle).</div>
+<div class="note">Experiments: "Acid in water" → watch the pH and the H+ transfer counter on the Chemistry tab. "Platinum catalysis" → erase the platinum with the eraser and the mixture stops reacting. "Chemical equilibrium" → move the piston and watch the Cl / Cl₂ fractions shift (Le Chatelier's principle). "Equilibrium H₂ + I₂ ⇌ 2HI" → select the reaction in the log and watch K<sub>c</sub> settle.</div>
 <div class="note warn">The model is simplified: one bond curve per atom pair, no quantum effects and no explicit electron transfer (redox goes through bonds). Reaction rates are sped up, otherwise nothing would happen within the available simulation time.</div>
 
 <h2 id="table">Periodic table</h2>
-<p><kbd>E</kbd> — all 118 elements, colored by category. Hovering shows an element card: Z, mass, electronegativity, radii, valence and how the element works in the model. Clicking selects the element: it becomes the first palette cell, and if a source field object is selected, it becomes the source's element.</p>
+<p><kbd>E</kbd> (or <b>Table</b> in the top bar) — all 118 elements. Categories are told apart by gray level and the pattern of the strip at the top of each cell (solid, dashed, dotted); the legend below the table explains them, and radioactive elements carry a small triangle in the corner. Clicking selects the element: it becomes the first palette cell, and if a source field object is selected, it becomes the source's element.</p>
+<p>Hovering shows the element card:</p>
+<ul>
+  <li>symbol, name, category, atomic mass, "radioactive"; a small colored square shows the atom's color in the scene;</li>
+  <li>electronegativity χ, valence, covalent radius r_cov (for metals also r_met);</li>
+  <li><b>group and period</b>, or "period N · f-element" for lanthanides and actinides;</li>
+  <li>the <b>ground-state electron configuration</b> with a noble-gas core, e.g. [Ar] 3d⁶ 4s² for iron, including the known exceptions such as Cr [Ar] 3d⁵ 4s¹, Cu [Ar] 3d¹⁰ 4s¹, Pd [Kr] 4d¹⁰ and Au [Xe] 4f¹⁴ 5d¹⁰ 6s¹;</li>
+  <li><b>melting point</b> and <b>boiling point</b> in °C; for C and As, which do not melt at 1 atm, the sublimation point;</li>
+  <li><b>density</b> ρ in g/cm³ (for gases in g/L), <b>ionization energy</b> (the first one, eV) and the state <b>at 20 °C</b> (solid, liquid or gas);</li>
+  <li>how the element works in the model.</li>
+</ul>
+<p>Values for At, Fr and Z ≥ 99 are estimates and are shown with "≈". For Z ≥ 104 the card says the properties of the element are not measured: its atoms live seconds or less.</p>
 <ul>
   <li>Noble gases — van der Waals only.</li>
   <li>Metals — many-body metallic bonding; with non-metals they form ionic-covalent bonds (oxides, halides).</li>
@@ -278,12 +343,13 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <h2 id="files">Files, snapshots, export</h2>
 <ul>
   <li><b>Saving</b> (<kbd>Ctrl+S</kbd>, <kbd>F5</kbd>) — the whole state: atoms, bonds, pins, field objects, parameters, view. Older files still open.</li>
-  <li><b>Snapshot</b> — <kbd>F12</kbd>: a PNG of the scene next to atoms.exe; <kbd>Shift+F12</kbd> — the whole window; <kbd>Ctrl+F12</kbd> — record frames into a folder named «кадры_…» (you can assemble a video from it).</li>
-  <li><b>CSV</b> — <kbd>Ctrl+E</kbd>: plots of T, P, energies, g(r) and more, for Excel.</li>
+  <li><b>Snapshot</b> — <kbd>F12</kbd>: a PNG of the scene next to atoms.exe; <kbd>Shift+F12</kbd> — the whole window; <kbd>Ctrl+F12</kbd> — record frames into a folder named <code>frames_…</code> (<code>кадры_…</code> with the Russian interface); you can assemble a video from it.</li>
+  <li><b>CSV</b> — <kbd>Ctrl+E</kbd>: plots of T, P, energies, g(r), speed distribution, MSD and molecule counts, for Excel. With the English interface the separator is a comma and the decimal mark a point; with the Russian one — a semicolon and a comma.</li>
+  <li><b>atoms.ini</b> next to atoms.exe stores the interface language.</li>
 </ul>
 
 <h2 id="cli">Headless checks</h2>
-<p>For those who want to verify the physics (run from a command prompt in the program folder; reports are written to .log files):</p>
+<p>For those who want to verify the physics (run from a command prompt in the program folder; reports are written to .log files, in Russian unless <code>--lang en</code> is given):</p>
 <div class="tbl"><table>
 <tr><td><code>atoms.exe --selftest</code></td><td>every scene in 2D and 3D: stability, energy drift, NaN</td></tr>
 <tr><td><code>--gradcheck D K N</code></td><td>forces against −∇U (numerical derivative)</td></tr>
@@ -291,7 +357,18 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <tr><td><code>--kin K D N T V</code></td><td>a long run of a scene: phase, reactions, composition</td></tr>
 <tr><td><code>--phystest MODE D K N</code></td><td>coex (liquid–vapor), melt, npt, vir (virial), fo (field objects), guard</td></tr>
 <tr><td><code>--uitest</code></td><td>automatic interface test</td></tr>
+<tr><td><code>--lang ru|en</code></td><td>interface language for this run (also with the window; not saved to atoms.ini)</td></tr>
 </table></div>
+
+<h2 id="new">What's new in 3.0</h2>
+<ul>
+  <li><b>Bilingual interface.</b> English and Russian; <b>RU | EN</b> in the top bar or <kbd>Ctrl+L</kbd> switch instantly. The choice is saved in atoms.ini; on the first start the language follows Windows; <code>--lang ru|en</code> on the command line. <kbd>F1</kbd> opens the manual in the interface language; CSV export uses the separators of that language.</li>
+  <li><b>Monochrome interface.</b> Panels, buttons, text, plots, the grid, toasts and field objects are gray; only atoms and the legends explaining their colors are colored. Plot series differ by line style; warnings sit on a light plate, errors are inverted (white plate, black text). The phase diagram uses a solid gray binodal, white dashed melting lines, a dotted triple line and a white square for the current state.</li>
+  <li><b>Scene menu in two sections</b> — "Matter: phases, transport, mechanics" and "Chemistry and solutions" — and 10 new scenes: Heat conduction, Shock tube (with Joule expansion), Barometric formula, Effusion, Nanoparticle sintering, Methane chlorination, Equilibrium H₂ + I₂ ⇌ 2HI, Hydrogenation on nickel, Peroxide decomposition, Acetylene combustion. The new physics scenes show a live measurement line; field objects placed by a scene are kept correctly when it loads; "NaCl in water" (2D) and "Iron oxidation" were reworked.</li>
+  <li><b>Molecule library</b>: 65 structures instead of 32, in four sections, with a collapsed one-row-per-section view; bond data for H–F, H–Br, H–I, H–S, H–P, H–Si, F–F, Br–Br, I–I, C–F, C–Br, C–I, Si–Si from reference tables; a new <b>reaction rate</b> row in the reaction kinetics.</li>
+  <li><b>Element card</b>: group and period, electron configuration, melting and boiling (or sublimation) point, density, ionization energy and the state at 20 °C.</li>
+  <li><b>Selection</b>: <b>element → X</b> cancels itself, with a toast, if the new atoms would overlap their neighbors.</li>
+</ul>
 </main>
 </div>
 <script>
