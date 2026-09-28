@@ -14,6 +14,12 @@
 export_*.csv
 shot_*.png
 кадры_*/
+frames_*/
+atoms.ini
+lang_missing.log
+.build/
+.worktrees/
+__pycache__/
 
 # Early browser version, not part of the repository
 index.html
