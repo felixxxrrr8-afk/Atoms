@@ -4,7 +4,8 @@
 //
 //  Стек: C++17 + Win32 + OpenGL 1.x + OpenMP. Внешних зависимостей нет (всё входит в Windows SDK / MSVC).
 //  Сборка (x64 Native Tools Command Prompt, или просто запустите build.bat):
-//     cl /O2 /openmp /utf-8 /EHsc /std:c++17 /fp:fast main.cpp /Fe:atoms.exe user32.lib gdi32.lib opengl32.lib
+//     rc /fo atoms.res atoms.rc
+//     cl /O2 /openmp /utf-8 /EHsc /std:c++17 /fp:fast main.cpp atoms.res /Fe:atoms.exe user32.lib gdi32.lib opengl32.lib comdlg32.lib shell32.lib
 //  Запуск:   atoms.exe                 (D — переключение 2D/3D)
 //            atoms.exe --selftest      — прогон всех пресетов в 2D и 3D без окна, отчёт в selftest.log
 //            atoms.exe --shot K N [3d] [vV] — открыть пресет K (вариант V), отрисовать N кадров, сохранить shot_K.ppm
