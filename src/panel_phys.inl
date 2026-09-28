@@ -19,23 +19,26 @@ static void drawPhaseDiagram(float x, float y, float w, float h) {
         double T = r.Tt + (r.Tc - r.Tt) * (1 - std::pow(1 - k / 60.0, 2.0)); if (k == 60) T = r.Tc - 1e-6;
         double rl, rg; ljBinodal(T, rl, rg); bn.push_back({T, rg, rl});
     }
-    glDisable(GL_TEXTURE_2D); col(withA(C_ACC, 0.10f)); glBegin(GL_TRIANGLE_STRIP);
+    // заливки: «газ + жидкость» — 8 %, «твёрдое + жидкость» — 16 %, твёрдое — 4 % белого
+    glDisable(GL_TEXTURE_2D); col(withA(C_ACC, 0.08f)); glBegin(GL_TRIANGLE_STRIP);
     for (auto& b : bn) { glVertex2f(X(b[1]), Y(b[0])); glVertex2f(X(b[2]), Y(b[0])); }
     glEnd();
     // твёрдое + жидкость и твёрдое (заливка справа)
-    col(withA(C_WARN, 0.10f)); glBegin(GL_TRIANGLE_STRIP);
+    col(withA(C_WARN, 0.16f)); glBegin(GL_TRIANGLE_STRIP);
     for (int k = 0; k <= 20; k++) { double T = r.Tt + (Tmax - r.Tt) * k / 20.0; glVertex2f(X(ljFreeze(T)), Y(T)); glVertex2f(X(ljMelt(T)), Y(T)); }
     glEnd();
-    col(withA(C_WARN, 0.05f)); glBegin(GL_TRIANGLE_STRIP);
+    col(withA(C_WARN, 0.04f)); glBegin(GL_TRIANGLE_STRIP);
     for (int k = 0; k <= 20; k++) { double T = Tmax * k / 20.0; glVertex2f(X(ljMelt(T)), Y(T)); glVertex2f(X(Rmax), Y(T)); }
     glEnd();
     glEnable(GL_LINE_SMOOTH); glLineWidth(1.3f);
-    col(withA(C_ACC, 0.85f)); glBegin(GL_LINE_STRIP);
+    col(grayc(0.75f, 0.9f)); glBegin(GL_LINE_STRIP);   // бинодаль — серая сплошная
     for (auto& b : bn) glVertex2f(X(b[1]), Y(b[0]));
     for (int k = (int)bn.size() - 1; k >= 0; k--) glVertex2f(X(bn[k][2]), Y(bn[k][0]));
     glEnd();
-    col(withA(C_WARN, 0.8f)); glBegin(GL_LINE_STRIP); for (int k = 0; k <= 12; k++) { double T = r.Tt + (Tmax - r.Tt) * k / 12.0; glVertex2f(X(ljFreeze(T)), Y(T)); } glEnd();
+    col(withA(C_HOT, 0.85f)); lineStyle(LS_DASH);   // плавление / кристаллизация — белый штрих
+    glBegin(GL_LINE_STRIP); for (int k = 0; k <= 12; k++) { double T = r.Tt + (Tmax - r.Tt) * k / 12.0; glVertex2f(X(ljFreeze(T)), Y(T)); } glEnd();
     glBegin(GL_LINE_STRIP); for (int k = 0; k <= 24; k++) { double T = Tmax * k / 24.0; glVertex2f(X(ljMelt(T)), Y(T)); } glEnd();
+    lineStyle(LS_SOLID);
     // тройная линия
     { double rl, rg; ljBinodal(r.Tt, rl, rg); col(withA(C_TEXT, 0.6f)); glEnable(GL_LINE_STIPPLE); glLineStipple(2, 0x3333);
       glBegin(GL_LINES); glVertex2f(X(rg), Y(r.Tt)); glVertex2f(X(ljMelt(r.Tt)), Y(r.Tt)); glEnd(); glDisable(GL_LINE_STIPPLE); }
@@ -59,7 +62,9 @@ static void drawPhaseDiagram(float x, float y, float w, float h) {
         glEnd(); glDisable(GL_LINE_SMOOTH);
     }
     float px = X(rr), py = Y(Tr);
-    rectFill(px - uiPx(3), py - uiPx(3), uiPx(7), uiPx(7), C_ERR); rectLine(px - uiPx(4), py - uiPx(4), uiPx(9), uiPx(9), C_TEXT_HI);
+    // текущее состояние: белый квадрат в чёрной обводке с чёрной точкой в центре
+    rectFill(px - uiPx(5), py - uiPx(5), uiPx(11), uiPx(11), C_SCENE); rectFill(px - uiPx(4), py - uiPx(4), uiPx(9), uiPx(9), C_TEXT_HI);
+    rectFill(px - uiPx(1), py - uiPx(1), uiPx(3), uiPx(3), C_SCENE);
     popClip();
     // оси
     drawText(fontXS, in.x + uiPx(2), in.y + in.h - fontXS.h - uiPx(1), "0", C_FAINT);
@@ -83,6 +88,7 @@ static void drawPhysPanel(float x, float y, float w, float h) {
         double tot = phaseFrac[0] + phaseFrac[1] + phaseFrac[2];
         rectFill(x, yy, bw, bhh, C_ELEM);
         if (tot > 0.01) {
+            MonoAtoms atomsColored;   // доли фаз — цветами режима раскраски «фаза» (легенда цвета атомов)
             float xx = x;
             for (int k = 0; k < 3; k++) { float ww = (float)(bw * phaseFrac[k] / tot); rectFill(xx, yy, ww, bhh, withA(PHASE_C[k], 0.85f)); xx += ww; }
         }
@@ -90,7 +96,7 @@ static void drawPhysPanel(float x, float y, float w, float h) {
         yy += bhh + uiPx(3);
         float cw = W / 3;
         for (int k = 0; k < 3; k++) {
-            rectFill(x + k * cw, yy + uiPx(4), uiPx(8), uiPx(8), PHASE_C[k]);
+            { MonoAtoms atomsColored; rectFill(x + k * cw, yy + uiPx(4), uiPx(8), uiPx(8), PHASE_C[k]); }
             drawText(fontXS, x + k * cw + uiPx(12), yy + uiPx(1), fmt("%s %.0f%%", PH_NAMES[k], 100 * phaseFrac[k]), C_TEXT);
         }
         yy += rh + uiPx(2);
@@ -108,8 +114,8 @@ static void drawPhysPanel(float x, float y, float w, float h) {
         drawPhaseDiagram(x, yy, W, ph);
         uiRegister(1000, x, yy, W, ph);
         if (uiHover(x, yy, W, ph))
-            setHot(1000, "Фазовая диаграмма модели (LJ с обрезкой 2.5σ):\nсиняя кривая — бинодаль жидкость–пар, янтарные — плавление/кристаллизация,\n"
-                         "пунктир — тройная линия, К — критическая точка. Красный квадрат — текущее состояние,\n"
+            setHot(1000, "Фазовая диаграмма модели (LJ с обрезкой 2.5σ):\nсерая сплошная — бинодаль жидкость–пар, белые штриховые — плавление/кристаллизация,\n"
+                         "мелкий пунктир — тройная линия, К — критическая точка. Белый квадрат с точкой — текущее состояние,\n"
                          "светлая линия — его путь. Для чистого вещества — в его собственных σ и ε");
         yy += ph + g;
         yy += drawWrapped(fontXS, x, yy, W, d3 ? fmt("Модель аргона: T*c = %.3f (%.0f K, опыт 150.7 K), тройная T* ≈ %.2f (%.0f K, опыт 83.8 K).",

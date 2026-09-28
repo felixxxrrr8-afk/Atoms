@@ -76,7 +76,7 @@ static bool uiButton(int id, float x, float y, float w, float h, const std::stri
     RGBA ln = on ? withA(C_ACC, 0.8f) : accent ? withA(C_ACC, 0.5f) : (hover ? C_LINE_H : C_LINE);
     roundRect(x, y, w, h, 2, bg); roundLine(x, y, w, h, 2, ln);
     float sw = 0;
-    if (swatch) { sw = uiPx(11); rectFill(x + uiPx(5), y + std::floor((h - uiPx(8)) / 2), uiPx(8), uiPx(8), *swatch); }
+    if (swatch) { sw = uiPx(11); MonoAtoms atomsColored; rectFill(x + uiPx(5), y + std::floor((h - uiPx(8)) / 2), uiPx(8), uiPx(8), *swatch); }
     const Font* fp = &fontU;
     float tw = chem ? chemW(*fp, label) : textW(*fp, label);
     if (tw > w - uiPx(6) - sw) { fp = &fontXS; tw = chem ? chemW(*fp, label) : textW(*fp, label); }   // не влезает — мельче
@@ -241,11 +241,11 @@ static void seriesRange(const std::vector<float>& v, double& lo, double& hi) {
     for (float f : v) { if (!std::isfinite(f)) continue; lo = std::min(lo, (double)f); hi = std::max(hi, (double)f); }
 }
 static void niceRange(double& lo, double& hi) { if (hi - lo < 1e-6) { hi += 0.5; lo -= 0.5; } double m = 0.08 * (hi - lo); lo -= m; hi += m; }
-static void drawSeries(const PR& in, const std::vector<float>& v, double lo, double hi, RGBA c, float w = 1.2f) {
+static void drawSeries(const PR& in, const std::vector<float>& v, double lo, double hi, RGBA c, float w = 1.2f, int style = LS_SOLID) {
     if (v.size() < 2) return;
-    glLineWidth(w); glEnable(GL_LINE_SMOOTH); col(c); glBegin(GL_LINE_STRIP);
+    glLineWidth(w); glEnable(GL_LINE_SMOOTH); lineStyle(style); col(c); glBegin(GL_LINE_STRIP);
     for (size_t k = 0; k < v.size(); k++) glVertex2f(mapX(in, (double)k, 0, cfg::HIST - 1), mapY(in, v[k], lo, hi));
-    glEnd(); glDisable(GL_LINE_SMOOTH); glLineWidth(1);
+    glEnd(); lineStyle(LS_SOLID); glDisable(GL_LINE_SMOOTH); glLineWidth(1);
 }
 static void hline(const PR& in, double y, double lo, double hi, RGBA c) {
     glEnable(GL_LINE_STIPPLE); glLineStipple(2, 0x3333); col(c);
@@ -278,7 +278,8 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
     int cols = 2, rows = 6; float gap = uiPx(6);
     float pw = (w - gap * (cols - 1)) / cols, ph = std::max(minH, (h - gap * (rows - 1)) / rows);
     auto cell = [&](int k) { int c = k % cols, r = k / cols; return PR{std::floor(x0 + c * (pw + gap)), std::floor(y0 + r * (ph + gap)), std::floor(pw), std::floor(ph)}; };
-    const RGBA cT = C_WARN, cB = C_ACC, cW = C_TEXT_HI, cG = C_SERIES[2];
+    // ряды: T и Eк — белые сплошные, P, g(r) и Eп — серые штриховые, Eполн — светлая толстая, идеальный газ — пунктир
+    const RGBA cT = C_HOT, cB = grayc(0.62f), cW = grayc(0.85f), cG = grayc(0.8f);
     const bool d3 = DIM == 3;
     const double V = boxVolume();
     // 1. распределение скоростей + Максвелл–Больцман
@@ -325,7 +326,7 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
         double Z = Pid > 1e-9 ? EN.P / Pid : 0;
         PR in = plotFrame(cell(3), "P(t)", fmt("%.1f бар · Z=%.2f", realBar(EN.P), Z));
         hline(in, Pid, lo, hi, withA(cG, 0.6f));
-        drawSeries(in, A::sP.v, lo, hi, cB); axisLabels(in, lo, hi);
+        drawSeries(in, A::sP.v, lo, hi, cT); axisLabels(in, lo, hi);
         drawTextR(fontXS, in.x + in.w, in.y + in.h - fontXS.h, "- - NkT/V", withA(cG, 0.9f));
     }
     // 5. энергии
@@ -333,10 +334,13 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
         double lo = 1e30, hi = -1e30; seriesRange(A::sEk.v, lo, hi); seriesRange(A::sEp.v, lo, hi); seriesRange(A::sEt.v, lo, hi);
         if (lo > hi) { lo = 0; hi = 1; } niceRange(lo, hi);
         PR in = plotFrame(cell(4), "E(t), ε", fmt("E = %.1f", EN.total()));
-        drawSeries(in, A::sEk.v, lo, hi, cT); drawSeries(in, A::sEp.v, lo, hi, cB); drawSeries(in, A::sEt.v, lo, hi, cW, 1.6f);
+        drawSeries(in, A::sEk.v, lo, hi, cT); drawSeries(in, A::sEp.v, lo, hi, cB, 1.3f, LS_DASH); drawSeries(in, A::sEt.v, lo, hi, cW, 2.2f, LS_DOT);
         axisLabels(in, lo, hi, "%.0f");
-        float lx = in.x + in.w; lx -= drawTextR(fontXS, lx, in.y + in.h - fontXS.h, "Eполн", cW) + uiPx(8);
-        lx -= drawTextR(fontXS, lx, in.y + in.h - fontXS.h, "Eп", cB) + uiPx(8); drawTextR(fontXS, lx, in.y + in.h - fontXS.h, "Eк", cT);
+        // легенда: образец линии + подпись
+        const float sw = uiPx(14), ly2 = in.y + in.h - fontXS.h, sy = ly2 + fontXS.h * 0.55f;
+        float lx = in.x + in.w; lx -= drawTextR(fontXS, lx, ly2, "Eполн", C_TEXT) + uiPx(3) + sw; styleSample(lx, sy, sw, cW, LS_DOT, 2.2f); lx -= uiPx(8);
+        lx -= drawTextR(fontXS, lx, ly2, "Eп", C_TEXT) + uiPx(3) + sw; styleSample(lx, sy, sw, cB, LS_DASH); lx -= uiPx(8);
+        lx -= drawTextR(fontXS, lx, ly2, "Eк", C_TEXT) + uiPx(3) + sw; styleSample(lx, sy, sw, cT, LS_SOLID);
     }
     // 6. MSD(t)
     {
@@ -357,14 +361,16 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
         double hi = 1; for (auto& s : A::conc) for (float f : s.v) hi = std::max(hi, (double)f);
         std::string info = A::progressLabel.empty() ? "" : fmt("израсх. %s: %.0f%%", A::progressLabel.c_str(), A::progress * 100);
         PR in = plotFrame(cell(6), "Молекулы", info);
-        for (size_t q = 0; q < idx.size() && q < 7; q++) drawSeries(in, A::conc[idx[q]].v, 0, hi * 1.05, SPC[idx[q] % 12], 1.3f);
+        for (size_t q = 0; q < idx.size() && q < 7; q++) drawSeries(in, A::conc[idx[q]].v, 0, hi * 1.05, SPC[idx[q] % 12], 1.3f, LS_SERIES[idx[q] % 12]);
         float lx = in.x + uiPx(2), ly = in.y + uiPx(1);
         pushClip(in.x, in.y, in.w, in.h);
         for (size_t q = 0; q < idx.size() && q < 7; q++) {
             int k = idx[q]; std::string s = A::species[k]; int c = A::conc[k].v.empty() ? 0 : (int)A::conc[k].v.back();
-            float ww = chemW(fontXS, s) + textW(fontXS, std::to_string(c)) + uiPx(3);
+            const float sw = uiPx(12);   // образец линии ряда перед формулой
+            float ww = sw + uiPx(3) + chemW(fontXS, s) + textW(fontXS, std::to_string(c)) + uiPx(3);
             if (lx + ww > in.x + in.w && lx > in.x + uiPx(4)) { lx = in.x + uiPx(2); ly += fontXS.h; }
-            float dw = drawChem(fontXS, lx, ly, s, SPC[k % 12]); drawText(fontXS, lx + dw + uiPx(3), ly, std::to_string(c), C_DIM);
+            styleSample(lx, ly + fontXS.h * 0.55f, sw, SPC[k % 12], LS_SERIES[k % 12]);
+            float dw = drawChem(fontXS, lx + sw + uiPx(3), ly, s, SPC[k % 12]); drawText(fontXS, lx + sw + uiPx(3) + dw + uiPx(3), ly, std::to_string(c), C_DIM);
             lx += ww + uiPx(10);
         }
         popClip();
@@ -384,9 +390,10 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
         for (int k = 0; k <= 40; k++) { double T = Tt + (Tc - Tt) * k / 40; glVertex2f(mapX(in, rg(T), 0, RM), mapY(in, T, 0, TM)); }
         for (int k = 40; k >= 0; k--) { double T = Tt + (Tc - Tt) * k / 40; glVertex2f(mapX(in, rl(T), 0, RM), mapY(in, T, 0, TM)); }
         glEnd();
-        col(withA(cT, 0.85f));   // линии затвердевания и плавления
+        col(withA(cT, 0.85f)); lineStyle(LS_DASH);   // линии затвердевания и плавления — белый штрих (бинодаль — серая сплошная)
         glBegin(GL_LINE_STRIP); for (int k = 0; k <= 20; k++) { double T = Tt + (TM - Tt) * k / 20; glVertex2f(mapX(in, rf0 + rfk * (T - Tt), 0, RM), mapY(in, T, 0, TM)); } glEnd();
         glBegin(GL_LINE_STRIP); for (int k = 0; k <= 20; k++) { double T = Tt + (TM - Tt) * k / 20; glVertex2f(mapX(in, rf0 + rmelt + rfk * (T - Tt), 0, RM), mapY(in, T, 0, TM)); } glEnd();
+        lineStyle(LS_SOLID);
         col(withA(C_TEXT, 0.35f)); glBegin(GL_LINES); glVertex2f(mapX(in, 0.02, 0, RM), mapY(in, Tt, 0, TM)); glVertex2f(mapX(in, rf0 + rmelt, 0, RM), mapY(in, Tt, 0, TM)); glEnd();
         glDisable(GL_LINE_SMOOTH); glLineWidth(1);
         drawText(fontXS, mapX(in, 0.08 * RM, 0, RM), mapY(in, 0.8 * TM, 0, TM), "газ", C_DIM);
@@ -422,7 +429,7 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
         glBegin(GL_QUADS);
         for (int k = 0; k < A::TP_BINS; k++) {
             float u = (float)clampv(A::tprof[k] / hi, 0.0, 1.0);
-            RGBA c = {C_ACC.r + (C_WARN.r - C_ACC.r) * u, C_ACC.g + (C_WARN.g - C_ACC.g) * u, C_ACC.b + (C_WARN.b - C_ACC.b) * u, 0.7f};
+            RGBA c = grayc(0.3f + 0.7f * u, 0.8f);   // холоднее — темнее, горячее — светлее
             col(c); float x = in.x + k * bw, y = mapY(in, A::tprof[k], 0, hi);
             glVertex2f(x + 1, y); glVertex2f(x + bw - 1, y); glVertex2f(x + bw - 1, in.y + in.h); glVertex2f(x + 1, in.y + in.h);
         }
@@ -443,7 +450,7 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
             float x = in.x + uiPx(4);
             drawText(fontXS, x, ly, fmt("×%lld", rs[q].first), C_ACC); x += uiPx(52);
             float ew = drawEquation(fontXS, x, ly, *rs[q].second, C_TEXT);
-            RGBA hc = st.dH < 0 ? C_WARN : C_COLD;
+            RGBA hc = st.dH < 0 ? C_HOT : C_COLD;   // экзо — ярко, эндо — приглушённо (знак ΔH — в тексте)
             std::string hs = fmt("ΔH %+.2f эВ", st.dH / cfg::EV);
             drawText(fontXS, std::max(x + ew + uiPx(10), in.x + in.w - textW(fontXS, hs) - uiPx(4)), ly, hs, hc);
             ly += lh;
@@ -979,10 +986,12 @@ static float drawReadouts(float x, float y, float w) {
     float yy = y + uiPx(8), colW = (w - 2 * pad) / 2;
     const float kw = uiPx(30), vw = uiPx(64);
     // ячейка: ключ (подпись), значение (моноширинно, по правому краю столбца), единица/пересчёт
-    auto cell = [&](int c, const std::string& k, const std::string& v, const std::string& u, RGBA vc = C_TEXT_HI) {
+    // st: VS_WARN — светлая плашка под значением, VS_ERR — инверсия (белая плашка, чёрные цифры)
+    auto cell = [&](int c, const std::string& k, const std::string& v, const std::string& u, RGBA vc = C_TEXT_HI, int st = VS_OK) {
         float cx = x + pad + c * colW;
         drawText(fontXS, cx, yy + uiPx(1), k, C_DIM);
-        drawTextR(fontS, cx + kw + vw, yy, v, vc);
+        if (st != VS_OK) { float tw = textW(fontS, v); statePlate(cx + kw + vw - tw - uiPx(4), yy, tw + uiPx(6), rh - uiPx(1), st); }
+        drawTextR(fontS, cx + kw + vw, yy, v, stateInk(st, vc));
         pushClip(cx + kw + vw, yy, colW - kw - vw - uiPx(8), rh); drawText(fontXS, cx + kw + vw + uiPx(5), yy + uiPx(1), u, C_DIM); popClip();
     };
     cell(0, "T", fmt("%.3f", EN.T), fmt("%.1f K", realK(EN.T)), C_WARN);
@@ -992,14 +1001,14 @@ static float drawReadouts(float x, float y, float w) {
     cell(1, "ρ", fmt("%.3f", rhoM), "г/см³");
     yy += rh;
     cell(0, "N", fmt("%d", EN.nmob), S.n != EN.nmob ? fmt("+%d неподв.", S.n - EN.nmob) : std::string("атомов"));
-    cell(1, "дрейф", dv ? fmt("%+.3f", drift) : std::string(P.npt ? "NPT" : "—"), dv ? "% от E" : "", dv && std::fabs(drift) > 1 ? C_ERR : (dv && std::fabs(drift) > 0.2 ? C_WARN : C_TEXT_HI));
+    cell(1, "дрейф", dv ? fmt("%+.3f", drift) : std::string(P.npt ? "NPT" : "—"), dv ? "% от E" : "", C_TEXT_HI, dv && std::fabs(drift) > 1 ? VS_ERR : (dv && std::fabs(drift) > 0.2 ? VS_WARN : VS_OK));
     yy += rh;
     cell(0, "E", fmt("%.1f", EN.total()), "ε"); cell(1, "W", fmt("%+.1f", Wext), "ε внешн.");
     yy += rh;
     cell(0, "Eк", fmt("%.1f", EN.ek), "ε"); cell(1, "Eп", fmt("%.1f", EN.enb + EN.egrav), "ε");
     yy += rh;
     cell(0, "Eсв", fmt("%.1f", EN.ebond), "ε");
-    cell(1, "dt", fmt("%.4f", P.dt), fmt("τ · %.1f фс", P.dt * cfg::U_T_PS * 1000), P.dt < P.dtBase * 0.99 ? C_WARN : C_TEXT_HI);
+    cell(1, "dt", fmt("%.4f", P.dt), fmt("τ · %.1f фс", P.dt * cfg::U_T_PS * 1000), C_TEXT_HI, P.dt < P.dtBase * 0.99 ? VS_WARN : VS_OK);
     yy += rh;
     {   // фаза: текст + полоса долей газ/жидкость/твёрдое
         float cx = x + pad; drawText(fontXS, cx, yy + uiPx(1), "фаза", C_DIM);
@@ -1008,6 +1017,7 @@ static float drawReadouts(float x, float y, float w) {
         double fs = phaseFrac[0] + phaseFrac[1] + phaseFrac[2];
         if (bw > uiPx(40) && fs > 0.01) {
             float xx = bx;
+            MonoAtoms atomsColored;   // доли фаз — цветами режима раскраски «фаза»
             for (int k = 0; k < 3; k++) { float ww = (float)(bw * phaseFrac[k] / fs); rectFill(xx, by, ww, bh, withA(PHASE_C[k], 0.85f)); xx += ww; }
             rectLine(bx, by - 1, bw, bh + 2, C_LINE);
             if (!uiModal && ui.mx >= bx && ui.mx < bx + bw && ui.my >= by - 4 && ui.my < by + bh + 4) {
@@ -1031,7 +1041,7 @@ static float drawReadouts(float x, float y, float w) {
         I /= S.Lx; Iavg += (I - Iavg) * 0.03;
         cell(0, "поле E", fmt("%+.2f", P.efield), "ε/(σe)"); cell(1, "ток I", fmt("%+.4f", Iavg), "e/τ"); yy += rh;
     }
-    if (EN.capped) { cell(0, "огр. F", fmt("%d", EN.capped), "случаев", C_WARN); yy += rh; }
+    if (EN.capped) { cell(0, "огр. F", fmt("%d", EN.capped), "случаев", C_TEXT_HI, VS_WARN); yy += rh; }
     if (physAlertActive()) {   // тревога устойчивости (физика)
         float cx = x + pad, h = drawWrapped(fontXS, cx + uiPx(8), yy + uiPx(2), w - 2 * pad - uiPx(8), physAlert, C_WARN);
         rectFill(cx, yy + uiPx(2), uiPx(2), h, C_WARN); yy += h + uiPx(4);
@@ -1105,7 +1115,7 @@ static void drawCtrlTab(float x, float y, float w, float h) {
     {
         struct LayerItem { int id; const char* name; bool* v; const char* hint; };
         const LayerItem ls[] = {{207, "связи", &bondsOn, "Химические связи (B); кратные — двойной/тройной линией"}, {208, "следы", &trailsOn, "Следы траекторий (T)"},
-                        {790, "заряды", &layerCharges, "Частичные заряды: + красным, − голубым кольцом"}, {791, "скорости", &layerVel, "Стрелки скоростей атомов"},
+                        {790, "заряды", &layerCharges, "Частичные заряды: + — яркое сплошное кольцо, − — серое пунктирное"}, {791, "скорости", &layerVel, "Стрелки скоростей атомов"},
                         {792, "силы", &layerForce, "Стрелки сил (длина ∝ log |F|)"}, {793, "объекты поля", &layerFO, "Зоны и значки объектов поля"},
                         {794, "сетка", &layerGrid, "Координатная сетка с шагом в нанометрах"}, {795, "легенда", &layerLegend, "Легенда цветов в углу сцены"},
                         {796, "линейка масштаба", &layerScale, "Линейка масштаба (нм/Å) и оси в углу сцены"}, {797, "закреплённые", &layerPins, "Отметки закреплённых атомов"}};
@@ -1284,7 +1294,7 @@ static void drawObjTab(float x, float y, float w, float h) {
             any = true;
             uiSection(x, yy, W, i == followAtom ? "Атом (слежение)" : "Атом");
             auto L = atomInfoLines(i);
-            rectFill(x, yy, uiPx(2), L.size() * (fontXS.h + uiPx(2)), {EL[S.ty[i]].r, EL[S.ty[i]].g, EL[S.ty[i]].b, 1});
+            { MonoAtoms atomsColored; rectFill(x, yy, uiPx(2), L.size() * (fontXS.h + uiPx(2)), {EL[S.ty[i]].r, EL[S.ty[i]].g, EL[S.ty[i]].b, 1}); }
             for (size_t k = 0; k < L.size(); k++) { drawText(k == 0 ? fontU : fontXS, x + uiPx(8), yy, L[k], k == 0 ? C_TEXT_HI : C_TEXT); yy += (k == 0 ? fontU.h : fontXS.h) + uiPx(2); }
             yy += g;
             if (uiButton(845, x, yy, std::floor(W / 2), bh, i == followAtom ? "не следить" : "следить камерой", i == followAtom, false, "Камера следит за атомом (двойной щелчок по атому)")) {
@@ -1375,7 +1385,7 @@ static void drawFoFlyout() {
     float yy = y + uiPx(20);
     for (int k = 0; k < FO_N; k++) {
         std::string hint = FO_HINTS[k];
-        if (uiIconBtn(740 + k, x + uiPx(4), yy, bs, bs, IC_FO0 + k, foKind == k, hint.c_str(), k == FO_HEATER ? C_WARN : k == FO_COOLER ? C_COLD : C_TEXT)) {
+        if (uiIconBtn(740 + k, x + uiPx(4), yy, bs, bs, IC_FO0 + k, foKind == k, hint.c_str(), k == FO_HEATER ? C_HOT : k == FO_COOLER ? C_COLD : C_TEXT)) {
             foKind = k; showToast(std::string("Объект поля: ") + FO_NAMES[k] + " — щёлкните в сцене"); }
         yy += bs + uiPx(2);
     }
@@ -1468,7 +1478,7 @@ static void drawTooltip() {
     if (x + w + uiPx(20) > sceneX + sceneW) x = mouseX - w - uiPx(28);
     if (y + h > sceneY + sceneH) y = mouseY - h - uiPx(8);
     const Element& e = EL[S.ty[i]];
-    boxPanel(x, y, w + uiPx(20), h, withA(C_PANEL2, 0.95f), C_LINE_H); rectFill(x, y, uiPx(2), h, {e.r, e.g, e.b, 1});
+    boxPanel(x, y, w + uiPx(20), h, withA(C_PANEL2, 0.95f), C_LINE_H); { MonoAtoms atomsColored; rectFill(x, y, uiPx(2), h, {e.r, e.g, e.b, 1}); }
     float yy = y + uiPx(5);
     for (size_t k = 0; k < L.size(); k++) { drawText(k == 0 ? fontU : fontXS, x + uiPx(10), yy, L[k], k == 0 ? C_TEXT_HI : C_TEXT); yy += k == 0 ? fontU.h + uiPx(3) : lh; }
 }
@@ -1517,8 +1527,21 @@ static void drawHelp() {
 }
 
 // ===================================== ТАБЛИЦА МЕНДЕЛЕЕВА / МЕНЮ СЦЕН ======================
-static const RGBA CATC[CAT_SPECIAL + 1] = {hexc(0xD9675A), hexc(0xDB8F4E), hexc(0xC9AE55), hexc(0x7DB36A), hexc(0x55B0A0),
-                                           hexc(0x5A96D8), hexc(0x8A7BD6), hexc(0xB07CC4), hexc(0xC77A98), hexc(0xA88596), hexc(0x8A8F96)};
+// категории: уровень серого полосы × рисунок (металлы — сплошная, неметаллы — штрих, лантаноиды/актиноиды — точки)
+static const RGBA CATC[CAT_SPECIAL + 1] = {grayc(1.00f), grayc(0.74f), grayc(0.52f), grayc(0.34f), grayc(1.00f),
+                                           grayc(0.74f), grayc(0.52f), grayc(0.34f), grayc(0.80f), grayc(0.48f), grayc(0.40f)};
+static const int CAT_PAT[CAT_SPECIAL + 1] = {LS_SOLID, LS_SOLID, LS_SOLID, LS_SOLID, LS_DASH, LS_DASH, LS_DASH, LS_DASH, LS_DOT, LS_DOT, LS_SOLID};
+// полоса категории: сплошная / штрих 6-3 / точки 2-2 (px)
+static void catStrip(float x, float y, float w, float h, int cat, float a = 1) {
+    const RGBA c = withA(CATC[cat], a); const int p = CAT_PAT[cat];
+    if (p == LS_SOLID) { rectFill(x, y, w, h, c); return; }
+    const float on = uiPx(p == LS_DASH ? 6.0f : 2.0f), off = uiPx(p == LS_DASH ? 3.0f : 2.0f);
+    for (float xx = x; xx < x + w; xx += on + off) rectFill(xx, y, std::min(on, x + w - xx), h, c);
+}
+// метка радиоактивного элемента: залитый треугольник в правом верхнем углу ячейки
+static void radioMark(float x, float y, float s, RGBA c) {
+    glDisable(GL_TEXTURE_2D); col(c); glBegin(GL_TRIANGLES); glVertex2f(x - s, y); glVertex2f(x, y); glVertex2f(x, y + s); glEnd();
+}
 // позиция элемента в длинной форме таблицы: строки 0–6 — периоды, 8–9 — лантаноиды и актиноиды
 static void ptPos(int Z, int& row, int& col) {
     if (Z == 1) { row = 0; col = 0; } else if (Z == 2) { row = 0; col = 17; }
@@ -1567,11 +1590,12 @@ static void drawPeriodicTable() {
         if (hover) { ptHoverZ = z; if (ui.pressed) ui.active = 400 + z; }
         bool clicked = ui.active == 400 + z && ui.released && hover;
         if (ui.active == 400 + z && ui.released) ui.active = -1;
-        rectFill(r.x, r.y, r.w, r.h, {cc.r * 0.22f + 0.05f, cc.g * 0.22f + 0.055f, cc.b * 0.22f + 0.065f, 1});
-        rectFill(r.x, r.y, r.w, uiPx(2), withA(cc, hover ? 1.0f : 0.75f));
+        rectFill(r.x, r.y, r.w, r.h, grayc(cc.r * 0.10f + 0.06f));
+        catStrip(r.x, r.y, r.w, uiPx(3), ZD[z].cat, hover ? 1.0f : 0.8f);
         if (hover) rectLine(r.x, r.y, r.w, r.h, C_TEXT_HI);
         if (sel) { rectLine(r.x - 1, r.y - 1, r.w + 2, r.h + 2, C_ACC); rectLine(r.x, r.y, r.w, r.h, C_ACC); }
-        RGBA tc = isRadioactive(z) ? hexc(0xE6D9B0) : C_TEXT_HI;
+        if (isRadioactive(z)) radioMark(r.x + r.w - uiPx(2), r.y + uiPx(5), uiPx(7), C_DIM);
+        RGBA tc = isRadioactive(z) ? C_TEXT : C_TEXT_HI;
         drawText(fontXS, r.x + uiPx(3), r.y + uiPx(2), std::to_string(z), C_DIM);
         if (cell >= uiPx(44)) {
             drawTextC(fontL, r.x + r.w / 2, r.y + r.h * 0.5f - fontL.h * 0.62f, e.sym, tc);
@@ -1581,7 +1605,7 @@ static void drawPeriodicTable() {
         } else drawTextC(fontM, r.x + r.w / 2, r.y + (r.h - fontM.h) / 2 + uiPx(3), e.sym, tc);
         if (clicked) selectElement(t);
     }
-    for (int k = 0; k < 2; k++) { PR r = cellRect(5 + k, 2); rectLine(r.x, r.y, r.w, r.h, withA(CATC[CAT_LAN + k], 0.6f));
+    for (int k = 0; k < 2; k++) { PR r = cellRect(5 + k, 2); rectLine(r.x, r.y, r.w, r.h, withA(CATC[CAT_LAN + k], 0.6f)); catStrip(r.x, r.y, r.w, uiPx(3), CAT_LAN + k, 0.8f);
         const char* s = k ? "89–103" : "57–71"; drawTextC(fontXS, r.x + r.w / 2, r.y + (r.h - fontXS.h) / 2, s, C_DIM); }
     // карточка элемента (в пустой области над переходными металлами)
     {
@@ -1592,14 +1616,15 @@ static void drawPeriodicTable() {
             int t = typeOfZ(z); const Element& e = EL[t]; const ZData& d = ZD[z]; const RGBA& cc = CATC[d.cat];
             boxPanel(cx, cy, cw, ch, C_PANEL2, C_LINE);
             float bs = std::min(ch - uiPx(16), 2.2f * cell);
-            rectFill(cx + uiPx(8), cy + uiPx(8), bs, bs, {cc.r * 0.3f + 0.04f, cc.g * 0.3f + 0.045f, cc.b * 0.3f + 0.05f, 1}); rectFill(cx + uiPx(8), cy + uiPx(8), bs, uiPx(3), cc);
+            rectFill(cx + uiPx(8), cy + uiPx(8), bs, bs, grayc(cc.r * 0.14f + 0.07f)); catStrip(cx + uiPx(8), cy + uiPx(8), bs, uiPx(4), d.cat);
+            { MonoAtoms atomsColored; float q = uiPx(12); rectFill(cx + uiPx(8) + bs - q - uiPx(6), cy + uiPx(8) + bs - q - uiPx(6), q, q, {e.r, e.g, e.b, 1}); }   // цвет атома в сцене
             const Font& big = bs >= uiPx(70) ? fontXL : fontL;
             drawTextC(big, cx + uiPx(8) + bs / 2, cy + uiPx(8) + (bs - big.h) / 2, e.sym, C_TEXT_HI);
             drawText(fontXS, cx + uiPx(12), cy + uiPx(12), std::to_string(z), C_TEXT);
             float tx = cx + bs + uiPx(20), ty = cy + uiPx(8);
             pushClip(tx, cy, cw - bs - uiPx(24), ch);
             drawText(fontL, tx, ty, fmt("%s — %s", e.sym, e.name), C_TEXT_HI); ty += fontL.h + uiPx(4);
-            drawText(fontU, tx, ty, fmt("%s%s · атомная масса %.3f", CAT_NAMES[d.cat], isRadioactive(z) ? " · радиоактивен" : "", d.mass), cc); ty += fontU.h + uiPx(2);
+            drawText(fontU, tx, ty, fmt("%s%s · атомная масса %.3f", CAT_NAMES[d.cat], isRadioactive(z) ? " · радиоактивен" : "", d.mass), C_TEXT); ty += fontU.h + uiPx(2);
             std::string chi = d.chi > 0 ? fmt("χ = %.2f", d.chi) : std::string("χ — нет");
             drawText(fontU, tx, ty, chi + fmt(" · валентность %d · r_ков = %.2f Å%s", d.val, d.rcov, isMetalT(t) ? fmt(" · r_мет = %.2f Å", d.rsig).c_str() : ""), C_TEXT); ty += fontU.h + uiPx(2);
             if (ty + fontXS.h < cy + ch) drawWrapped(fontXS, tx, ty, cw - bs - uiPx(32), elementModelNote(t), C_DIM);
@@ -1610,9 +1635,11 @@ static void drawPeriodicTable() {
         float lx = gx, ly = gy + 9.6f * cell + uiPx(8);
         for (int c = 0; c < CAT_SPECIAL; c++) {
             float w = textW(fontXS, CAT_NAMES[c]);
-            if (lx + w + uiPx(22) > x0 + W - pad) { lx = gx; ly += fontXS.h + uiPx(3); }
-            rectFill(lx, ly + uiPx(3), uiPx(9), uiPx(9), CATC[c]); drawText(fontXS, lx + uiPx(14), ly, CAT_NAMES[c], C_TEXT); lx += w + uiPx(30);
+            if (lx + w + uiPx(34) > x0 + W - pad) { lx = gx; ly += fontXS.h + uiPx(3); }
+            catStrip(lx, ly + uiPx(6), uiPx(20), uiPx(3), c); drawText(fontXS, lx + uiPx(25), ly, CAT_NAMES[c], C_TEXT); lx += w + uiPx(42);
         }
+        if (lx + uiPx(120) > x0 + W - pad) { lx = gx; ly += fontXS.h + uiPx(3); }
+        radioMark(lx + uiPx(9), ly + uiPx(2), uiPx(9), C_DIM); drawText(fontXS, lx + uiPx(14), ly, "радиоактивен", C_TEXT);
     }
     if (ui.pressed && !inPR(ptRect)) ptOn = false;   // щелчок мимо — закрыть
 }

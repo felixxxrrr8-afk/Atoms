@@ -4,33 +4,92 @@ static int winW = 1600, winH = 960;
 static GLuint texGlow = 0, texCore = 0, texFont = 0;
 struct RGBA { float r, g, b, a; };
 static constexpr RGBA hexc(unsigned h, float a = 1) { return {((h >> 16) & 255) / 255.0f, ((h >> 8) & 255) / 255.0f, (h & 255) / 255.0f, a}; }
+static constexpr RGBA grayc(float v, float a = 1) { return {v, v, v, a}; }   // оттенок серого: 0 — чёрный, 1 — белый
+
+// ---- Страховка монохромности. Интерфейс — только оттенки серого; цветными остаются лишь атомы и то, что объясняет их цвет
+//  (легенда, образцы элементов в палитре, полоска элемента в подсказке и во вкладке «Объект», следы, образец на карточке
+//  таблицы Менделеева). Эти места рисуются внутри области MonoAtoms — «белый список». Любой другой цвет с оттенком,
+//  дошедший до OpenGL (glColor*, glClearColor, цвета вершин quadUV/segQuad), приводится к яркости (веса Rec.601).
+//  Явный дизайн на страховку не опирается: с ключом --monocheck каждый такой цвет записывается в mono_violations.log
+//  (значение, место в исходнике, раздел кадра) — в норме файл пуст. Ключ grayatoms (отладка) делает серыми и атомы —
+//  так можно проверить попиксельно целую сцену.
+static bool monoCheck = false;             // --monocheck
+static bool monoGrayAtoms = false;         // grayatoms: атомы и их легенда тоже серые (отладка)
+static int monoAtomScope = 0;              // > 0 — рисуется цвет атома (белый список)
+struct MonoAtoms { MonoAtoms() { monoAtomScope++; } ~MonoAtoms() { monoAtomScope--; } };
+static const char* monoCtx = "";           // раздел кадра (renderFrame): подсказка, где искать нарушение
+static void monoReport(const char* where, float r, float g, float b) {
+    static std::map<std::string, int> seen;
+    const char* f = where; for (const char* p = where; *p; p++) if (*p == '\\' || *p == '/') f = p + 1;
+    char key[256]; snprintf(key, sizeof(key), "%s | %s | rgb %.3f %.3f %.3f", monoCtx, f, r, g, b);
+    if (seen[key]++) return;
+    if (FILE* fp = fopen("mono_violations.log", "a")) { fprintf(fp, "%s\n", key); fclose(fp); }
+}
+static inline void monoFix(float& r, float& g, float& b, const char* where) {
+    if (std::fabs(r - g) <= 1e-4f && std::fabs(g - b) <= 1e-4f) return;
+    if (monoAtomScope > 0) { if (monoGrayAtoms) r = g = b = 0.299f * r + 0.587f * g + 0.114f * b; return; }   // цвет атома — разрешён
+    if (monoCheck) monoReport(where, r, g, b);
+    r = g = b = 0.299f * r + 0.587f * g + 0.114f * b;
+}
+static inline void monoColor4f(float r, float g, float b, float a, const char* where) { monoFix(r, g, b, where); glColor4f(r, g, b, a); }
+static inline void monoColor3f(float r, float g, float b, const char* where) { monoFix(r, g, b, where); glColor3f(r, g, b); }
+static inline void monoClearColor(float r, float g, float b, float a, const char* where) { monoFix(r, g, b, where); glClearColor(r, g, b, a); }
+#define MONO_STR2(x) #x
+#define MONO_STR(x) MONO_STR2(x)
+#define MONO_AT __FILE__ ":" MONO_STR(__LINE__)
+#define glColor4f(r, g, b, a) monoColor4f((float)(r), (float)(g), (float)(b), (float)(a), MONO_AT)
+#define glColor3f(r, g, b) monoColor3f((float)(r), (float)(g), (float)(b), MONO_AT)
+#define glClearColor(r, g, b, a) monoClearColor((float)(r), (float)(g), (float)(b), (float)(a), MONO_AT)
+// прочие способы задать цвет запрещены (ошибка компиляции): только glColor4f / glColor3f / col()
+#define glColor3ub(...) MONO_only_glColor4f_is_allowed
+#define glColor4ub(...) MONO_only_glColor4f_is_allowed
+#define glColor3fv(...) MONO_only_glColor4f_is_allowed
+#define glColor4fv(...) MONO_only_glColor4f_is_allowed
+#define glColor3d(...) MONO_only_glColor4f_is_allowed
+#define glColor4d(...) MONO_only_glColor4f_is_allowed
 
 // ---- Палитра интерфейса — ЕДИНСТВЕННЫЙ источник цветов (ими пользуются и панели «Физика» / «Химия»).
-//  Строгий «приборный» стиль: графитовый фон, тонкие линии 1 px, один холодный акцент, янтарь — предупреждения.
+//  Строгий монохромный «приборный» стиль: интерфейс — только оттенки серого (цветные только атомы и их легенда).
+//  Сцена — чистый чёрный, панели — графит, акцент — белый; тонкие линии 1 px. Всё, что раньше различалось цветом:
+//   • активное / выделенное — белая рамка или линия (C_ACC) + светлая подложка C_ACC_BG; наведение — только серая рамка C_LINE_H
+//     и светлее текст; нажатие — тёмная подложка C_PANEL2;
+//   • предупреждение — белый текст на светлой плашке (C_WARN на C_WARN_BG), ошибка — инверсия: чёрный текст на белой плашке
+//     (C_ERR_INK на C_ERR); см. statePlate() / stateInk() и состояния VS_WARN / VS_ERR;
+//   • тепло, выделение энергии, «+» — ярко и сплошной линией (C_HOT); холод, поглощение, «−» — приглушённо (C_COLD)
+//     и пунктиром или контуром (стенки, кисти, заряды, ΔH реакций, вспышки: светлое пятно / сжимающееся серое кольцо);
+//   • ряды графиков — уровень серого × тип линии (LS_SOLID / LS_DASH / LS_DOT / LS_DASHDOT), в легендах — образец линии;
+//   • величины интерфейса (профиль T, шкала pH) — яркость; категории таблицы Менделеева — уровень серого × рисунок
+//     полосы (сплошная / штрих / точки), радиоактивные — метка-треугольник в углу; оси x/y/z — яркость + подписи.
 static const RGBA
-    C_BG      = hexc(0x0B0D10),          // фон окна
+    C_BG      = hexc(0x0A0A0A),          // фон окна
     C_SCENE   = hexc(0x000000),          // фон сцены — чистый чёрный
-    C_PANEL   = hexc(0x12151A),          // панели
-    C_PANEL2  = hexc(0x0E1014),          // полосы и заголовки внутри панелей (темнее панели)
-    C_ELEM    = hexc(0x1B1F26),          // элементы: кнопки, поля, дорожки слайдеров
-    C_ELEM_H  = hexc(0x242A33),          // элемент под курсором
-    C_LINE    = hexc(0x2A2F38),          // тонкие линии и рамки
-    C_LINE_H  = hexc(0x3C4452),          // рамка под курсором
-    C_TEXT    = hexc(0xC9D0D8),          // основной текст
-    C_TEXT_HI = hexc(0xF0F3F6),          // значения, активный текст
-    C_DIM     = hexc(0x7C8591),          // подписи, единицы измерения
-    C_FAINT   = hexc(0x4A525E),          // неактивное / недоступное
-    C_ACC     = hexc(0x5AAAE8),          // акцент (холодный голубой): активное состояние, выделение
-    C_ACC_BG  = hexc(0x5AAAE8, 0.16f),   // подложка активного элемента
-    C_WARN    = hexc(0xE3A53C),          // янтарь: предупреждения, нагрев
-    C_ERR     = hexc(0xE0624F),          // ошибка (дрейф энергии > 1 %)
-    C_COLD    = hexc(0x6FB7F0),          // охлаждение
+    C_PANEL   = hexc(0x131313),          // панели (графит)
+    C_PANEL2  = hexc(0x0D0D0D),          // полосы и заголовки внутри панелей (темнее панели), нажатая кнопка
+    C_ELEM    = hexc(0x1D1D1D),          // элементы: кнопки, поля, дорожки слайдеров
+    C_ELEM_H  = hexc(0x292929),          // элемент под курсором
+    C_LINE    = hexc(0x2C2C2C),          // тонкие линии и рамки
+    C_LINE_H  = hexc(0x4B4B4B),          // рамка под курсором
+    C_TEXT    = hexc(0xC4C4C4),          // основной текст
+    C_TEXT_HI = hexc(0xF2F2F2),          // значения, активный текст
+    C_DIM     = hexc(0x828282),          // подписи, единицы измерения
+    C_FAINT   = hexc(0x4C4C4C),          // неактивное / недоступное
+    C_ACC     = hexc(0xFFFFFF),          // акцент (белый): активное состояние, выделение — всегда вместе с формой (рамка, линия)
+    C_ACC_BG  = hexc(0xFFFFFF, 0.17f),   // подложка активного элемента (≈ #3D3D3D на панели)
+    C_WARN    = hexc(0xFFFFFF),          // предупреждение: белый текст / метка (на плашке C_WARN_BG)
+    C_WARN_BG = hexc(0xFFFFFF, 0.17f),   // плашка предупреждения
+    C_ERR     = hexc(0xFFFFFF),          // ошибка: белая плашка (инверсия), текст на ней — C_ERR_INK
+    C_ERR_INK = hexc(0x000000),          // текст ошибки на плашке
+    C_HOT     = hexc(0xFFFFFF),          // тепло, выделение энергии, «+»: ярко, сплошной линией
+    C_COLD    = hexc(0x8C8C8C),          // холод, поглощение энергии, «−»: приглушённо, пунктиром / контуром
     C_GRID    = {1, 1, 1, 0.055f},       // сетка графиков
-    C_BOX     = hexc(0x9098A4, 0.5f),    // контур ящика на сцене
-    C_MEAS    = hexc(0xE8ECF0);          // линейка / угломер
-// цвета рядов графиков и списков веществ (приглушённая «научная» палитра)
-static const RGBA C_SERIES[12] = {hexc(0x5AAAE8), hexc(0xE3A53C), hexc(0x6CC08B), hexc(0xB08CE6), hexc(0xD8DDE3), hexc(0x4FC1C0),
-                                  hexc(0xE07E8C), hexc(0xA7B85A), hexc(0x8C9BEB), hexc(0xE6C86E), hexc(0x7FA7C9), hexc(0xC99A7F)};
+    C_BOX     = hexc(0x999999, 0.5f),    // контур ящика на сцене
+    C_MEAS    = hexc(0xEBEBEB);          // линейка / угломер
+// ряды графиков и списки веществ: 12 сочетаний «уровень серого × тип линии» (3 уровня × 4 типа, все различны;
+// соседние номера отличаются и яркостью, и рисунком). Тип линии — LS_SERIES[k], образец — styleSample().
+enum { LS_SOLID, LS_DASH, LS_DOT, LS_DASHDOT };
+static const RGBA C_SERIES[12] = {grayc(1.00f), grayc(0.70f), grayc(1.00f), grayc(0.70f), grayc(0.50f), grayc(1.00f),
+                                  grayc(0.50f), grayc(0.70f), grayc(0.50f), grayc(1.00f), grayc(0.70f), grayc(0.50f)};
+static const int LS_SERIES[12] = {LS_SOLID, LS_DASH, LS_DOT, LS_DASHDOT, LS_SOLID, LS_DASHDOT, LS_DASH, LS_SOLID, LS_DOT, LS_DASH, LS_DOT, LS_DASHDOT};
 static inline RGBA withA(RGBA c, float a) { c.a = a; return c; }
 static inline RGBA mulA(RGBA c, float k) { c.a *= k; return c; }
 
@@ -200,6 +259,26 @@ static void roundLine(float x, float y, float w, float h, float r, RGBA c) {
 }
 // панель/рамка: заливка + контур 1 px
 static void boxPanel(float x, float y, float w, float h, RGBA fill, RGBA line) { rectFill(x, y, w, h, fill); rectLine(x, y, w, h, line); }
+// ---- тип линии (монохромная замена цвета ряда): сплошная, штрих 8/8, точки 2/2, штрих-пунктир 7/3/2/4 (масштаб — uiScale)
+static void lineStyle(int s) {
+    if (s == LS_SOLID) { glDisable(GL_LINE_STIPPLE); return; }
+    static const GLushort pat[4] = {0xFFFF, 0x00FF, 0x3333, 0x0C7F};
+    glEnable(GL_LINE_STIPPLE); glLineStipple(std::max(1, (int)std::lround(uiScale)), pat[s & 3]);
+}
+// образец линии для легенды: отрезок длиной w на высоте y
+static void styleSample(float x, float y, float w, RGBA c, int s, float lw = 1.3f) {
+    glDisable(GL_TEXTURE_2D); lineStyle(s); glLineWidth(lw); col(c);
+    glBegin(GL_LINES); glVertex2f(x, std::floor(y) + 0.5f); glVertex2f(x + w, std::floor(y) + 0.5f); glEnd();
+    glLineWidth(1); lineStyle(LS_SOLID);
+}
+// ---- состояние значения (вместо янтарного / красного текста): VS_WARN — светлая плашка под белым текстом,
+//      VS_ERR — инверсия (белая плашка, чёрный текст). Плашка рисуется до текста, цвет текста — stateInk().
+enum { VS_OK, VS_WARN, VS_ERR };
+static void statePlate(float x, float y, float w, float h, int st) {
+    if (st == VS_WARN) { rectFill(x, y, w, h, C_WARN_BG); rectFill(x, y, uiPx(2), h, C_WARN); }
+    else if (st == VS_ERR) rectFill(x, y, w, h, C_ERR);
+}
+static inline RGBA stateInk(int st, RGBA normal) { return st == VS_ERR ? C_ERR_INK : st == VS_WARN ? C_WARN : normal; }
 static float textW(const Font& f, const std::string& s) {
     float w = 0; for (uint32_t c : utf8(s)) { auto it = f.g.find(c); w += it == f.g.end() ? f.h * 0.5f : it->second.adv; } return w;
 }
@@ -550,6 +629,7 @@ static void trailsRecord() {
 
 static std::vector<float> vb;   // x y u v r g b a
 static inline void quadUV(float x, float y, float R, float r, float g, float b, float a, float u0 = 0, float u1 = 1) {
+    monoFix(r, g, b, "quadUV (цвет вершин)");
     float d[4][4] = {{x - R, y - R, u0, 0}, {x + R, y - R, u1, 0}, {x + R, y + R, u1, 1}, {x - R, y + R, u0, 1}};
     for (auto& v : d) { vb.push_back(v[0]); vb.push_back(v[1]); vb.push_back(v[2]); vb.push_back(v[3]); vb.push_back(r); vb.push_back(g); vb.push_back(b); vb.push_back(a); }
 }
@@ -558,6 +638,7 @@ static inline void quadAtom(float x, float y, float R, float r, float g, float b
 static inline void quadSpec(float x, float y, float R, float a) { quadUV(x, y, R, 1, 1, 1, a, 0.5f, 1.0f); }
 // толстая линия как четырёхугольник (для связей в 3D): поперёк связи — полоса шара, получается объёмный «цилиндр»
 static inline void segQuad(float x1, float y1, float x2, float y2, float w, float r, float g, float b, float a) {
+    monoFix(r, g, b, "segQuad (цвет вершин)");
     float dx = x2 - x1, dy = y2 - y1, l = std::sqrt(dx * dx + dy * dy); if (l < 0.5f) return;
     float nx = -dy / l * w * 0.5f, ny = dx / l * w * 0.5f;
     float d[4][4] = {{x1 + nx, y1 + ny, 0.25f, 0.2f}, {x2 + nx, y2 + ny, 0.25f, 0.2f}, {x2 - nx, y2 - ny, 0.25f, 0.8f}, {x1 - nx, y1 - ny, 0.25f, 0.8f}};
@@ -642,7 +723,7 @@ static void drawLegendAndScale(double emin, double emax);
 
 // ---- объекты поля на сцене: зона (под атомами) и значок/ручки (поверх атомов)
 static RGBA foColor(const FieldObj& o, int idx) {
-    RGBA c = o.kind == FO_HEATER ? C_WARN : o.kind == FO_COOLER ? C_COLD : hexc(0xD6DCE3);
+    RGBA c = o.kind == FO_HEATER ? C_HOT : o.kind == FO_COOLER ? C_COLD : hexc(0xD6D6D6);   // нагреватель — белый, охладитель — серый
     if (idx == selFieldObj) c = C_ACC;
     if (!o.on) c.a *= 0.45f;
     return c;
@@ -824,17 +905,19 @@ static void drawScene() {
         double c[4][2] = {{0, 0}, {S.Lx, 0}, {S.Lx, S.Ly}, {0, S.Ly}};
         for (auto& p : c) { project(p[0], p[1], 0, a, b, dd, s); glVertex2f(std::floor(a) + 0.5f, std::floor(b) + 0.5f); } glEnd(); }
     glDisable(GL_LINE_STIPPLE);
-    // тепловые стенки: горячая — янтарная, холодная — голубая
+    // тепловые стенки: горячая — белая сплошная толстая линия, холодная — серый пунктир
     if (P.heatWalls && !isPer()) {
-        glLineWidth(2.0f); glBegin(GL_LINES);
         double Z = d3 ? S.Lz : 0;
+        glLineWidth(2.5f); col(withA(C_HOT, 0.9f)); glBegin(GL_LINES);
+        if (P.heatWalls == 1) { line3(0, 0, 0, 0, S.Ly, 0); if (d3) { line3(0, 0, Z, 0, S.Ly, Z); line3(0, 0, 0, 0, 0, Z); line3(0, S.Ly, 0, 0, S.Ly, Z); } }
+        else { line3(0, 0, 0, S.Lx, 0, 0); if (d3) { line3(0, 0, Z, S.Lx, 0, Z); line3(0, 0, 0, 0, 0, Z); line3(S.Lx, 0, 0, S.Lx, 0, Z); } }
+        glEnd();
         if (P.heatWalls == 1) {
-            col(withA(C_WARN, 0.8f)); line3(0, 0, 0, 0, S.Ly, 0); if (d3) { line3(0, 0, Z, 0, S.Ly, Z); line3(0, 0, 0, 0, 0, Z); line3(0, S.Ly, 0, 0, S.Ly, Z); }
-            col(withA(C_COLD, 0.8f)); line3(S.Lx, 0, 0, S.Lx, S.Ly, 0); if (d3) { line3(S.Lx, 0, Z, S.Lx, S.Ly, Z); line3(S.Lx, 0, 0, S.Lx, 0, Z); line3(S.Lx, S.Ly, 0, S.Lx, S.Ly, Z); }
-        } else {
-            col(withA(C_WARN, 0.8f)); line3(0, 0, 0, S.Lx, 0, 0); if (d3) { line3(0, 0, Z, S.Lx, 0, Z); line3(0, 0, 0, 0, 0, Z); line3(S.Lx, 0, 0, S.Lx, 0, Z); }
+            glLineWidth(2.0f); lineStyle(LS_DASH); col(withA(C_COLD, 0.9f)); glBegin(GL_LINES);
+            line3(S.Lx, 0, 0, S.Lx, S.Ly, 0); if (d3) { line3(S.Lx, 0, Z, S.Lx, S.Ly, Z); line3(S.Lx, 0, 0, S.Lx, 0, Z); line3(S.Lx, S.Ly, 0, S.Lx, S.Ly, Z); }
+            glEnd(); lineStyle(LS_SOLID);
         }
-        glEnd(); glLineWidth(1.0f);
+        glLineWidth(1.0f);
     }
     // поршень
     if (P.boundary == B_PISTON) {
@@ -842,13 +925,13 @@ static void drawScene() {
             float p[4][2]; float dd, s; double Z = S.Lz;
             double c[4][3] = {{0, S.Ly, 0}, {S.Lx, S.Ly, 0}, {S.Lx, S.Ly, Z}, {0, S.Ly, Z}};
             bool ok = true; for (int k = 0; k < 4; k++) ok &= project(c[k][0], c[k][1], c[k][2], p[k][0], p[k][1], dd, s);
-            if (ok) { glColor4f(0.8f, 0.84f, 0.9f, 0.1f); glBegin(GL_QUADS); for (auto& q : p) glVertex2f(q[0], q[1]); glEnd();
-                      glColor4f(0.8f, 0.84f, 0.9f, 0.75f); glBegin(GL_LINE_LOOP); for (auto& q : p) glVertex2f(q[0], q[1]); glEnd(); }
+            if (ok) { col(grayc(0.84f, 0.1f)); glBegin(GL_QUADS); for (auto& q : p) glVertex2f(q[0], q[1]); glEnd();
+                      col(grayc(0.84f, 0.75f)); glBegin(GL_LINE_LOOP); for (auto& q : p) glVertex2f(q[0], q[1]); glEnd(); }
         } else {
             float a0, b0, a1, b1, dd, s; project(0, S.Ly, 0, a0, b0, dd, s); project(S.Lx, S.Ly, 0, a1, b1, dd, s);
-            glColor4f(0.8f, 0.84f, 0.9f, pistonGrab ? 0.9f : 0.6f);
+            col(grayc(0.84f, pistonGrab ? 0.9f : 0.6f));
             glBegin(GL_QUADS); glVertex2f(a0, b0 - 5); glVertex2f(a1, b0 - 5); glVertex2f(a1, b0); glVertex2f(a0, b0); glEnd();
-            glColor4f(0.8f, 0.84f, 0.9f, 0.3f); glBegin(GL_LINES); glVertex2f((a0 + a1) / 2, b0 - 5); glVertex2f((a0 + a1) / 2, b0 - 40); glEnd();
+            col(grayc(0.84f, 0.3f)); glBegin(GL_LINES); glVertex2f((a0 + a1) / 2, b0 - 5); glVertex2f((a0 + a1) / 2, b0 - 40); glEnd();
         }
     }
     // катализатор: пунктирная окружность
@@ -856,15 +939,15 @@ static void drawScene() {
         float cx, cy, dd, s;
         if (project(P.catX, P.catY, P.catZ, cx, cy, dd, s)) {
             float R = (float)(P.catR * s);
-            glColor4f(0.72f, 0.6f, 0.95f, 0.05f); discPx(cx, cy, R, 48);
-            glColor4f(0.72f, 0.6f, 0.95f, 0.6f); glEnable(GL_LINE_SMOOTH); dashedCircle(cx, cy, R); glDisable(GL_LINE_SMOOTH);
-            drawText(fontXS, cx + R * 0.72f, cy - R * 0.72f - fontXS.h, "катализатор", {0.72f, 0.6f, 0.95f, 0.8f});
+            col(grayc(0.8f, 0.05f)); discPx(cx, cy, R, 48);
+            col(grayc(0.8f, 0.6f)); glEnable(GL_LINE_SMOOTH); dashedCircle(cx, cy, R); circlePx(cx, cy, R - uiPx(3), 96); glDisable(GL_LINE_SMOOTH);
+            drawText(fontXS, cx + R * 0.72f, cy - R * 0.72f - fontXS.h, "катализатор", grayc(0.8f, 0.85f));
         }
     }
     // электрическое поле: полупрозрачные стрелки вдоль x через среднюю плоскость ящика
     if (P.efield != 0) {
         float a = (float)clampv(0.1 + 0.08 * std::fabs(P.efield), 0.12, 0.3), sgn = P.efield > 0 ? 1.0f : -1.0f;
-        glColor4f(0.85f, 0.88f, 0.92f, a); glEnable(GL_LINE_SMOOTH);
+        col(grayc(0.88f, a)); glEnable(GL_LINE_SMOOTH);
         const int rows = 5, colsA = 6; double zm = d3 ? S.Lz / 2 : 0;
         glBegin(GL_LINES);
         for (int r = 1; r <= rows; r++) for (int c = 0; c < colsA; c++) {
@@ -890,6 +973,7 @@ static void drawScene() {
     // --- следы
     if (trailsOn && trailCount > 1 && n > 0 && trailN == n) {
         size_t m = trailIdx.size(); glLineWidth(1.0f);
+        MonoAtoms atomsColored;   // следы — цветом атома
         glBegin(GL_LINES);
         for (size_t k = 0; k < m; k++) {
             int ai = trailIdx[k]; if (ai >= n) continue;
@@ -912,6 +996,15 @@ static void drawScene() {
     }
     flushQuads(texGlow);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // поглощение энергии (эндотермическое событие): вместо яркого пятна — сжимающееся серое кольцо
+    glEnable(GL_LINE_SMOOTH);
+    for (auto& fl : flashes) {
+        if (fl.r > 0.9f) continue;
+        float sx, sy, dd, s; if (!project(fl.x, fl.y, fl.z, sx, sy, dd, s)) continue;
+        float t = fl.age / 0.6f, R = (float)(2.6 - 2.2 * t) * fl.str * s;
+        if (R > 2) { col(withA(C_COLD, (1 - t) * 0.5f)); circlePx(sx, sy, R, 32); }
+    }
+    glDisable(GL_LINE_SMOOTH);
     // --- ядра атомов и связи: в 3D — от дальних к ближним (алгоритм художника), связи — тонкие палочки между шарами
     const bool ballStick = d3 && bondsOn && anyBondable;
     const float coreK = (ballStick ? 0.3f : 0.42f) * (float)atomVis;
@@ -926,14 +1019,14 @@ static void drawScene() {
             int i = it.a; const Element& e = EL[S.ty[i]]; float f = fog(pdep[i]);
             float R = (float)(visSig(S.ty[i]) * (e.fixed ? 0.5 : coreK)) * pscl[i];
             if (e.fixed) f *= 0.8f;
-            quadAtom(psx[i], psy[i], R, cr[i] * f, cg[i] * f, cb[i] * f, 1.0f);
+            { MonoAtoms atomsColored; quadAtom(psx[i], psy[i], R, cr[i] * f, cg[i] * f, cb[i] * f, 1.0f); }   // шар — цветом атома; связи — серые
             if (R > 3.0f && !e.fixed) quadSpec(psx[i], psy[i], R, 0.55f * f);
         } else {
             int i = it.a, j = it.b; double dx, dy, dz; dvec(i, j, dx, dy, dz);
             float x2, y2, dep2, s2; if (!project(S.x[i] + dx, S.y[i] + dy, S.z[i] + dz, x2, y2, dep2, s2)) continue;
             if (std::fabs(x2 - psx[j]) > 2 || std::fabs(y2 - psy[j]) > 2) continue;   // связь через периодическую границу не рисуем
             float f = fog(it.depth); int o = bondOrder(i, j);
-            segQuad(psx[i], psy[i], x2, y2, (0.035f + 0.022f * o) * pscl[i], 0.78f * f, 0.8f * f, 0.84f * f, 1.0f);
+            segQuad(psx[i], psy[i], x2, y2, (0.035f + 0.022f * o) * pscl[i], 0.8f * f, 0.8f * f, 0.8f * f, 1.0f);
         }
     }
     flushQuads(texCore);
@@ -948,7 +1041,7 @@ static void drawScene() {
             float ax, ay, bx, by, dd, s; project(S.x[i], S.y[i], 0, ax, ay, dd, s); project(S.x[i] + dx, S.y[i] + dy, 0, bx, by, dd, s);
             float ex = bx - ax, ey = by - ay, l = std::sqrt(ex * ex + ey * ey); if (l < 1) continue;
             float nx = -ey / l, ny = ex / l; int o = S.bo[i][k];
-            glColor4f(0.9f, 0.92f, 0.95f, 0.55f);
+            col(grayc(0.92f, 0.55f));
             for (int q = 0; q < o; q++) { float off = (q - (o - 1) * 0.5f) * gap; segPx(ax + nx * off, ay + ny * off, bx + nx * off, by + ny * off); }
         }
         glEnd(); glLineWidth(1.0f); glDisable(GL_LINE_SMOOTH);
@@ -960,7 +1053,8 @@ static void drawScene() {
             if (!pvis[i] || std::fabs(S.q[i]) < 0.05) continue;
             float R = (float)(visSig(S.ty[i]) * coreK) * pscl[i] + uiPx(2.5f);
             float a = (float)clampv(0.35 + 0.6 * std::fabs(S.q[i]), 0.35, 0.95);
-            col(S.q[i] > 0 ? withA(C_ERR, a) : withA(C_COLD, a)); circlePx(psx[i], psy[i], R, 20);
+            // «+» — яркое сплошное кольцо, «−» — серое пунктирное (и знак внутри)
+            if (S.q[i] > 0) { col(withA(C_HOT, a)); circlePx(psx[i], psy[i], R, 20); } else { col(withA(C_COLD, a)); dashedCircle(psx[i], psy[i], R); }
             if (R > uiPx(7)) { float h = std::min(R * 0.4f, uiPx(4)); glBegin(GL_LINES); segPx(psx[i] - h, psy[i], psx[i] + h, psy[i]); if (S.q[i] > 0) segPx(psx[i], psy[i] - h, psx[i], psy[i] + h); glEnd(); }
         }
     }
@@ -976,7 +1070,7 @@ static void drawScene() {
             if (layerForce) { // сила: длина ∝ log(1 + |F|), не длиннее 3σ
                 double fx = S.fx[i], fy = S.fy[i], fz = S.fz[i], F = std::sqrt(fx * fx + fy * fy + fz * fz), L = std::min(0.6 * std::log1p(F / 5.0), 3.0);
                 if (F > 1e-6 && L * pscl[i] > 2) { float ex, ey, dd, s; if (project(S.x[i] + fx / F * L, S.y[i] + fy / F * L, S.z[i] + fz / F * L, ex, ey, dd, s)) {
-                    col(withA(C_WARN, 0.75f)); arrowPx(psx[i], psy[i], ex, ey, uiPx(5)); } }
+                    col(withA(C_COLD, 0.9f)); arrowPx(psx[i], psy[i], ex, ey, uiPx(5)); } }   // сила — серая, скорость — белая
             }
         }
         glEnd();
@@ -1005,7 +1099,7 @@ static void drawScene() {
     if (cutHoverA >= 0 && cutHoverA < n && cutHoverB >= 0 && cutHoverB < n && pvis[cutHoverA]) {
         double dx, dy, dz; dvec(cutHoverA, cutHoverB, dx, dy, dz); float bx, by, dd, s;
         if (project(S.x[cutHoverA] + dx, S.y[cutHoverA] + dy, S.z[cutHoverA] + dz, bx, by, dd, s)) {
-            glEnable(GL_LINE_SMOOTH); glLineWidth(2.5f); col(withA(C_WARN, 0.95f)); glBegin(GL_LINES); segPx(psx[cutHoverA], psy[cutHoverA], bx, by); glEnd(); glLineWidth(1); glDisable(GL_LINE_SMOOTH);
+            glEnable(GL_LINE_SMOOTH); glLineWidth(2.5f); col(withA(C_ACC, 0.95f)); glBegin(GL_LINES); segPx(psx[cutHoverA], psy[cutHoverA], bx, by); glEnd(); glLineWidth(1); glDisable(GL_LINE_SMOOTH);
         }
     }
     // значки объектов поля (поверх атомов)
@@ -1014,7 +1108,7 @@ static void drawScene() {
     drawMeasure();
     // --- пинцет
     if (grabbed >= 0 && grabbed < n) {
-        glColor4f(1, 1, 1, 0.6f); glEnable(GL_LINE_STIPPLE); glLineStipple(2, 0x0F0F);
+        col(grayc(1, 0.6f)); glEnable(GL_LINE_STIPPLE); glLineStipple(2, 0x0F0F);
         glBegin(GL_LINES); line3(S.x[grabbed], S.y[grabbed], S.z[grabbed], grabX, grabY, grabZ); glEnd(); glDisable(GL_LINE_STIPPLE);
     }
     // --- «бросок» выделения: стрелка от точки захвата к курсору
@@ -1033,9 +1127,12 @@ static void drawScene() {
         const int tl = lmbTool; const bool brushTool = tl == TOOL_ADD || tl == TOOL_ERASE || tl == TOOL_HEAT || tl == TOOL_COOL || tl == TOOL_PUSH || tl == TOOL_SHOCK;
         if (brushTool || heatBrush) {
             float Rpx = (float)(P.brushR * (tl == TOOL_SHOCK ? 2.5 : 1.0) * pxPerSigma());
-            RGBA bc = heatBrush > 0 || (tl == TOOL_HEAT) ? C_WARN : heatBrush < 0 || tl == TOOL_COOL ? C_COLD : tl == TOOL_ERASE ? C_ERR : hexc(0xD6DCE3);
-            glEnable(GL_LINE_SMOOTH); col(withA(bc, heatBrush ? 0.7f : 0.35f));
-            if (tl == TOOL_SHOCK || tl == TOOL_PUSH) dashedCircle((float)mouseX, (float)mouseY, Rpx); else circlePx((float)mouseX, (float)mouseY, Rpx, 64);
+            // нагрев — яркая сплошная окружность, охлаждение — серый пунктир, ластик — двойная окружность, толчок/удар — пунктир
+            const bool hot = heatBrush > 0 || (!heatBrush && tl == TOOL_HEAT), cold = heatBrush < 0 || (!heatBrush && tl == TOOL_COOL);
+            RGBA bc = hot ? C_HOT : cold ? C_COLD : hexc(0xD6D6D6);
+            glEnable(GL_LINE_SMOOTH); col(withA(bc, heatBrush ? 0.75f : hot ? 0.55f : 0.4f));
+            if (cold || tl == TOOL_SHOCK || tl == TOOL_PUSH) dashedCircle((float)mouseX, (float)mouseY, Rpx); else circlePx((float)mouseX, (float)mouseY, Rpx, 64);
+            if (!hot && !cold && tl == TOOL_ERASE && Rpx > uiPx(6)) circlePx((float)mouseX, (float)mouseY, Rpx - uiPx(3), 64);
             glDisable(GL_LINE_SMOOTH);
         }
     }
@@ -1048,7 +1145,7 @@ static void drawScene() {
             if (mol.size() <= 400) for (int a : mol) {
                 if (a >= n || !pvis[a]) continue;
                 float R = (float)(visSig(S.ty[a]) * coreK) * pscl[a] + uiPx(2);
-                glColor4f(1, 1, 1, a == h ? 0.8f : 0.35f); circlePx(psx[a], psy[a], R, 28);
+                col(grayc(1, a == h ? 0.8f : 0.35f)); circlePx(psx[a], psy[a], R, 28);
             }
         }
         if (followAtom >= 0 && followAtom < n && pvis[followAtom]) {
@@ -1069,7 +1166,7 @@ static void drawLegendAndScale(double emin, double emax) {
     // оси-триада (3D)
     if (d3) {
         float L = uiPx(22), ox = lx0 + L + uiPx(4), oy = by - L - uiPx(4); const char* nm[3] = {"x", "y", "z"};
-        RGBA cc[3] = {hexc(0xD9675A), hexc(0x6CC08B), hexc(0x5AAAE8)};
+        RGBA cc[3] = {grayc(1.0f), grayc(0.72f), grayc(0.48f)};   // оси различаются яркостью и подписями
         glEnable(GL_LINE_SMOOTH);
         for (int k = 0; k < 3; k++) {
             double v[3] = {0, 0, 0}; v[k] = 1;
@@ -1101,6 +1198,7 @@ static void drawLegendAndScale(double emin, double emax) {
     auto bar = [&](const char* title, const std::string& lo, const std::string& hi, std::function<void(float, float&, float&, float&)> cmap) {
         lw = std::max(lw, textW(fontXS, title)); lx = sceneX + sceneW - lw - pad - uiPx(8);
         frame(lx, lw, title);
+        MonoAtoms atomsColored;   // шкала объясняет цвет атомов — цветная
         glDisable(GL_TEXTURE_2D); glBegin(GL_QUADS);
         float y0 = ly - uiPx(9), y1 = ly - uiPx(3);
         for (int k = 0; k < 48; k++) { float r, g, b; cmap(k / 47.0f, r, g, b); float x0 = lx + lw * k / 48, x1 = lx + lw * (k + 1) / 48;
@@ -1114,7 +1212,7 @@ static void drawLegendAndScale(double emin, double emax) {
         float x = sceneX + sceneW - pad - w;
         frame(x, w, title);
         float yy = ly - uiPx(8);
-        for (auto& it : items) { rectFill(x, yy + uiPx(2), uiPx(8), uiPx(8), it.second); x += uiPx(12); x += drawChem(fontXS, x, yy - uiPx(2), it.first, C_TEXT) + uiPx(8); }
+        for (auto& it : items) { { MonoAtoms atomsColored; rectFill(x, yy + uiPx(2), uiPx(8), uiPx(8), it.second); } x += uiPx(12); x += drawChem(fontXS, x, yy - uiPx(2), it.first, C_TEXT) + uiPx(8); }
     };
     if (colorMode == 1) bar("цвет — скорость атома", "медленно", "быстро", velMap);
     else if (colorMode == 2) bar("цвет — потенциальная энергия, ε", fmt("%.1f", emin > 1e29 ? 0.0 : emin), fmt("%.1f", emax < -1e29 ? 0.0 : emax),

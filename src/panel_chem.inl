@@ -84,24 +84,25 @@ static void drawChemPanel(float x, float y, float w, float h) {
         const int nH = chemComp.nH3O, nOH = chemComp.nOH;
         if (!water && nH == 0 && nOH == 0) yy += drawWrapped(fontXS, x, yy, W, "pH определяется для водных растворов (в сцене нет воды). Сцены «Кислота в воде», «Нейтрализация» — меню сцен.", C_DIM) + g;
         else {
-            // шкала 0…14: красный — кислая, зелёный — нейтральная, синий — щелочная
+            // шкала 0…14: от тёмного (кислая) к светлому (щелочная), риски — каждая единица, у 7 — длинная
             const float bw = W, bhh = uiPx(10);
             glDisable(GL_TEXTURE_2D); glBegin(GL_QUADS);
             for (int k = 0; k < 14; k++) {
-                auto cc = [](double p) { float r, gg, b; hsv((float)(0.0 + 0.66 * p / 14.0), 0.55f, 0.85f, r, gg, b); return RGBA{r, gg, b, 0.9f}; };
+                auto cc = [](double p) { return grayc((float)(0.18 + 0.72 * p / 14.0), 0.95f); };
                 RGBA c0 = cc(k), c1 = cc(k + 1); float x0 = x + bw * k / 14, x1 = x + bw * (k + 1) / 14;
                 glColor4f(c0.r, c0.g, c0.b, c0.a); glVertex2f(x0, yy); glColor4f(c1.r, c1.g, c1.b, c1.a); glVertex2f(x1, yy);
                 glVertex2f(x1, yy + bhh); glColor4f(c0.r, c0.g, c0.b, c0.a); glVertex2f(x0, yy + bhh);
             }
             glEnd();
             rectLine(x, yy, bw, bhh, C_LINE);
+            for (int k = 1; k < 14; k++) lineV(x + bw * k / 14, yy + (k == 7 ? 0 : bhh - uiPx(3)), yy + bhh, withA(C_PANEL, 0.9f));
             float px = x + bw * (float)clampv(pH, 0.0, 14.0) / 14;
-            rectFill(px - uiPx(1), yy - uiPx(3), uiPx(3), bhh + uiPx(6), C_TEXT_HI);
+            rectFill(px - uiPx(2), yy - uiPx(3), uiPx(5), bhh + uiPx(6), C_SCENE); rectFill(px - uiPx(1), yy - uiPx(3), uiPx(3), bhh + uiPx(6), C_TEXT_HI);
             yy += bhh + uiPx(2);
             drawText(fontXS, x, yy, "0", C_FAINT); drawTextC(fontXS, x + bw / 2, yy, "7", C_FAINT); drawTextR(fontXS, x + bw, yy, "14", C_FAINT);
             yy += fontXS.h + uiPx(3);
             std::string kind = pH < 6.5 ? "кислая среда" : pH > 7.5 ? "щелочная среда" : "нейтральная";
-            kv("pH", nH == nOH ? std::string("7.0") : fmt("%.2f", pH), kind, pH < 6.5 ? C_ERR : pH > 7.5 ? C_ACC : C_TEXT_HI);
+            kv("pH", nH == nOH ? std::string("7.0") : fmt("%.2f", pH), kind, C_TEXT_HI);
             kv("H3O+", fmt("%d", nH), fmt("%.3g моль/л", molPerL(nH)));
             kv("OH−", fmt("%d", nOH), fmt("%.3g моль/л", molPerL(nOH)));
             kv("вода", fmt("%d", chemComp.nWater), fmt("%.1f моль/л · V = %.3g л", molPerL(chemComp.nWater), boxLiters()));
@@ -172,7 +173,7 @@ static void drawChemPanel(float x, float y, float w, float h) {
             if (uiButton(1300 + q, x, yy, W, rowH, "", sel, false, "Выбрать реакцию: её константа скорости и K — ниже")) chemSelEq = eq;
             pushClip(x + uiPx(4), yy, W - uiPx(8), rowH);
             drawEquation(fontXS, x + uiPx(6), yy + uiPx(2), eq, sel ? C_TEXT_HI : C_TEXT);
-            RGBA hc = st.dH < 0 ? C_WARN : C_COLD;
+            RGBA hc = st.dH < 0 ? C_HOT : C_COLD;   // экзо — ярко, эндо — приглушённо
             float lx = x + uiPx(6), ly = yy + uiPx(3) + fontXS.h;
             lx += drawText(fontXS, lx, ly, fmt("×%lld", st.count), C_ACC) + uiPx(10);
             lx += drawText(fontXS, lx, ly, fmt("ΔH %+.0f кДж/моль (%+.2f эВ)", rxKJ(st.dH), rxEV(st.dH)), hc) + uiPx(10);

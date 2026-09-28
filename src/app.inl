@@ -735,24 +735,26 @@ static void renderFrame(double frameDt) {
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     hotId = -1;
     uiModal = ptOn || menuOn;
-    drawScene();
+    monoCtx = "сцена"; drawScene();
     pushClip(sceneX, sceneY, sceneW, sceneH); drawRingsFx(); popClip();
-    drawSceneOverlay();
+    monoCtx = "надписи сцены"; drawSceneOverlay();
     if (shotPending == 1) { doCapture(1); shotPending = 0; }   // снимок сцены: без панелей, подсказок и уведомлений
     recordFrame();
-    drawTopBar();
-    drawToolbar(0, sceneY, L_toolW, winH - sceneY - L_statusH);
-    drawPaletteStrip(sceneX, sceneY + sceneH, sceneW, L_stripH);
+    monoCtx = "верхняя панель"; drawTopBar();
+    monoCtx = "инструменты"; drawToolbar(0, sceneY, L_toolW, winH - sceneY - L_statusH);
+    monoCtx = "палитра веществ"; drawPaletteStrip(sceneX, sceneY + sceneH, sceneW, L_stripH);
+    monoCtx = "боковая панель";
     if (graphsOn && L_sideW > 0) drawSidePanel(sceneX + sceneW, sceneY, winW - sceneX - sceneW, winH - sceneY - L_statusH);
-    drawStatusBar(0, winH - L_statusH, (float)winW, L_statusH);
-    drawFoFlyout();
+    monoCtx = "строка состояния"; drawStatusBar(0, winH - L_statusH, (float)winW, L_statusH);
+    monoCtx = "объекты поля (выбор)"; drawFoFlyout();
     uiModal = false;
-    drawToast();
-    if (!ptOn && !menuOn && !overSceneUI(mouseX, mouseY)) drawTooltip();
-    if (helpOn) drawHelp();
-    if (ptOn) drawPeriodicTable();
-    if (menuOn) drawScenesMenu();
-    drawHint(frameDt);
+    monoCtx = "уведомление"; drawToast();
+    monoCtx = "подсказка атома"; if (!ptOn && !menuOn && !overSceneUI(mouseX, mouseY)) drawTooltip();
+    monoCtx = "справка"; if (helpOn) drawHelp();
+    monoCtx = "таблица Менделеева"; if (ptOn) drawPeriodicTable();
+    monoCtx = "меню сцен"; if (menuOn) drawScenesMenu();
+    monoCtx = "всплывающая подсказка"; drawHint(frameDt);
+    monoCtx = "";
     if (shotPending == 2) { doCapture(2); shotPending = 0; }
 }
 
@@ -1238,6 +1240,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         fclose(f); return 0;
     }
     SetProcessDPIAware();
+    // --monocheck: записывать цвета с оттенком вне белого списка атомов в mono_violations.log; grayatoms — атомы тоже серые (отладка)
+    monoCheck = cmd && wcsstr(cmd, L"--monocheck"); monoGrayAtoms = cmd && wcsstr(cmd, L"grayatoms");
+    if (monoCheck) if (FILE* fp = fopen("mono_violations.log", "w")) fclose(fp);
     initBondTable(); initKlm(); initPalette();
     WNDCLASSEXW wc = {}; wc.cbSize = sizeof(wc); wc.style = CS_OWNDC | CS_DBLCLKS; wc.lpfnWndProc = WndProc; wc.hInstance = hInst;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW); wc.lpszClassName = L"AtomsSim";
