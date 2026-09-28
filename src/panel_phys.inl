@@ -91,7 +91,7 @@ static void drawPhysPanel(float x, float y, float w, float h) {
         float cw = W / 3;
         for (int k = 0; k < 3; k++) {
             rectFill(x + k * cw, yy + uiPx(4), uiPx(8), uiPx(8), PHASE_C[k]);
-            drawText(fontXS, x + k * cw + uiPx(12), yy + uiPx(1), fmt("%s %.0f%%", PH_NAMES[k], 100 * phaseFrac[k]), C_TEXT);
+            drawText(fontXS, x + k * cw + uiPx(12), yy + uiPx(1), fmt("%s %.0f%%", T(PH_NAMES[k]), 100 * phaseFrac[k]), C_TEXT);
         }
         yy += rh + uiPx(2);
         kv("состояние", A::phase);

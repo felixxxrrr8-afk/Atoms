@@ -185,40 +185,42 @@ static void uiSection(float x, float& y, float w, const std::string& title) {
     lineH(x + tw + uiPx(8), x + w, y + fontUB.h * 0.55f, C_LINE);
     y += fontUB.h + uiPx(4);
 }
-// многострочный текст с переносом по словам; возвращает высоту
-static float drawWrapped(const Font& f, float x, float y, float w, const std::string& s, RGBA c, float lineH_ = 0) {
+// многострочный текст с переносом по словам (текст переводится целиком до переноса); возвращает высоту
+static float drawWrapped(const Font& f, float x, float y, float w, std::string_view s0, RGBA c, float lineH_ = 0) {
+    const std::string_view s = Tsv(s0, "drawWrapped");
     float lh = lineH_ > 0 ? lineH_ : f.h + uiPx(1), yy = y;
     size_t p = 0;
     while (p <= s.size()) {
-        size_t nl = s.find('\n', p); if (nl == std::string::npos) nl = s.size();
-        std::string para = s.substr(p, nl - p), line;
+        size_t nl = s.find('\n', p); if (nl == std::string_view::npos) nl = s.size();
+        std::string_view para = s.substr(p, nl - p); std::string line;
         size_t q = 0;
         while (q <= para.size()) {
-            size_t sp = para.find(' ', q); if (sp == std::string::npos) sp = para.size();
-            std::string word = para.substr(q, sp - q), cand = line.empty() ? word : line + " " + word;
-            if (!line.empty() && textW(f, cand) > w) { drawText(f, x, yy, line, c); yy += lh; line = word; } else line = cand;
+            size_t sp = para.find(' ', q); if (sp == std::string_view::npos) sp = para.size();
+            std::string word(para.substr(q, sp - q)), cand = line.empty() ? word : line + " " + word;
+            if (!line.empty() && textWRaw(f, cand) > w) { drawTextRaw(f, x, yy, line, c); yy += lh; line = word; } else line = cand;
             q = sp + 1;
         }
-        drawText(f, x, yy, line, c); yy += lh;
+        drawTextRaw(f, x, yy, line, c); yy += lh;
         p = nl + 1;
     }
     return yy - y;
 }
-// всплывающая подсказка (рисуется последней)
+// всплывающая подсказка (рисуется последней; текст переводится целиком, затем делится на строки)
 static void drawHint(double frameDt) {
     if (hotId != hintShownId) { hintShownId = hotId; hintTime = 0; }
     else hintTime += frameDt;
     if (hotId < 0 || hotHint.empty() || hintTime < 0.45 || ui.down) return;
-    std::vector<std::string> L; size_t s = 0;
-    for (size_t k = 0; k <= hotHint.size(); k++) if (k == hotHint.size() || hotHint[k] == '\n') { L.push_back(hotHint.substr(s, k - s)); s = k + 1; }
-    float w = 0; for (size_t k = 0; k < L.size(); k++) w = std::max(w, textW(k == 0 && L.size() > 1 ? fontUB : fontU, L[k]));
+    const std::string_view hh = Tsv(hotHint, "drawHint");
+    std::vector<std::string_view> L; size_t s = 0;
+    for (size_t k = 0; k <= hh.size(); k++) if (k == hh.size() || hh[k] == '\n') { L.push_back(hh.substr(s, k - s)); s = k + 1; }
+    float w = 0; for (size_t k = 0; k < L.size(); k++) w = std::max(w, textWRaw(k == 0 && L.size() > 1 ? fontUB : fontU, L[k]));
     float lh = fontU.h + uiPx(2), h = L.size() * lh + uiPx(10), x = (float)ui.mx + uiPx(14), y = (float)ui.my + uiPx(20);
     if (x + w + uiPx(20) > winW) x = winW - w - uiPx(24);
     if (y + h > winH - uiPx(4)) y = (float)ui.my - h - uiPx(10);
     float a = (float)std::min(1.0, (hintTime - 0.45) * 6);
     boxPanel(x, y, w + uiPx(18), h, withA(C_PANEL2, 0.97f * a), withA(C_LINE_H, a));
     rectFill(x, y, uiPx(2), h, withA(C_ACC, 0.8f * a));
-    for (size_t k = 0; k < L.size(); k++) drawText(k == 0 && L.size() > 1 ? fontUB : fontU, x + uiPx(10), y + uiPx(5) + k * lh, L[k], withA(k == 0 ? C_TEXT_HI : C_TEXT, a));
+    for (size_t k = 0; k < L.size(); k++) drawTextRaw(k == 0 && L.size() > 1 ? fontUB : fontU, x + uiPx(10), y + uiPx(5) + k * lh, L[k], withA(k == 0 ? C_TEXT_HI : C_TEXT, a));
 }
 
 // ===================================== ГРАФИКИ ===========================================
@@ -672,7 +674,7 @@ static void selChangeElement(int t) {
     for (int i : selList) updateCharge(i);
     updatePresence(); nlValid = false; userEnd();
     showToast(skipped ? fmt("Элемент %s: заменено %d, пропущено %d (не помещаются)", EL[t].sym, (int)ok.size(), skipped)
-                      : fmt("Элемент выделенных атомов: %s — %s", EL[t].sym, EL[t].name));
+                      : fmt("Элемент выделенных атомов: %s — %s", EL[t].sym, T(EL[t].name)));
 }
 // буфер обмена атомов: относительные координаты, скорости, связи, закрепление
 struct ClipAtom { int t; double x, y, z, vx, vy, vz; unsigned char pin; };
@@ -866,7 +868,7 @@ static int foCreate(int kind, const double* p, const double* q, bool dragged) {
     }
     foEditBegin(); fieldObjs.push_back(o); foEditEnd();
     selFieldObj = (int)fieldObjs.size() - 1;
-    showToast(fmt("Объект поля: %s. Колесо — радиус, Shift+колесо — сила, N — вкл/выкл, Del — удалить", FO_NAMES[kind]));
+    showToast(fmt("Объект поля: %s. Колесо — радиус, Shift+колесо — сила, N — вкл/выкл, Del — удалить", T(FO_NAMES[kind])));
     return selFieldObj;
 }
 // колесо над объектом: радиус (или сила с Shift)
@@ -915,7 +917,7 @@ static const char* TOOL_STATUS[TOOL_N] = {
     "ЛКМ — поставить/двигать · колесо — R · Shift+колесо — сила · N — вкл/выкл · Del/ПКМ — удалить"};
 static void setTool(int t) {
     t = clampv(t, 0, TOOL_N - 1); lmbTool = t;
-    showToast(std::string("Инструмент: ") + TOOL_NAMES[t]);
+    showToast(std::string(T("Инструмент: ")) + T(TOOL_NAMES[t]));
 }
 
 // ===================================== ВЕРХНЯЯ ПАНЕЛЬ =======================================
@@ -923,6 +925,7 @@ static double fps = 60;
 static void advanceFlashes(float dt);   // app.inl (вспышки реакций и кольца ударной волны)
 static void saveScreenshot(bool sceneOnly); static void toggleRecording(); static bool recording = false; static int recFrames = 0;
 static void cmdSave(); static void cmdLoad(); static void cmdReset(); static void cmdUndo();
+static void setLanguage(int l);   // app.inl: язык интерфейса на лету (RU | EN, Ctrl+L)
 static void drawTopBar() {
     const float H = sceneY;
     rectFill(0, 0, (float)winW, H, C_PANEL); lineH(0, (float)winW, H - 1, C_LINE);
@@ -958,6 +961,13 @@ static void drawTopBar() {
         float w = textW(fontU, "Справка") + uiPx(20);
         if (uiButton(772, x, by, w, bh, "Справка", helpOn, false, "Клавиши и мышь (H)\nF1 — подробная инструкция в браузере")) helpOn = !helpOn;
         x += w + uiPx(8);
+    }
+    sep();
+    {   // RU | EN — язык интерфейса, сегментный переключатель (Ctrl+L)
+        float w = uiPx(34);
+        bool cr = uiButton(773, x, by, w, bh, "RU", LANG == LANG_RU, false, "Русский язык интерфейса (Ctrl+L)\nВыбор запоминается в atoms.ini рядом с atoms.exe"); x += w;
+        bool ce = uiButton(774, x, by, w, bh, "EN", LANG == LANG_EN, false, "Английский язык интерфейса — English (Ctrl+L)\nВыбор запоминается в atoms.ini рядом с atoms.exe"); x += w + uiPx(8);
+        if (cr) setLanguage(LANG_RU); else if (ce) setLanguage(LANG_EN);
     }
     // справа: время модели и частота кадров
     {
@@ -1049,7 +1059,7 @@ static void drawCtrlTab(float x, float y, float w, float h) {
     uiSection(x, yy, W, "Термостат");
     if (uiCycle(200, x, yy, W, bh, "Термостат", TH_NAMES[P.thermostat], P.thermostat != TH_NVE,
                 "Термостат: NVE (энергия сохраняется) → Берендсен → Бусси (канонический)\n→ Ланжевен (трение + шум) → Нозе–Гувер → нагрев постоянной мощностью")) {
-        P.thermostat = nextThermostat(P.thermostat); S.xi = S.eta = 0; resetEnergyRef(); showToast(std::string("Термостат: ") + TH_NAMES[P.thermostat]); }
+        P.thermostat = nextThermostat(P.thermostat); S.xi = S.eta = 0; resetEnergyRef(); showToast(std::string(T("Термостат: ")) + T(TH_NAMES[P.thermostat])); }
     yy += bh + g;
     if (slider(100, "T* цель", &P.Tset, 0.02, 6.0, true, fmt("%.3f · %.0f K", P.Tset, realK(P.Tset)),
                "Температура термостата (ε/k). Справа — пересчёт для аргона.\nКолесо мыши над слайдером — точная подстройка")) { if (P.thermostat == TH_NOSE) resetEnergyRef(); }
@@ -1133,7 +1143,7 @@ static std::vector<std::string> atomInfoLines(int i) {
     std::vector<std::string> L;
     const Element& e = EL[S.ty[i]];
     double v = std::sqrt(S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]);
-    L.push_back(e.Z ? fmt("%s — %s (Z = %d)   #%d", e.sym, e.name, e.Z, i) : fmt("%s — %s   #%d", e.sym, e.name, i));
+    L.push_back(e.Z ? fmt("%s — %s (Z = %d)   #%d", e.sym, T(e.name), e.Z, i) : fmt("%s — %s   #%d", e.sym, T(e.name), i));
     L.push_back(DIM == 3 ? fmt("r = (%.2f, %.2f, %.2f) нм", realNm(S.x[i]), realNm(S.y[i]), realNm(S.z[i])) : fmt("r = (%.2f, %.2f) нм", realNm(S.x[i]), realNm(S.y[i])));
     L.push_back(fmt("v = %.3f σ/τ = %.0f м/с   Eк = %.3f ε", v, v * cfg::U_L_NM / cfg::U_T_PS * 1000, 0.5 * e.m * v * v));
     L.push_back(fmt("Eп = %.3f ε   q = %+.2f e   m = %.2f а.е.м.", S.ep[i], S.q[i], e.m * 10));
@@ -1142,10 +1152,10 @@ static std::vector<std::string> atomInfoLines(int i) {
     if (S.nbc[i]) { std::vector<int> m; moleculeOf(i, m); L.push_back(m.size() < 48 ? fmt("молекула: %s (%d ат.)", molFormula(i).c_str(), (int)m.size()) : fmt("сетка из %d атомов", (int)m.size())); }
     if (isMetalT(S.ty[i])) L.push_back(fmt("металлическая связь: %.0f%% (окислен на %.0f%%)", metalW(i) * 100, (1 - metalW(i)) * 100));
     if (i < (int)A::coord.size()) {
-        if (DIM == 3) L.push_back(fmt("коорд. %d   q̄6 = %.2f  q̄4 = %.2f   %s", A::coord[i], A::ordMag[i], A::ordHue[i], ST_NAMES[A::stype[i]]));
+        if (DIM == 3) L.push_back(fmt("коорд. %d   q̄6 = %.2f  q̄4 = %.2f   %s", A::coord[i], A::ordMag[i], A::ordHue[i], T(ST_NAMES[A::stype[i]])));
         else L.push_back(fmt("коорд. %d   |ψ6| = %.2f", A::coord[i], A::ordMag[i]));
     }
-    if (i < (int)atomPhase.size() && atomPhase.size() == (size_t)S.n) L.push_back(std::string("состояние: ") + PH_NAMES[std::min(3, (int)atomPhase[i])]);
+    if (i < (int)atomPhase.size() && atomPhase.size() == (size_t)S.n) L.push_back(std::string(T("состояние: ")) + T(PH_NAMES[std::min(3, (int)atomPhase[i])]));
     if (isPinned(i)) L.push_back("закреплён (I — открепить)");
     return L;
 }
@@ -1181,7 +1191,7 @@ static void drawObjTab(float x, float y, float w, float h) {
             foSlider(810, oo.kind == FO_BARRIER ? "полуширина пластины R" : "радиус R", &oo.R, 0.3, std::max(1.0, oo.kind == FO_BARRIER ? 1000.0 : std::max({S.Lx, S.Ly, d3 ? S.Lz : 0.0})), true,
                      oo.R >= 1000 ? std::string("∞") : fmt("%.2fσ · %.2f нм", oo.R, realNm(oo.R)), "Радиус действия (колесо над значком объекта)");
         { double lo, hi; foStrengthRange(oo.kind, lo, hi); double s = std::max(lo, std::fabs(oo.strength)), sg = oo.strength < 0 ? -1 : 1;
-          double t = s; if (uiSlider(811, x, yy, W, sh - uiPx(4), "сила A", &t, lo, hi, true, fmt("%.3g %s", oo.strength, FO_UNITS[oo.kind]), "Сила объекта (Shift+колесо над значком)")) { foEditBegin(); oo.strength = sg * t; foEditEnd(); }
+          double t = s; if (uiSlider(811, x, yy, W, sh - uiPx(4), "сила A", &t, lo, hi, true, fmt("%.3g %s", oo.strength, T(FO_UNITS[oo.kind])), "Сила объекта (Shift+колесо над значком)")) { foEditBegin(); oo.strength = sg * t; foEditEnd(); }
           yy += sh;
           if (oo.kind == FO_VORTEX) { if (uiButton(817, x, yy, W, bh, oo.strength >= 0 ? "вращение: против часовой" : "вращение: по часовой", false, false, "Сменить направление вращения")) { oo.strength = -oo.strength; } yy += bh + g; } }
         if (foUsesT(oo.kind)) foSlider(812, oo.kind == FO_EMITTER ? "T испускания" : "T зоны", &oo.Tset, 0.02, 8.0, true, fmt("%.3f · %.0f K", oo.Tset, realK(oo.Tset)), "Температура зоны / скорость испускаемых атомов");
@@ -1297,7 +1307,7 @@ static void drawObjTab(float x, float y, float w, float h) {
     if (fieldObjs.empty()) { yy += drawWrapped(fontXS, x, yy, W, "Нет объектов. Инструмент «Объекты поля» (Alt+F, значок внизу слева): выберите вид и щёлкните в сцене.", C_DIM) + g; }
     for (int k = 0; k < (int)fieldObjs.size() && k < 60; k++) {
         const FieldObj& o = fieldObjs[k];
-        std::string lab = fmt("%d. %s  R %.1f  A %.2g%s", k + 1, FO_NAMES[o.kind], o.R >= 1000 ? 999.0 : o.R, o.strength, o.on ? "" : "  (выкл.)");
+        std::string lab = fmt("%d. %s  R %.1f  A %.2g%s", k + 1, T(FO_NAMES[o.kind]), o.R >= 1000 ? 999.0 : o.R, o.strength, o.on ? "" : T("  (выкл.)"));
         if (uiButton(850 + k, x, yy, W, uiPx(22), lab, k == selFieldObj, false, FO_HINTS[o.kind])) { selFieldObj = k; }
         yy += uiPx(22) + uiPx(2);
     }
@@ -1358,7 +1368,7 @@ static void drawToolbar(float x, float y, float w, float h) {
     float bs = w - uiPx(8), yy = y + uiPx(6);
     for (int t : TOOL_ORDER) {
         if (t < 0) { lineH(x + uiPx(8), x + w - uiPx(8), yy + uiPx(3), C_LINE); yy += uiPx(7); continue; }
-        std::string hint = fmt("%s (%s)\n%s", TOOL_NAMES[t], TOOL_KEY[t], TOOL_HELP[t]);
+        std::string hint = fmt("%s (%s)\n%s", T(TOOL_NAMES[t]), TOOL_KEY[t], T(TOOL_HELP[t]));
         if (uiIconBtn(230 + t, x + uiPx(4), yy, bs, bs, TOOL_ICON[t], lmbTool == t, hint.c_str())) setTool(t);
         yy += bs + uiPx(3);
     }
@@ -1376,7 +1386,7 @@ static void drawFoFlyout() {
     for (int k = 0; k < FO_N; k++) {
         std::string hint = FO_HINTS[k];
         if (uiIconBtn(740 + k, x + uiPx(4), yy, bs, bs, IC_FO0 + k, foKind == k, hint.c_str(), k == FO_HEATER ? C_WARN : k == FO_COOLER ? C_COLD : C_TEXT)) {
-            foKind = k; showToast(std::string("Объект поля: ") + FO_NAMES[k] + " — щёлкните в сцене"); }
+            foKind = k; showToast(std::string(T("Объект поля: ")) + T(FO_NAMES[k]) + T(" — щёлкните в сцене")); }
         yy += bs + uiPx(2);
     }
 }
@@ -1390,9 +1400,9 @@ static void drawPaletteStrip(float x, float y, float w, float h) {
     for (size_t k = 0; k < palette.size(); k++) {
         const Tmpl& m = palette[k]; RGBA sc = {0, 0, 0, 0};
         if (m.a.size() == 1 && !m.tool) { const Element& e = EL[m.a[0].t]; sc = {e.r, e.g, e.b, 1}; }
-        std::string hint = k == 0 ? fmt("%s — %s\nэлемент, выбранный в таблице Менделеева (E)", EL[m.a[0].t].sym, EL[m.a[0].t].name)
+        std::string hint = k == 0 ? fmt("%s — %s\nэлемент, выбранный в таблице Менделеева (E)", EL[m.a[0].t].sym, T(EL[m.a[0].t].name))
                          : m.tool ? std::string("Стена\nЛКМ (инструмент «добавить») рисует перегородку из неподвижных атомов")
-                         : m.a.size() == 1 ? fmt("%s — %s", EL[m.a[0].t].sym, EL[m.a[0].t].name) : "молекула " + m.label;
+                         : m.a.size() == 1 ? fmt("%s — %s", EL[m.a[0].t].sym, T(EL[m.a[0].t].name)) : std::string(T("молекула ")) + T(m.label);
         if (uiButton(300 + (int)k, bx, by, pw, bh, m.label, (int)k == selPal, true, hint.c_str(), sc.a > 0 ? &sc : nullptr, k == 0 && (int)k != selPal)) {
             selPal = (int)k; if (lmbTool != TOOL_ADD && lmbTool != TOOL_FIELD && lmbTool != TOOL_SELECT) lmbTool = TOOL_ADD; }
         bx += pw + uiPx(3);
@@ -1420,9 +1430,9 @@ static void drawStatusBar(float x, float y, float w, float h) {
     xx += drawText(fontUB, xx, y + (h - fontUB.h) / 2, TOOL_NAMES[clampv(lmbTool, 0, TOOL_N - 1)], C_TEXT_HI) + uiPx(10);
     if (physAlertActive()) drawText(fontXS, xx, ty, physAlert, C_WARN);
     else {
-        std::string s = TOOL_STATUS[clampv(lmbTool, 0, TOOL_N - 1)];
-        if (lmbTool == TOOL_FIELD) s = std::string(FO_NAMES[foKind]) + ": " + s;
-        if (lmbTool == TOOL_ADD) s = std::string(palette[selPal].tool ? "стена" : palette[selPal].label) + ": " + s;
+        std::string s = T(TOOL_STATUS[clampv(lmbTool, 0, TOOL_N - 1)]);
+        if (lmbTool == TOOL_FIELD) s = std::string(T(FO_NAMES[foKind])) + ": " + s;
+        if (lmbTool == TOOL_ADD) s = std::string(palette[selPal].tool ? T("стена") : T(palette[selPal].label)) + ": " + s;
         drawText(fontXS, xx, ty, s, C_DIM);
     }
     popClip();
@@ -1431,10 +1441,10 @@ static void drawStatusBar(float x, float y, float w, float h) {
 static void drawSceneOverlay() {
     pushClip(sceneX, sceneY, sceneW, sceneH);
     float x = sceneX + uiPx(12), y = sceneY + uiPx(8);
-    drawText(fontU, x, y, presetTitle, withA(C_TEXT, 0.9f));
-    std::string sub = fmt("%s · %s · %s · ящик %.1f×%.1f%s σ (%.2f×%.2f%s нм)", TH_NAMES[P.thermostat], BD_NAMES[P.boundary], P.chemistry ? "химия вкл." : "химия выкл.",
+    drawText(fontU, x, y, presetLoaded ? std::string(T(presetTitle)) + T("  [загружено]") : presetTitle, withA(C_TEXT, 0.9f));
+    std::string sub = fmt("%s · %s · %s · ящик %.1f×%.1f%s σ (%.2f×%.2f%s нм)", T(TH_NAMES[P.thermostat]), T(BD_NAMES[P.boundary]), T(P.chemistry ? "химия вкл." : "химия выкл."),
                           S.Lx, S.Ly, DIM == 3 ? fmt("×%.1f", S.Lz).c_str() : "", realNm(S.Lx), realNm(S.Ly), DIM == 3 ? fmt("×%.2f", realNm(S.Lz)).c_str() : "");
-    if (DIM == 3) sub += camMode == 1 ? " · камера: полёт (WASD, Q/E)" : "";
+    if (DIM == 3) sub += camMode == 1 ? T(" · камера: полёт (WASD, Q/E)") : "";
     if (DIM == 3 && sliceOn) sub += fmt(" · разрез %+.1fσ (Shift+колесо)", sliceOff);
     drawText(fontXS, x, y + fontU.h + uiPx(1), sub, C_DIM);
     popClip();
@@ -1492,6 +1502,7 @@ static void drawHelp() {
         "U — обратить время   M — сброс MSD   K — катализатор   L — вспышка света   [ ] — сжать/растянуть по x",
         "F12 — снимок сцены (PNG), Shift+F12 — всё окно, Ctrl+F12 — запись кадров;  F11 / Alt+Enter — полный экран",
         "F1 — инструкция   F5/F9 — быстрое сохранение/загрузка   Ctrl+S/Ctrl+O — файл   Ctrl+E — CSV   Ctrl+Z — отмена   Esc — закрыть",
+        "Ctrl+L — язык интерфейса: русский / English (выбор запоминается в atoms.ini)",
         "#СЦЕНЫ (Tab — меню; повторное нажатие — вариант)   ·   E — таблица Менделеева",
         "1 идеальный газ   2 плавление   3 кипение   4 конденсация   5 диффузия   6 NaCl в воде   7 горение   8 броуновское движение",
         "9 закалка / стекло   0 равновесие Cl2 ↔ 2Cl   Shift+1…5 — золото, окисление железа, Na в хлоре, метан, электрофорез",
@@ -1499,7 +1510,8 @@ static void drawHelp() {
     };
     const int nl = (int)(sizeof(lines) / sizeof(lines[0]));
     float lh = fontU.h + uiPx(4), w = 0;
-    for (auto l : lines) w = std::max(w, textW(l[0] == '#' ? fontUB : fontU, l[0] == '#' ? l + 1 : l));
+    // строка переводится целиком (заголовок — вместе с «#», перевод тоже начинается с «#»), затем «#» отбрасывается
+    for (auto l0 : lines) { const char* l = T(l0); w = std::max(w, textW(l[0] == '#' ? fontUB : fontU, l[0] == '#' ? l + 1 : l)); }
     w += uiPx(36); float h = lh * nl + uiPx(56);
     if (w > sceneW - uiPx(20)) w = sceneW - uiPx(20);
     float x = std::floor(sceneX + (sceneW - w) / 2), y = std::floor(sceneY + std::max(uiPx(20), (sceneH - h) / 2));
@@ -1507,9 +1519,9 @@ static void drawHelp() {
     pushClip(x, y, w, h);
     float yy = y + uiPx(14);
     for (int k = 0; k < nl; k++) {
-        bool hdr = lines[k][0] == '#';
+        const char* l = T(lines[k]); bool hdr = l[0] == '#';
         if (hdr && k) yy += uiPx(4);
-        drawText(hdr ? fontUB : fontU, x + uiPx(18), yy, hdr ? lines[k] + 1 : lines[k], hdr ? C_ACC : C_TEXT);
+        drawText(hdr ? fontUB : fontU, x + uiPx(18), yy, hdr ? l + 1 : l, hdr ? C_ACC : C_TEXT);
         yy += lh;
     }
     drawText(fontXS, x + uiPx(18), yy + uiPx(6), "Подробная инструкция с объяснением физики — F1 (ИНСТРУКЦИЯ.html).  H или Esc — закрыть", C_WARN);
@@ -1537,14 +1549,14 @@ static std::string elementModelNote(int t) {
     if (e.cat == CAT_NOB) return fmt("в модели: инертен, только ван-дер-ваальс (LJ: σ = %.2f, ε = %.2f)", e.sig, e.eps);
     if (isMetalT(t)) return fmt("в модели: металлическая связь (многочастичная), E_coh = %.2f эВ; с неметаллами — связи, валентность %d", e.ecoh, e.val);
     std::string s = fmt("в модели: ковалентные связи, валентность %d", e.val);
-    if (multiBonder(e.Z)) s += ", кратные связи";
-    if (t == E_O || t == E_H) s += "; настроенная модель воды (H-связи, тетраэдричность)";
+    if (multiBonder(e.Z)) s += T(", кратные связи");
+    if (t == E_O || t == E_H) s += T("; настроенная модель воды (H-связи, тетраэдричность)");
     return s;
 }
 static void selectElement(int t) {
     setCustomElement(t); selPal = 0; if (lmbTool != TOOL_FIELD && lmbTool != TOOL_SELECT) lmbTool = TOOL_ADD; ptOn = false;
     if (selFieldObj >= 0 && selFieldObj < (int)fieldObjs.size() && fieldObjs[selFieldObj].kind == FO_EMITTER && !EL[t].fixed) fieldObjs[selFieldObj].elem = t;
-    showToast(fmt("Выбран %s — %s. ЛКМ в сцене — добавить атомы", EL[t].sym, EL[t].name));
+    showToast(fmt("Выбран %s — %s. ЛКМ в сцене — добавить атомы", EL[t].sym, T(EL[t].name)));
 }
 static void drawPeriodicTable() {
     float cell = std::floor(std::min((winW - uiPx(60)) / 18.0f, (winH - uiPx(170)) / 10.3f)); cell = clampv(cell, uiPx(30), uiPx(66));
@@ -1598,9 +1610,9 @@ static void drawPeriodicTable() {
             drawText(fontXS, cx + uiPx(12), cy + uiPx(12), std::to_string(z), C_TEXT);
             float tx = cx + bs + uiPx(20), ty = cy + uiPx(8);
             pushClip(tx, cy, cw - bs - uiPx(24), ch);
-            drawText(fontL, tx, ty, fmt("%s — %s", e.sym, e.name), C_TEXT_HI); ty += fontL.h + uiPx(4);
-            drawText(fontU, tx, ty, fmt("%s%s · атомная масса %.3f", CAT_NAMES[d.cat], isRadioactive(z) ? " · радиоактивен" : "", d.mass), cc); ty += fontU.h + uiPx(2);
-            std::string chi = d.chi > 0 ? fmt("χ = %.2f", d.chi) : std::string("χ — нет");
+            drawText(fontL, tx, ty, fmt("%s — %s", e.sym, T(e.name)), C_TEXT_HI); ty += fontL.h + uiPx(4);
+            drawText(fontU, tx, ty, fmt("%s%s · атомная масса %.3f", T(CAT_NAMES[d.cat]), isRadioactive(z) ? T(" · радиоактивен") : "", d.mass), cc); ty += fontU.h + uiPx(2);
+            std::string chi = d.chi > 0 ? fmt("χ = %.2f", d.chi) : std::string(T("χ — нет"));
             drawText(fontU, tx, ty, chi + fmt(" · валентность %d · r_ков = %.2f Å%s", d.val, d.rcov, isMetalT(t) ? fmt(" · r_мет = %.2f Å", d.rsig).c_str() : ""), C_TEXT); ty += fontU.h + uiPx(2);
             if (ty + fontXS.h < cy + ch) drawWrapped(fontXS, tx, ty, cw - bs - uiPx(32), elementModelNote(t), C_DIM);
             popClip();

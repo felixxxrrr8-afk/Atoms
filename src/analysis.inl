@@ -399,7 +399,7 @@ static void detectTransitions() {
     // запись: время, вид перехода, T в начале → в конце перехода
     auto stamp = [&](const PH::Anchor& an, const std::string& what) {
         double T0 = an.set ? an.T : T;
-        return fmt("t=%.1fτ (%.0f пс)  ", S.t, toPs(S.t)) + what + fmt(" при T* %.3f→%.3f (%.0f→%.0f K)", T0, T, toKelvin(T0), toKelvin(T));
+        return fmt("t=%.1fτ (%.0f пс)  ", S.t, toPs(S.t)) + ::T(what) + fmt(" при T* %.3f→%.3f (%.0f→%.0f K)", T0, T, toKelvin(T0), toKelvin(T));
     };
     // ΔH на атом перешедшего вещества по окну перехода за вычетом «явной» теплоты c·ΔT (c ≈ d·k);
     // только если T на этом окне почти постоянна (плато: нагрев постоянной мощностью, поршень, NPT)
@@ -418,7 +418,7 @@ static void detectTransitions() {
         std::string what = s == 0 ? (viaGas ? "сублимация (твёрдое → газ)" : "плавление") : (viaGas ? "десублимация (газ → твёрдое)" : "кристаллизация");
         std::string msg = stamp(PH::aS, what) + fmt(": твёрдое %.0f%% → %.0f%%", 100 * PH::aS.ext, 100 * PH::fs);
         if (L != 0) { msg += fmt(",  ΔH ≈ %+.2f ε/ат (%+.2f кДж/моль)", L, toKJmol(L)); PH::latentS = L; }
-        else msg += " (плато T не выражено — ΔH не оценивается)";
+        else msg += ::T(" (плато T не выражено — ΔH не оценивается)");
         phaseLogAdd(msg); PH::stS = s; PH::aS = PH::Anchor();
     }
     anchorUpd(PH::aS, PH::fs, PH::stS);
@@ -430,7 +430,7 @@ static void detectTransitions() {
         std::string what = g == 1 ? (PH::fs > PH::fl ? "возгонка (твёрдое → газ)" : "кипение / испарение") : "конденсация";
         std::string msg = stamp(PH::aG, what) + fmt(": газ %.0f%% → %.0f%%", 100 * PH::aG.ext, 100 * PH::fg);
         if (L != 0) { msg += fmt(",  ΔH ≈ %+.2f ε/ат (%+.2f кДж/моль)", L, toKJmol(L)); PH::latentG = L; }
-        else msg += " (плато T не выражено — ΔH не оценивается)";
+        else msg += ::T(" (плато T не выражено — ΔH не оценивается)");
         phaseLogAdd(msg); PH::stG = g; PH::aG = PH::Anchor();
     }
     anchorUpd(PH::aG, PH::fg, PH::stG);

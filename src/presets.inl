@@ -19,7 +19,7 @@ static int selPal = 1;
 static inline bool chemStampActive() { return chemStampMol >= 0 && selPal == 0; }
 static bool viewFitPending = true;
 static bool fullscreen = false; static void toggleFullscreen();
-static void showToast(const std::string& s) { toast = s; toastTime = 3.0; }
+static void showToast(const std::string& s) { toast = LANG == LANG_RU ? s : std::string(Tsv(s, "showToast")); toastTime = 3.0; }   // точный литерал переводится
 static void resetMSD();
 static void popUndo() {
     if (undoStack.empty()) return;
@@ -42,7 +42,8 @@ static void finishPreset() {
     wrapAll(); zeroMomentum(); updatePresence(); P.dt = P.dtBase;
     computeForces(); resetEnergyRef(); resetAnalysis(); resetMSD();
 }
-static std::string presetTitle;
+// presetTitle — всегда целый русский литерал (на экран — через перевод); presetLoaded — состояние загружено из файла
+static std::string presetTitle; static bool presetLoaded = false;
 static int presetVariants(int k) {
     if (k == 2) return DIM == 3 ? 6 : 3;
     if (k == 7 || k == 9 || k == 17) return 2;
@@ -106,8 +107,10 @@ static void loadPreset(int k, int variant) {
                 worldReset(L, std::max(L * asp, cw * 1.6), 1, B_PERIODIC);
                 squareLattice2D(E_NA, E_CLM, (S.Lx - cw) / 2, (S.Ly - cw) / 2, nx, ny, a, T0);
             }
-            const char* nm[] = {"гексагональная", "квадратная (неустойчива)", "NaCl (ионная)"};
-            presetTitle = std::string("2 · Плавление: ") + nm[v] + " решётка, нагрев P=const → плато T(t). Повтор 2 — другая решётка";
+            static const char* const t2[] = {"2 · Плавление: гексагональная решётка, нагрев P=const → плато T(t). Повтор 2 — другая решётка",
+                                             "2 · Плавление: квадратная (неустойчива) решётка, нагрев P=const → плато T(t). Повтор 2 — другая решётка",
+                                             "2 · Плавление: NaCl (ионная) решётка, нагрев P=const → плато T(t). Повтор 2 — другая решётка"};
+            presetTitle = t2[clampv(v, 0, 2)];
         } else {
             int kind = v, nx, ny, nz; double a;
             switch (kind) {
@@ -123,8 +126,14 @@ static void loadPreset(int k, int variant) {
             worldReset(L, L, L, B_PERIODIC);
             if (kind == L_ICE) { T0 = 0.05; iceLattice3D((L - cx) / 2, (L - cy) / 2, (L - cz) / 2, nx, ny, nz, a, T0); }
             else lattice3D(kind, kind == L_NACL ? E_NA : E_AR, kind == L_NACL ? E_CLM : -1, 0, (L - cx) / 2, (L - cy) / 2, (L - cz) / 2, nx, ny, nz, a, T0);
-            const char* note = kind == L_BCC ? " (для LJ неустойчива → перестраивается в плотную упаковку)" : kind == L_SC ? " (для LJ неустойчива → коллапс)" : "";
-            presetTitle = std::string("2 · Плавление: ") + LAT_NAMES[kind] + note + ", нагрев P=const → плато T(t). Повтор 2 — ГЦК/ГПУ/ОЦК/ПК/NaCl/лёд";
+            static const char* const t3[] = {   // по L_FCC, L_HCP, L_BCC, L_SC, L_NACL, L_ICE
+                "2 · Плавление: ГЦК, нагрев P=const → плато T(t). Повтор 2 — ГЦК/ГПУ/ОЦК/ПК/NaCl/лёд",
+                "2 · Плавление: ГПУ, нагрев P=const → плато T(t). Повтор 2 — ГЦК/ГПУ/ОЦК/ПК/NaCl/лёд",
+                "2 · Плавление: ОЦК (для LJ неустойчива → перестраивается в плотную упаковку), нагрев P=const → плато T(t). Повтор 2 — ГЦК/ГПУ/ОЦК/ПК/NaCl/лёд",
+                "2 · Плавление: ПК (для LJ неустойчива → коллапс), нагрев P=const → плато T(t). Повтор 2 — ГЦК/ГПУ/ОЦК/ПК/NaCl/лёд",
+                "2 · Плавление: NaCl, нагрев P=const → плато T(t). Повтор 2 — ГЦК/ГПУ/ОЦК/ПК/NaCl/лёд",
+                "2 · Плавление: лёд, нагрев P=const → плато T(t). Повтор 2 — ГЦК/ГПУ/ОЦК/ПК/NaCl/лёд"};
+            presetTitle = t3[clampv(kind, 0, 5)];
         }
         P.Tset = T0; P.thermostat = TH_POWER; P.heatPower = (!d3 && v == 2) || (d3 && v == L_NACL) ? 0.03 : 0.012; colorMode = 3;
         if (d3 && v == L_ICE) { P.heatPower = 0.01; colorMode = 3; }
@@ -230,7 +239,7 @@ static void loadPreset(int k, int variant) {
             }
         }
         P.Tset = 0.05; P.thermostat = TH_POWER; P.heatPower = 0.02; colorMode = 3; P.substeps = 10;
-        presetTitle = "Наночастица золота: металлическая связь (многочастичный потенциал), нагрев → плавление с поверхности"; break; }
+        presetTitle = "Shift+1 · Наночастица золота: металлическая связь (многочастичный потенциал), нагрев → плавление с поверхности"; break; }
     case 12: {  // окисление железа
         int Fe = typeOfZ(26); double d = 2 * EL[Fe].rmet / 3.405;
         if (d3) {
@@ -244,7 +253,7 @@ static void loadPreset(int k, int variant) {
             fillRandom(palette[findPal("O2")], 220, 1, 7 * d + 3, 0, S.Lx - 1, S.Ly - 1, 0, 0.4);
         }
         P.Tset = 0.4; P.tauT = 1.0; P.wallAttr = 0.8; P.eaScale = 0.3; colorMode = 0;
-        presetTitle = "Окисление железа: Fe + O2 → оксид; окисленные атомы теряют металлическую связь (ржавчина отслаивается)"; break; }
+        presetTitle = "Shift+2 · Окисление железа: Fe + O2 → оксид; окисленные атомы теряют металлическую связь (ржавчина отслаивается)"; break; }
     case 13: {  // натрий в хлоре
         int Na = typeOfZ(11); double d = 2 * EL[Na].rmet / 3.405;
         if (d3) {
@@ -258,13 +267,13 @@ static void loadPreset(int k, int variant) {
             fillRandom(palette[findPal("Cl2")], 240, 1, 12 * d + 3, 0, S.Lx - 1, S.Ly - 1, 0, 1.4);
         }
         P.Tset = 1.4; P.tauT = 1.0; colorMode = 0;
-        presetTitle = "Натрий горит в хлоре: 2Na + Cl2 → 2NaCl, ионные пары собираются в кристаллики соли"; break; }
+        presetTitle = "Shift+3 · Натрий горит в хлоре: 2Na + Cl2 → 2NaCl, ионные пары собираются в кристаллики соли"; break; }
     case 14: {  // горение метана
         if (d3) worldReset(26, 26, 26, B_WALLS); else worldReset(70, 70 * asp, 1, B_WALLS);
         P.Tset = 2.4; P.thermostat = TH_BUSSI; P.tauT = 2.0; colorMode = 0;   // слабая связь с «баней»: пламя не гаснет
         fillBox(palette[findPal("CH4")], 170, P.Tset); fillBox(palette[findPal("O2")], 340, P.Tset);
         script.push_back({1.5, 4, false});
-        presetTitle = "Горение метана: CH4 + 2O2 → CO2 + 2H2O (искра через 1.5τ; L — ещё вспышка)"; break; }
+        presetTitle = "Shift+4 · Горение метана: CH4 + 2O2 → CO2 + 2H2O (искра через 1.5τ; L — ещё вспышка)"; break; }
     case 15: {  // электрофорез: ионы в воде в электрическом поле
         int nion;
         if (d3) { worldReset(11, 11, 11, B_PERIODIC); nion = 10; P.substeps = 3; }
@@ -273,7 +282,7 @@ static void loadPreset(int k, int variant) {
         fillBox(palette[findPal("H2O")], (int)((d3 ? 0.55 : 0.64) * boxVolume()), 0.7, 0.0, 0.9);
         P.Tset = 0.7; P.tauT = 1.0; colorMode = 0;
         script.push_back({2.0, 6, false});
-        presetTitle = "Электрофорез: поле E гонит Na+ по полю, Cl- — против; вода поляризуется, ток I — в верхней строке"; break; }
+        presetTitle = "Shift+5 · Электрофорез: поле E гонит Na+ по полю, Cl- — против; вода поляризуется, ток I — в верхней строке"; break; }
     case 16: {  // кислота в воде: HCl ионизуется, протон бегает по воде
         waterBox(10, 40);
         const int na = d3 ? 8 : 12;
@@ -326,9 +335,8 @@ static void loadPreset(int k, int variant) {
         P.Tset = 2.6; S.pistonM = 60; colorMode = 0;
         presetTitle = "0 · Равновесие Cl2 <=> 2Cl: меняйте T и давление поршня — сдвиг по Ле Шателье"; break; }
     }
-    if (k >= 11 && k <= 15) presetTitle = fmt("Shift+%d · ", k - 10) + presetTitle;
     finishPreset();
-    showToast(presetTitle + (d3 ? "   [3D]" : ""));
+    presetLoaded = false; showToast(std::string(T(presetTitle)) + (d3 ? "   [3D]" : ""));
 }
 // заменить случайную молекулу воды частицей по шаблону m (вставка в плотный раствор: место освобождает вода)
 static bool replaceWaterWith(const Tmpl& m) {

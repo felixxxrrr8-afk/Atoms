@@ -8,6 +8,8 @@
 //  Запуск:   atoms.exe                 (D — переключение 2D/3D)
 //            atoms.exe --selftest      — прогон всех пресетов в 2D и 3D без окна, отчёт в selftest.log
 //            atoms.exe --shot K N [3d] [vV] — открыть пресет K (вариант V), отрисовать N кадров, сохранить shot_K.ppm
+//            atoms.exe --lang en       — язык интерфейса ru|en (иначе atoms.ini, затем язык Windows); Ctrl+L — на лету;
+//                                        --langcheck — строки без перевода в режиме EN → lang_missing.log
 //  Инструменты проверки (без окна):
 //            --gradcheck D K N  — сравнить силы с −∇U численным дифференцированием (пресет K, после N шагов)
 //            --evcheck D K N    — баланс энергии каждого химического события и интегратора
@@ -32,7 +34,9 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <array>
 #include <algorithm>
@@ -56,6 +60,7 @@ static const double PI = 3.14159265358979323846;
 // Исходник разбит на модули (единая единица трансляции — порядок включения важен):
 static void drawPhysPanel(float x, float y, float w, float h);   // src/panel_phys.inl
 static void drawChemPanel(float x, float y, float w, float h);   // src/panel_chem.inl
+#include "src/lang.inl"      // язык интерфейса RU/EN: T(), таблица перевода (до core.inl — ею пользуется fmt)
 #include "src/core.inl"
 #include "src/physics.inl"
 #include "src/chemistry.inl"

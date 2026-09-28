@@ -1352,7 +1352,7 @@ static void physGuard(double K, double T) {
         guardRepair();
         P.dt = std::max(P.dtBase / 64, P.dt * 0.5);
         updatePresence(); nlValid = false; computeForces(); resetEnergyRef();
-        physAlert = fmt("Неустойчивость (%s): повреждённые атомы убраны, шаг dt уменьшен до %.4f", why, P.dt);
+        physAlert = fmt("Неустойчивость (%s): повреждённые атомы убраны, шаг dt уменьшен до %.4f", ::T(why), P.dt);
         return;
     }
     PhysSnap sn = guardSnap[k];
@@ -1363,7 +1363,7 @@ static void physGuard(double K, double T) {
     updatePresence();
     P.dt = std::max(P.dtBase / 64, std::min(P.dt, sn.dt) * 0.5);
     nlValid = false; computeForces(); EN.pavgInit = false;
-    physAlert = fmt("Неустойчивость (%s) — откат к t = %.2f, шаг dt уменьшен до %.4f", why, S.t, P.dt);
+    physAlert = fmt("Неустойчивость (%s) — откат к t = %.2f, шаг dt уменьшен до %.4f", ::T(why), S.t, P.dt);
 }
 
 // ===================================== РЕАЛЬНЫЕ ЕДИНИЦЫ ==================================
