@@ -209,7 +209,7 @@ static float drawWrapped(const Font& f, float x, float y, float w, std::string_v
 static void drawHint(double frameDt) {
     if (hotId != hintShownId) { hintShownId = hotId; hintTime = 0; }
     else hintTime += frameDt;
-    if (hotId < 0 || hotHint.empty() || hintTime < 0.45 || ui.down) return;
+    if (!opt.hints || hotId < 0 || hotHint.empty() || hintTime < 0.45 || ui.down) return;
     const std::string_view hh = Tsv(hotHint, "drawHint");
     std::vector<std::string_view> L; size_t s = 0;
     for (size_t k = 0; k <= hh.size(); k++) if (k == hh.size() || hh[k] == '\n') { L.push_back(hh.substr(s, k - s)); s = k + 1; }
@@ -259,9 +259,6 @@ static void axisLabels(const PR& in, double lo, double hi, const char* f = "%.3g
     rectFill(in.x + uiPx(1), in.y + in.h - fontXS.h + uiPx(1), textW(fontXS, b) + uiPx(3), fontXS.h - uiPx(1), withA(C_PANEL2, 0.85f));
     drawText(fontXS, in.x + uiPx(2), in.y - uiPx(1), a, withA(C_DIM, 0.95f));
     drawText(fontXS, in.x + uiPx(2), in.y + in.h - fontXS.h, b, withA(C_DIM, 0.95f));
-}
-static void glowDot(float x, float y, float R, float r, float g, float b, float a) {
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE); vb.clear(); quadUV(x, y, R, r, g, b, a); flushQuads(texGlow); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 static const RGBA* SPC = C_SERIES;   // цвета веществ на графике концентраций
 // уравнение реакции: формулы с индексами, стрелки и плюсы — обычным текстом
@@ -961,8 +958,8 @@ static void drawTopBar() {
     auto sep = [&]() { lineV(x, uiPx(8), H - uiPx(8), C_LINE); x += uiPx(9); };
     sep();
     auto textBtn = [&](int id, const char* label, bool on, const char* hint) { float w = textW(fontU, label) + uiPx(20); bool c = uiButton(id, x, by, w, bh, label, on, false, hint); x += w + uiPx(4); return c; };
-    if (textBtn(220, "Сцены", menuOn, "Сцены (Tab)\nВсе пресеты с описаниями; повторный выбор — следующий вариант")) { menuOn = !menuOn; ptOn = false; }
-    if (textBtn(221, "Таблица", ptOn, "Таблица Менделеева (E)\nВсе 118 элементов: выбрать элемент для добавления, источника, смены элемента")) { ptOn = !ptOn; menuOn = false; }
+    if (textBtn(220, "Сцены", menuOn, "Сцены (Tab)\nВсе пресеты с описаниями; повторный выбор — следующий вариант")) { menuOn = !menuOn; ptOn = settingsOn = false; }
+    if (textBtn(221, "Таблица", ptOn, "Таблица Менделеева (E)\nВсе 118 элементов: выбрать элемент для добавления, источника, смены элемента")) { ptOn = !ptOn; menuOn = settingsOn = false; }
     x += uiPx(5); sep();
     auto ic = [&](int id, int icon, bool on, const char* hint, RGBA tint = C_TEXT) { bool c = uiIconBtn(id, x, by, bh, bh, icon, on, hint, tint); x += bh + uiPx(2); return c; };
     if (ic(209, P.paused ? IC_PLAY : IC_PAUSE, false, P.paused ? "Продолжить (Пробел)" : "Пауза (Пробел)")) P.paused = !P.paused;
@@ -972,16 +969,18 @@ static void drawTopBar() {
     x += uiPx(4); sep();
     if (ic(766, IC_OPEN, false, "Открыть состояние (Ctrl+O)\nF9 — быстрая загрузка")) cmdLoad();
     if (ic(767, IC_SAVE, false, "Сохранить состояние (Ctrl+S)\nF5 — быстрое сохранение")) cmdSave();
-    if (ic(768, IC_SHOT, false, "Снимок сцены в PNG (F12)\nShift+F12 — всё окно; файл — рядом с atoms.exe")) saveScreenshot(!isDown(VK_SHIFT));
-    if (ic(769, IC_REC, recording, recording ? "Остановить запись кадров (Ctrl+F12)" : "Запись серии кадров сцены в PNG (Ctrl+F12)\nПапка «кадры_…» рядом с atoms.exe, каждый 2-й кадр",
+    if (ic(768, IC_SHOT, false, "Снимок сцены в PNG (F12)\nShift+F12 — всё окно. Куда сохранять — в настройках (F8)")) saveScreenshot(!isDown(VK_SHIFT));
+    if (ic(769, IC_REC, recording, recording ? "Остановить запись кадров (Ctrl+F12)" : "Запись серии кадров сцены в PNG (Ctrl+F12)\nПапка «кадры_…»; частота кадров — в настройках (F8)",
            recording ? C_WARN : C_TEXT)) toggleRecording();
     x += uiPx(4); sep();
     if (ic(771, IC_PANEL, graphsOn, "Боковая панель (G)\nСкрыть/показать панель вкладок — сцена на весь экран")) { graphsOn = !graphsOn; viewFitPending = true; }
     {
         float w = textW(fontU, "Справка") + uiPx(20);
         if (uiButton(772, x, by, w, bh, "Справка", helpOn, false, "Клавиши и мышь (H)\nF1 — подробная инструкция в браузере")) helpOn = !helpOn;
-        x += w + uiPx(8);
+        x += w + uiPx(4);
     }
+    if (ic(775, IC_GEAR, settingsOn, "Настройки (F8)\nИнтерфейс, графика, камера, расчёт, файлы")) { settingsOn = !settingsOn; menuOn = ptOn = false; }
+    x += uiPx(6);
     sep();
     {   // RU | EN — язык интерфейса, сегментный переключатель (Ctrl+L)
         float w = uiPx(34);
@@ -990,7 +989,7 @@ static void drawTopBar() {
         if (cr) setLanguage(LANG_RU); else if (ce) setLanguage(LANG_EN);
     }
     // справа: время модели и частота кадров
-    {
+    if (opt.clock) {
         std::string s = fmt("t %.2f пс   шаг %lld   %.0f к/с", realPs(S.t), S.step, fps);
         float w = textW(fontS, s);
         if (winW - uiPx(12) - w > x + uiPx(10)) drawText(fontS, winW - uiPx(12) - w, (H - fontS.h) / 2, s, C_DIM);
@@ -1033,9 +1032,9 @@ static float drawReadouts(float x, float y, float w) {
     cell(1, "dt", fmt("%.4f", P.dt), fmt("τ · %.1f фс", P.dt * cfg::U_T_PS * 1000), C_TEXT_HI, P.dt < P.dtBase * 0.99 ? VS_WARN : VS_OK);
     yy += rh;
     {   // фаза: текст + полоса долей газ/жидкость/твёрдое
-        float cx = x + pad; drawText(fontXS, cx, yy + uiPx(1), "фаза", C_DIM);
-        float tw = drawText(fontU, cx + kw, yy - uiPx(1), A::phase, C_TEXT_HI);
-        float bx = cx + kw + tw + uiPx(10), bw = x + w - pad - bx, bh = uiPx(6), by = yy + rh / 2 - bh / 2;
+        float cx = x + pad, lw = std::max(kw, drawText(fontXS, cx, yy + uiPx(1), "фаза", C_DIM) + uiPx(6));   // «phase» шире, чем «фаза»
+        float tw = drawText(fontU, cx + lw, yy - uiPx(1), A::phase, C_TEXT_HI);
+        float bx = cx + lw + tw + uiPx(10), bw = x + w - pad - bx, bh = uiPx(6), by = yy + rh / 2 - bh / 2;
         double fs = phaseFrac[0] + phaseFrac[1] + phaseFrac[2];
         if (bw > uiPx(40) && fs > 0.01) {
             float xx = bx;
@@ -1381,7 +1380,6 @@ static void drawToolbar(float x, float y, float w, float h) {
         if (uiIconBtn(230 + t, x + uiPx(4), yy, bs, bs, TOOL_ICON[t], lmbTool == t, hint.c_str())) setTool(t);
         yy += bs + uiPx(3);
     }
-    // внизу: быстрые переключатели слоёв «связи» и «сетка»
     (void)h;
 }
 // выбор вида объекта поля (виден при инструменте «объекты поля»): столбец значков у левого края сцены
@@ -1510,7 +1508,7 @@ static void drawHelp() {
         "U — обратить время   M — сброс MSD   K — катализатор   L — вспышка света   [ ] — сжать/растянуть по x",
         "F12 — снимок сцены (PNG), Shift+F12 — всё окно, Ctrl+F12 — запись кадров;  F11 / Alt+Enter — полный экран",
         "F1 — инструкция   F5/F9 — быстрое сохранение/загрузка   Ctrl+S/Ctrl+O — файл   Ctrl+E — CSV   Ctrl+Z — отмена   Esc — закрыть",
-        "Ctrl+L — язык интерфейса: русский / English (выбор запоминается в atoms.ini)",
+        "F8 — настройки (интерфейс, графика, камера, расчёт)   Ctrl+L — язык интерфейса: русский / English",
         "#СЦЕНЫ (Tab — меню; повторное нажатие — вариант)   ·   E — таблица Менделеева",
         "1 идеальный газ   2 плавление   3 кипение   4 конденсация   5 диффузия   6 NaCl в воде   7 горение   8 броуновское движение",
         "9 закалка / стекло   0 равновесие Cl2 ↔ 2Cl   Shift+1…5 — золото, окисление железа, Na в хлоре, метан, электрофорез",

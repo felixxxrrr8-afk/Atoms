@@ -3,7 +3,10 @@ struct Snapshot { Sim s; Params p; std::vector<FieldObj> fo; int selFo = -1; };
 static std::vector<Snapshot> undoStack;
 static void strainX(double s);   // ui.inl
 static void fitView(bool snap);   // render.inl
-static void pushUndo() { undoStack.push_back({S, P, fieldObjs, selFieldObj}); if (undoStack.size() > 20) undoStack.erase(undoStack.begin()); }
+static void pushUndo() {
+    undoStack.push_back({S, P, fieldObjs, selFieldObj});
+    while (undoStack.size() > (size_t)std::max(1, opt.undo)) undoStack.erase(undoStack.begin());
+}
 struct ScriptEv { double t; int action; bool done; };
 static std::vector<ScriptEv> script;
 static int currentPreset = 1, presetVariant = 0;
@@ -20,7 +23,7 @@ static int selPal = 1;
 static inline bool chemStampActive() { return chemStampMol >= 0 && selPal == 0; }
 static bool viewFitPending = true;
 static bool fullscreen = false; static void toggleFullscreen();
-static void showToast(const std::string& s) { toast = LANG == LANG_RU ? s : std::string(Tsv(s, "showToast")); toastTime = 3.0; }   // точный литерал переводится
+static void showToast(const std::string& s) { toast = LANG == LANG_RU ? s : std::string(Tsv(s, "showToast")); toastTime = opt.toastSec; }   // точный литерал переводится
 static void resetMSD();
 static void popUndo() {
     if (undoStack.empty()) return;

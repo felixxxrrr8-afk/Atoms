@@ -18,58 +18,27 @@ static void toggleFullscreen() {   // окно без рамки на весь �
     }
     showToast(fullscreen ? "Полный экран (F11 или Esc — выйти)" : "Оконный режим");
 }
-static std::wstring exeDir() {
-    wchar_t p[MAX_PATH]; DWORD n = GetModuleFileNameW(nullptr, p, MAX_PATH);
-    std::wstring s(p, n); size_t k = s.find_last_of(L"\\/"); return k == std::wstring::npos ? L"." : s.substr(0, k);
-}
-static std::string narrow(const std::wstring& w) {
-    int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
-    std::string s(n, 0); WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &s[0], n, nullptr, nullptr); return s;
-}
-// F1: инструкция на языке интерфейса (MANUAL.html / ИНСТРУКЦИЯ.html); нет её — открывается другая
+// F1: инструкция на языке интерфейса (MANUAL.html / ИНСТРУКЦИЯ.html) рядом с программой или в docs\;
+// нужной нет — открывается другая
 static void openManual() {
     const bool en = LANG == LANG_EN;
-    std::wstring path = exeDir() + (en ? L"\\MANUAL.html" : L"\\ИНСТРУКЦИЯ.html"), alt = exeDir() + (en ? L"\\ИНСТРУКЦИЯ.html" : L"\\MANUAL.html");
     auto exists = [](const std::wstring& p) { return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES; };
+    auto find = [&](const wchar_t* name) {
+        for (const wchar_t* sub : {L"\\", L"\\docs\\", L"\\..\\docs\\"}) { std::wstring p = exeDir() + sub + name; if (exists(p)) return p; }
+        return std::wstring();
+    };
+    std::wstring path = find(en ? L"MANUAL.html" : L"ИНСТРУКЦИЯ.html");
     const char* msg = "Инструкция открыта в браузере";
-    if (!exists(path)) {
-        if (!exists(alt)) { showToast(en ? "Файл MANUAL.html не найден рядом с atoms.exe" : "Файл ИНСТРУКЦИЯ.html не найден рядом с atoms.exe"); return; }
-        path = alt; msg = en ? "Файл MANUAL.html не найден — открыта русская инструкция" : "Файл ИНСТРУКЦИЯ.html не найден — открыта английская инструкция (MANUAL.html)";
+    if (path.empty()) {
+        path = find(en ? L"ИНСТРУКЦИЯ.html" : L"MANUAL.html");
+        if (path.empty()) { showToast(en ? "Файл MANUAL.html не найден рядом с atoms.exe" : "Файл ИНСТРУКЦИЯ.html не найден рядом с atoms.exe"); return; }
+        msg = en ? "Файл MANUAL.html не найден — открыта русская инструкция" : "Файл ИНСТРУКЦИЯ.html не найден — открыта английская инструкция (MANUAL.html)";
     }
     if (!uiTestMode) ShellExecuteW(hwnd, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     showToast(msg);
 }
-// ---- язык интерфейса: atoms.ini рядом с atoms.exe (строка lang=ru|en), по умолчанию — язык Windows
+// ---- язык интерфейса: --lang, затем atoms.ini (lang=ru|en), затем язык Windows
 static const char* WINDOW_TITLE = "Атомы — молекулярная динамика и химия";
-static std::wstring iniPath() { return exeDir() + L"\\atoms.ini"; }
-static bool iniLangLine(const char* p, int* val) {   // «lang = en» (пробелы и BOM допускаются)
-    if (!strncmp(p, "\xEF\xBB\xBF", 3)) p += 3;
-    while (*p == ' ' || *p == '\t') p++;
-    if (_strnicmp(p, "lang", 4)) return false;
-    p += 4; while (*p == ' ' || *p == '\t') p++;
-    if (*p != '=') return false;
-    p++; while (*p == ' ' || *p == '\t') p++;
-    if (val) *val = !_strnicmp(p, "en", 2) ? LANG_EN : !_strnicmp(p, "ru", 2) ? LANG_RU : -1;
-    return true;
-}
-static int langFromIni() {
-    FILE* f = _wfopen(iniPath().c_str(), L"rb"); if (!f) return -1;
-    char line[512]; int r = -1, v;
-    while (fgets(line, sizeof(line), f)) if (iniLangLine(line, &v) && v >= 0) r = v;
-    fclose(f); return r;
-}
-static void langSaveIni(int l) {   // прочие строки файла сохраняются; нет прав на запись — выбор просто не запоминается
-    std::vector<std::string> keep;
-    if (FILE* f = _wfopen(iniPath().c_str(), L"rb")) {
-        char line[512];
-        while (fgets(line, sizeof(line), f)) { std::string s = line; while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back(); if (!iniLangLine(s.c_str(), nullptr) && !s.empty()) keep.push_back(s); }
-        fclose(f);
-    }
-    FILE* f = _wfopen(iniPath().c_str(), L"wb"); if (!f) return;
-    fprintf(f, "lang=%s\r\n", l == LANG_EN ? "en" : "ru");
-    for (auto& s : keep) fprintf(f, "%s\r\n", s.c_str());
-    fclose(f);
-}
 static int langSystemDefault() {   // русский, украинский, белорусский, казахский интерфейс Windows → RU, иначе EN
     switch (PRIMARYLANGID(GetUserDefaultUILanguage())) { case LANG_RUSSIAN: case LANG_UKRAINIAN: case LANG_BELARUSIAN: case LANG_KAZAK: return LANG_RU; }
     return LANG_EN;
@@ -79,7 +48,7 @@ static void setLanguage(int l) {   // переключение на лету: к
     if (l == LANG) return;
     langSet(l);
     if (hwnd) SetWindowTextW(hwnd, TW(WINDOW_TITLE).c_str());
-    if (!uiTestMode) langSaveIni(LANG);
+    opt.lang = LANG; settingsSave();
     showToast(LANG == LANG_EN ? "Language: English" : "Язык: русский");
 }
 
@@ -90,6 +59,7 @@ static void setLanguage(int l) {   // переключение на лету: к
 // Params и FieldObj пишутся с размером: при чтении файла с другим размером берётся общий префикс (новые поля — по умолчанию).
 static const char SAVE_MAGIC[8] = {'A', 'T', 'O', 'M', 'S', 'A', 'V', '2'};
 static void resetAnalysis();
+static bool toastsOff = false;   // сохранение сеанса при выходе — без уведомлений
 static bool saveState(const std::wstring& path, bool quiet) {
     FILE* f = _wfopen(path.c_str(), L"wb"); if (!f) { showToast("Не удалось записать файл"); return false; }
     auto w = [&](const void* p, size_t sz) { if (sz) fwrite(p, 1, sz, f); };
@@ -114,6 +84,7 @@ static bool saveState(const std::wstring& path, bool quiet) {
                        (int32_t)std::lround(toolPower * 1000), selPal, 0, 0, 0};
       chunk("VIEW", sizeof(v)); w(v, sizeof(v)); }
     bool ok = ferror(f) == 0; fclose(f);
+    if (toastsOff) return ok;
     if (!quiet || !ok) showToast(ok ? "Состояние сохранено" : "Ошибка записи файла");
     else showToast("Быстрое сохранение (F9 — загрузить)");
     return ok;
@@ -217,8 +188,8 @@ static void cmdUndo() { popUndo(); clearToolState(); showToast("Отмена"); 
 static void exportCSV() {
     SYSTEMTIME st; GetLocalTime(&st);
     std::string name = fmt("export_%04d%02d%02d_%02d%02d%02d.csv", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-    FILE* f = fopen(name.c_str(), "wb"); if (!f) { showToast("Не удалось создать CSV"); return; }
     const bool en = LANG == LANG_EN; const char sep = en ? ',' : ';';
+    FILE* f = _wfopen((outputDir(en) + L"\\" + widen(name.c_str())).c_str(), L"wb"); if (!f) { showToast("Не удалось создать CSV"); return; }
     auto num = [en](double v) { std::string s = fmt("%.6g", v); if (!en) for (char& c : s) if (c == '.') c = ','; return s; };
     auto cell = [sep](const std::string& s) {
         if (s.find(sep) == std::string::npos && s.find('"') == std::string::npos && s.find('\n') == std::string::npos) return s;
@@ -351,25 +322,33 @@ static void doCapture(int mode) {
     int x = mode == 1 ? (int)sceneX : 0, y = mode == 1 ? (int)sceneY : 0, w = mode == 1 ? (int)sceneW : winW, h = mode == 1 ? (int)sceneH : winH;
     std::vector<unsigned char> px = readRGB(x, y, w, h);
     const bool en = LANG == LANG_EN;   // имена файлов — на языке интерфейса
-    std::wstring name = L"atoms_" + stampName() + (mode == 1 ? (en ? L"_scene.png" : L"_сцена.png") : (en ? L"_window.png" : L"_окно.png")), path = exeDir() + L"\\" + name;
+    std::wstring name = L"atoms_" + stampName() + (mode == 1 ? (en ? L"_scene.png" : L"_сцена.png") : (en ? L"_window.png" : L"_окно.png")), path = outputDir(en) + L"\\" + name;
     bool ok = writePNG(path, w, h, px);
-    showToast(ok ? std::string(T("Снимок: ")) + narrow(name) + T(" (рядом с atoms.exe)") : std::string("Не удалось записать снимок"));
+    showToast(ok ? std::string(T("Снимок: ")) + narrow(name) : std::string("Не удалось записать снимок"));
 }
 static bool recEN = false;   // язык имён кадров текущей записи (выбирается при старте записи)
 static void toggleRecording() {
     if (recording) { recording = false; showToast(fmt("Запись остановлена: %d кадров → ", recFrames) + narrow(recDir.substr(recDir.find_last_of(L"\\/") + 1))); return; }
     recEN = LANG == LANG_EN;
-    recDir = exeDir() + (recEN ? L"\\frames_" : L"\\кадры_") + stampName();
+    recDir = outputDir(recEN) + (recEN ? L"\\frames_" : L"\\кадры_") + stampName();
     if (!CreateDirectoryW(recDir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) { showToast("Не удалось создать папку для кадров"); return; }
     recording = true; recFrames = 0; recTick = 0;
-    showToast("Запись кадров сцены (каждый 2-й кадр, PNG). Ctrl+F12 — остановить");
+    showToast("Запись кадров сцены в PNG. Ctrl+F12 — остановить");
 }
 static void recordFrame() {
-    if (!recording || (++recTick & 1)) return;
+    if (!recording || ++recTick % std::max(1, opt.recStep) != 0) return;
     std::vector<unsigned char> px = readRGB((int)sceneX, (int)sceneY, (int)sceneW, (int)sceneH);
     wchar_t nm[32]; swprintf(nm, 32, recEN ? L"\\frame_%05d.png" : L"\\кадр_%05d.png", recFrames);
     if (writePNG(recDir + nm, (int)sceneW, (int)sceneH, px)) recFrames++;
     if (recFrames >= 20000) toggleRecording();
+}
+
+// --shot … rec=ПАПКА every=K from=F: кадры сцены для анимаций в README (каждый K-й кадр, начиная с F-го)
+static std::wstring clipDir; static int clipEvery = 2, clipFrom = 0, clipCount = 0, clipTick = 0;
+static void clipCapture() {
+    if (clipDir.empty() || ++clipTick <= clipFrom || (clipTick - clipFrom) % clipEvery) return;
+    wchar_t nm[32]; swprintf(nm, 32, L"\\f_%04d.png", clipCount++);
+    writePNG(clipDir + nm, (int)sceneW, (int)sceneH, readRGB((int)sceneX, (int)sceneY, (int)sceneW, (int)sceneH));
 }
 
 // ===================================== КЛАВИАТУРА ==========================================
@@ -400,12 +379,14 @@ static void handleKeys() {
             else if (k == 'L') setLanguage(LANG == LANG_EN ? LANG_RU : LANG_EN);   // язык интерфейса RU/EN
             continue;
         }
+        if (k == VK_F8) { settingsOn = !settingsOn; ptOn = menuOn = helpOn = false; continue; }
+        if (settingsOn) { if (k == VK_ESCAPE) settingsOn = false; continue; }   // пока открыты настройки, клавиши сцены не работают
         if (k >= '0' && k <= '9') {
             int p = k - '0';
             if (shift) { if (p >= 1 && p <= 5) { ptOn = menuOn = false; openScene(10 + p); } continue; }   // Shift+1…5 — новые сцены
             loadPresetKey(p); continue;
         }
-        if (k == VK_TAB) { menuOn = !menuOn; ptOn = false; helpOn = false; continue; }
+        if (k == VK_TAB) { menuOn = !menuOn; ptOn = settingsOn = helpOn = false; continue; }
         if (k == VK_ESCAPE && (ptOn || menuOn)) { ptOn = menuOn = false; continue; }
         if (k == 'E' && !fly) { ptOn = !ptOn; menuOn = false; helpOn = false; continue; }
         if (fly && (k == 'W' || k == 'A' || k == 'S' || k == 'D' || k == 'Q' || k == 'E')) continue;   // эти клавиши двигают камеру
@@ -457,8 +438,8 @@ static void handleKeys() {
         case VK_F3: setView(PI / 2, 0.02); showToast("Вид сбоку"); break;
         case VK_F4: setView(camGoal.yaw, 1.45); showToast("Вид сверху"); break;
         case VK_F6: setView(0.65, 0.42); showToast("Изометрия"); break;
-        case VK_F5: saveState(L"quicksave.atoms", true); break;
-        case VK_F9: loadState(L"quicksave.atoms"); break;
+        case VK_F5: saveState(exeDir() + L"\\quicksave.atoms", true); break;
+        case VK_F9: loadState(exeDir() + L"\\quicksave.atoms"); break;
         case VK_F11: toggleFullscreen(); break;
         case VK_ESCAPE:   // закрывает то, что открыто, по очереди; программу не закрывает
             if (helpOn) helpOn = false;
@@ -496,7 +477,7 @@ static void handleMouse(double frameDt) {
     const bool ctrl = isDown(VK_CONTROL), shift = isDown(VK_SHIFT), alt = isDown(VK_MENU);
     const bool cut = sliceOn;
     selValidate();
-    if (ptOn || menuOn) {   // открыто окно поверх сцены — сцена ввод не получает
+    if (ptOn || menuOn || settingsOn) {   // открыто окно поверх сцены — сцена ввод не получает
         in.wheel = 0; in.lPress = in.lRel = in.mPress = in.rPress = in.dbl = false; heatBrush = 0;
         grabbed = -1; panning = rotating = false; wallStroke = false; lInScene = false; pistonGrab = false; lDragTool = 0;
         lMode = LM_NONE; rubberOn = throwDrag = foPlacing = false;
@@ -508,7 +489,7 @@ static void handleMouse(double frameDt) {
     // колесо: Alt — поворот выделения; над объектом поля — радиус (Shift — сила); иначе наезд камеры
     // (в полёте — движение вперёд), Shift+колесо при разрезе — сдвиг плоскости
     if (in.wheel != 0 && inScene(mouseX, mouseY)) {
-        double f = std::pow(1.15, in.wheel / 120.0), notch = in.wheel / 120.0;
+        double f = std::pow(1.15, in.wheel / 120.0 * opt.zoomSens), notch = in.wheel / 120.0;
         if (alt && !selList.empty()) selRotate(notch * 5 * PI / 180);
         else if (foHover >= 0 && over) foWheel(foHover, notch, shift);
         else if (cut && shift) sliceOff = clampv(sliceOff + 0.6 * notch, -cam3.dist, 2.0 * cam3.dist);
@@ -593,7 +574,7 @@ static void handleMouse(double frameDt) {
         int mdx = mouseX - dragX, mdy = mouseY - dragY; dragX = mouseX; dragY = mouseY;
         switch (lMode) {
         case LM_CAMERA:
-            if (rotating) camRotate(-mdx * 0.008, mdy * 0.008);
+            if (rotating) { const double k = 0.008 * opt.mouseSens; camRotate(-mdx * k, (opt.invertY ? -mdy : mdy) * k); }
             else { double k = cam3.dist / focal; camTranslate((-camR[0] * mdx + camU[0] * mdy) * k, (-camR[1] * mdx + camU[1] * mdy) * k, (-camR[2] * mdx + camU[2] * mdy) * k); followAtom = -1; }
             break;
         case LM_PISTON: { double p[3]; worldAt(mouseX, mouseY, moveDepth, p); pistonTarget = clampv(p[1], 3.0, 400.0); break; }
@@ -684,7 +665,7 @@ static void handleMouse(double frameDt) {
                 for (int i = 0; i < S.n && i < (int)psx.size(); i++) if (pvis[i] && psx[i] >= x0 && psx[i] <= x1 && psy[i] >= y0 && psy[i] <= y1) v.push_back(i);
             }
             selSetList(v);
-            if (!selList.empty()) { sideTab = graphsOn ? sideTab : sideTab; if (w >= 4 || h >= 4) showToast(fmt("Выделено атомов: %d · Del — удалить, Ctrl+C — копировать, I — закрепить, Alt+тащить — бросок", (int)selList.size())); }
+            if (!selList.empty()) { if (w >= 4 || h >= 4) showToast(fmt("Выделено атомов: %d · Del — удалить, Ctrl+C — копировать, I — закрепить, Alt+тащить — бросок", (int)selList.size())); }
             break; }
         case LM_THROW: {
             double p[3]; worldAt(mouseX, mouseY, moveDepth, p);
@@ -749,16 +730,18 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(h, msg, wp, lp);
 }
-typedef BOOL(WINAPI* PFNSWAP)(int);
-
 // ---- раскладка: сверху — панель команд, слева — инструменты, справа — боковая панель с вкладками,
 //      под сценой — палитра веществ, внизу — строка состояния. Всё масштабируется (uiScale) до 4K.
 static float uiScaleOverride = 0;
 static float L_statusH = 24, L_stripH = 32, L_toolW = 40, L_sideW = 380;
-static float calcUiScale() {
-    if (uiScaleOverride > 0) return uiScaleOverride;
+static float autoUiScale() {
     float s = std::floor(std::min(winH / 1000.0f, winW / 1650.0f) * 4) / 4;
     return clampv(s, 1.0f, 3.0f);
+}
+static float calcUiScale() {
+    if (uiScaleOverride > 0) return uiScaleOverride;   // scale= в командной строке
+    if (opt.uiScale > 0) return clampv(opt.uiScale / 100.0f, 0.75f, 3.0f);
+    return autoUiScale();
 }
 static void layout() {
     float s = calcUiScale();
@@ -787,12 +770,12 @@ static void renderFrame(double frameDt) {
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     hotId = -1;
-    uiModal = ptOn || menuOn;
+    uiModal = ptOn || menuOn || settingsOn;
     monoCtx = "сцена"; drawScene();
     pushClip(sceneX, sceneY, sceneW, sceneH); drawRingsFx(); popClip();
     monoCtx = "надписи сцены"; drawSceneOverlay();
     if (shotPending == 1) { doCapture(1); shotPending = 0; }   // снимок сцены: без панелей, подсказок и уведомлений
-    recordFrame();
+    recordFrame(); clipCapture();
     monoCtx = "верхняя панель"; drawTopBar();
     monoCtx = "инструменты"; drawToolbar(0, sceneY, L_toolW, winH - sceneY - L_statusH);
     monoCtx = "палитра веществ"; drawPaletteStrip(sceneX, sceneY + sceneH, sceneW, L_stripH);
@@ -802,10 +785,11 @@ static void renderFrame(double frameDt) {
     monoCtx = "объекты поля (выбор)"; drawFoFlyout();
     uiModal = false;
     monoCtx = "уведомление"; drawToast();
-    monoCtx = "подсказка атома"; if (!ptOn && !menuOn && !overSceneUI(mouseX, mouseY)) drawTooltip();
+    monoCtx = "подсказка атома"; if (opt.atomCard && !ptOn && !menuOn && !settingsOn && !overSceneUI(mouseX, mouseY)) drawTooltip();
     monoCtx = "справка"; if (helpOn) drawHelp();
     monoCtx = "таблица Менделеева"; if (ptOn) drawPeriodicTable();
     monoCtx = "меню сцен"; if (menuOn) drawScenesMenu();
+    monoCtx = "настройки"; if (settingsOn) drawSettings();
     monoCtx = "всплывающая подсказка"; drawHint(frameDt);
     monoCtx = "";
     if (shotPending == 2) { doCapture(2); shotPending = 0; }
@@ -1135,8 +1119,35 @@ static void buildUiTest() {
     key('1', 30);
     expectLang(lang0, false);
     run(30);
-    // переключение языка при открытых окнах (справка, меню сцен, таблица) и на каждой вкладке — туда и обратно
-    for (int vk : {(int)'H', (int)VK_TAB, (int)'E'}) { key(vk, 4); ctrlL(); run(4); ctrlL(); run(4); expectLang(lang0, true); key(vk == 'H' ? 'H' : VK_ESCAPE, 4); }
+    // окно настроек: каждый элемент (кроме языка и кнопок внизу), язык туда и обратно, «По умолчанию», закрытие
+    auto setClick = [&](int id) { add(fmt("настройки: %d", id), 5, [id](int fr) {
+        if (fr == 0) { settingsOn = true; uiScrollTo(id); }
+        PR r = rectOf(id);
+        if (fr == 2) { tMouse(r.x + r.w / 2, r.y + r.h / 2); tLDown(); } else if (fr == 3) tLUp(); }); };
+    key(VK_F8, 4);
+    add("все элементы настроек", 3, [](int fr) {
+        if (fr == 0) { settingsOn = true; return; }
+        if (fr != 2) return;
+        std::vector<int> ids; for (auto& kv : uiRects) if (kv.first > 1600 && kv.first < 1690) ids.push_back(kv.first);
+        std::vector<UiStep> ins;
+        for (int id : ids) ins.push_back({fmt("настройки: элемент %d", id), 4, [id](int f2) {
+            if (f2 == 0) { settingsOn = true; uiScrollTo(id); }
+            PR r = rectOf(id); if (f2 == 1) { tMouse(r.x + r.w / 2, r.y + r.h / 2); tLDown(); } else if (f2 == 2) tLUp(); }});
+        fprintf(uiLog, "     настройки: элементов %zu\n", ids.size());
+        uiSteps.insert(uiSteps.begin() + uiStepIdx + 1, ins.begin(), ins.end()); });
+    run(30);   // сцена идёт с изменёнными настройками
+    setClick(1692); setClick(1600); setClick(1600); expectLang(lang0, true);
+    setClick(1690); setClick(1691);
+    add("настройки закрыты", 1, [](int) { if (settingsOn) { uiProblems++; fprintf(uiLog, "     ОШИБКА: окно настроек не закрылось кнопкой «Готово»\n"); } });
+    key(VK_F8, 4); key(VK_ESCAPE, 4);
+    key(VK_F8, 4); gesture("щелчок мимо настроек", 0, 0, 0, 0.01f, 0.99f, 0.01f, 0.99f, 2);
+    add("настройки по умолчанию", 1, [](int) {
+        Settings d = OPT_DEFAULT; d.lang = opt.lang;
+        if (opt.uiScale != d.uiScale || opt.threads != d.threads || opt.hints != d.hints || opt.fog != d.fog || opt.start != d.start || settingsOn) {
+            uiProblems++; fprintf(uiLog, "     ОШИБКА: «По умолчанию» не вернуло настройки или окно не закрылось\n"); }
+        else fprintf(uiLog, "     настройки сброшены, окно закрыто — ok\n"); });
+    // переключение языка при открытых окнах (справка, меню сцен, таблица, настройки) и на каждой вкладке — туда и обратно
+    for (int vk : {(int)'H', (int)VK_TAB, (int)'E', (int)VK_F8}) { key(vk, 4); ctrlL(); run(4); ctrlL(); run(4); expectLang(lang0, true); key(vk == 'H' ? 'H' : VK_ESCAPE, 4); }
     for (int t = 0; t < 5; t++) { click(700 + t); ctrlL(); run(3); ctrlL(); run(3); expectLang(lang0, true); }
     key('1', 20); expectLang(lang0, false);
 }
@@ -1306,8 +1317,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         }
         fclose(f); return 0;
     }
+    // снимки и автотест работают с настройками по умолчанию и не пишут atoms.ini
+    const bool automation = cmd && (wcsstr(cmd, L"--shot") || wcsstr(cmd, L"--uitest"));
+    if (automation) settingsNoSave = true; else settingsLoad();
+    ompAllThreads = std::max(1, omp_get_num_procs()); applyThreads();
     // язык окна: --lang (разобран в lang.inl) → atoms.ini → язык Windows (режимы без окна выше — русский, если нет --lang)
-    if (langCmd < 0) { int l = langFromIni(); langSet(l >= 0 ? l : langSystemDefault()); }
+    if (langCmd < 0) langSet(opt.lang >= 0 ? opt.lang : langSystemDefault());
     SetProcessDPIAware();
     // --monocheck: записывать цвета с оттенком вне белого списка атомов в mono_violations.log; grayatoms — атомы тоже серые (отладка)
     monoCheck = cmd && wcsstr(cmd, L"--monocheck"); monoGrayAtoms = cmd && wcsstr(cmd, L"grayatoms");
@@ -1325,46 +1340,87 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     { int sx = argInt(cmd, L"size=", 0); const wchar_t* xp = cmd ? wcsstr(cmd, L"size=") : nullptr; if (sx > 0 && xp && wcschr(xp, L'x')) { int sy = (int)wcstol(wcschr(xp, L'x') + 1, nullptr, 10); if (sy > 0) { wr.right = sx; wr.bottom = sy; } } }
     uiScaleOverride = (float)argDbl(cmd, L"scale=", 0);
     AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);
-    hwnd = CreateWindowW(L"AtomsSim", TW(WINDOW_TITLE).c_str(), WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
-                         wr.right - wr.left, wr.bottom - wr.top, nullptr, nullptr, hInst, nullptr);
+    int wx = CW_USEDEFAULT, wy = CW_USEDEFAULT, ww = wr.right - wr.left, wh = wr.bottom - wr.top;
+    bool maximize = false;
+    if (!automation && opt.keepWindow && opt.ww >= 400 && opt.wh >= 300) {   // окно там же, где было при выходе (если этот монитор ещё есть)
+        RECT r = {opt.wx, opt.wy, opt.wx + opt.ww, opt.wy + opt.wh};
+        if (MonitorFromRect(&r, MONITOR_DEFAULTTONULL)) { wx = opt.wx; wy = opt.wy; ww = opt.ww; wh = opt.wh; maximize = opt.wmax; }
+    }
+    hwnd = CreateWindowW(L"AtomsSim", TW(WINDOW_TITLE).c_str(), WS_OVERLAPPEDWINDOW | WS_VISIBLE, wx, wy, ww, wh, nullptr, nullptr, hInst, nullptr);
     if (cmd && wcsstr(cmd, L"size=")) SetWindowPos(hwnd, nullptr, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOZORDER);
+    if (maximize) ShowWindow(hwnd, SW_MAXIMIZE);
     hdc = GetDC(hwnd);
     PIXELFORMATDESCRIPTOR pfd = {}; pfd.nSize = sizeof(pfd); pfd.nVersion = 1;
     pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER; pfd.iPixelType = PFD_TYPE_RGBA; pfd.cColorBits = 32; pfd.cAlphaBits = 8;
     SetPixelFormat(hdc, ChoosePixelFormat(hdc, &pfd), &pfd);
     hglrc = wglCreateContext(hdc); wglMakeCurrent(hdc, hglrc);
-    PFNSWAP swapInterval = (PFNSWAP)wglGetProcAddress("wglSwapIntervalEXT");
-    if (swapInterval) swapInterval(1);   // вертикальная синхронизация → ровные 60 FPS
+    wglSwapInterval = (PFNSWAP)wglGetProcAddress("wglSwapIntervalEXT");
+    applyVsync();
     RECT cr; GetClientRect(hwnd, &cr); winW = cr.right; winH = cr.bottom;
     uiScale = calcUiScale();
     buildFonts(); buildTextures();
     layout(); sceneAspect = clampv(sceneH / sceneW, 0.4f, 1.2f);
-    // --shot K N [vV] [rot] [help] [table] [menu] [hoverZ] [tab=T] [tool=T] [fo=K] [demo] [layers] [nopanel] [png] [out=имя] [size=WxH] [scale=S]:
-    //   пресет K, N кадров, сохранить снимок окна и выйти (проверка графики и раскладки)
+    // --shot K N [vV] [rot] [help] [table] [menu] [settings] [hoverZ] [tab=T] [tool=T] [fo=K] [demo] [layers] [nopanel] [liball] [cut]
+    //        [color=C] [zoom=K] [scrollto=ID] [lib=K1,K2…] [rec=ПАПКА every=K from=F] [png] [out=имя] [size=WxH] [scale=S]:
+    //   пресет K, N кадров, сохранить снимок окна и выйти (проверка графики и раскладки, картинки для README)
     int shotPreset = -1, shotFrames = 400, shotVar = 0; bool shotPng = false, shotDemo = false; std::wstring shotOut;
     if (cmd && wcsstr(cmd, L"--shot")) {
         const wchar_t* p = wcsstr(cmd, L"--shot") + 6; shotPreset = (int)wcstol(p, (wchar_t**)&p, 10); int fr = (int)wcstol(p, nullptr, 10); if (fr > 0) shotFrames = fr;
         const wchar_t* v = wcsstr(cmd, L" v"); if (v) shotVar = (int)wcstol(v + 2, nullptr, 10);
-        if (wcsstr(cmd, L"rot")) cam3.autoRot = true;
+        if (wcsstr(cmd, L" rot")) cam3.autoRot = true;
         if (wcsstr(cmd, L" help")) helpOn = true;
         if (wcsstr(cmd, L" table")) ptOn = true;      // таблица Менделеева
         if (wcsstr(cmd, L" menu")) menuOn = true;     // меню сцен
+        if (wcsstr(cmd, L" settings")) settingsOn = true;
         const wchar_t* hz = wcsstr(cmd, L" hover"); if (hz) shotHoverZ = (int)wcstol(hz + 6, nullptr, 10);   // навести курсор на элемент Z
         sideTab = clampv(argInt(cmd, L"tab=", 0), 0, 4); lmbTool = clampv(argInt(cmd, L"tool=", TOOL_ADD), 0, TOOL_N - 1); foKind = clampv(argInt(cmd, L"fo=", 0), 0, FO_N - 1);
         shotPng = wcsstr(cmd, L" png") != nullptr; shotDemo = wcsstr(cmd, L" demo") != nullptr;
         if (wcsstr(cmd, L" layers")) { layerVel = true; layerGrid = true; layerCharges = true; }
         if (wcsstr(cmd, L" nopanel")) graphsOn = false;
+        if (wcsstr(cmd, L" liball")) chemLibAll = true;   // вся библиотека во вкладке «Химия»
+        if (wcsstr(cmd, L" cut")) sliceOn = true;
         const wchar_t* op = wcsstr(cmd, L"out="); if (op) { op += 4; while (*op && *op != L' ') shotOut += *op++; }
+        const wchar_t* rp = wcsstr(cmd, L"rec="); if (rp) { rp += 4; while (*rp && *rp != L' ') clipDir += *rp++; CreateDirectoryW(clipDir.c_str(), nullptr); }
+        clipEvery = std::max(1, argInt(cmd, L"every=", 2)); clipFrom = argInt(cmd, L"from=", 0);
+        fitZoom = clampv(argDbl(cmd, L"zoom=", 1.0), 0.3, 3.0);
     }
     loadPreset(shotPreset >= 0 ? shotPreset : 1, shotVar);
     if (shotDemo) setupDemo();
+    if (const wchar_t* lp = cmd ? wcsstr(cmd, L"lib=") : nullptr) {   // галерея структур библиотеки: lib=K1,K2,…
+        std::vector<int> ks;
+        for (const wchar_t* q = lp + 4; *q >= L'0' && *q <= L'9';) { ks.push_back((int)wcstol(q, (wchar_t**)&q, 10)); if (*q == L',') q++; }
+        const int n = (int)ks.size(), cols = std::max(1, (int)std::ceil(std::sqrt(n * 1.7))), rows = (n + cols - 1) / std::max(1, cols);
+        const double cell = 8;
+        worldReset(cols * cell, rows * cell, cell, B_PERIODIC);
+        P.thermostat = TH_BERENDSEN; P.Tset = 0.02; P.chemistry = false; opt.box = false; colorMode = 0;
+        for (int q = 0; q < n; q++) if (ks[q] >= 0 && ks[q] < ML_N) insertMolecule(ks[q], (q % cols + 0.5) * cell, (rows - 1 - q / cols + 0.5) * cell, cell / 2);
+        presetTitle = "Библиотека молекул и структур"; presetLoaded = false;
+        cam3.yaw = camGoal.yaw = 0.18; cam3.pitch = camGoal.pitch = 0.16;
+        fitView(true); cam3.dist *= 0.62; camGoal = cam3; viewFitPending = false;   // сетка структур занимает не весь шар обзора
+    }
+    if (cmd && wcsstr(cmd, L"color=")) colorMode = clampv(argInt(cmd, L"color=", 0), 0, COLOR_N - 1);
+    const int scrollTo = argInt(cmd, L"scrollto=", 0);
     if (cmd && wcsstr(cmd, L"--fullscreen")) toggleFullscreen();
     if (cmd && wcsstr(cmd, L"--uitest")) {
         uiTestMode = true; uiLog = fopen("uitest.log", "w"); buildUiTest();
-        if (swapInterval) swapInterval(0);   // без вертикальной синхронизации — быстрее
+        if (wglSwapInterval) wglSwapInterval(0);   // без вертикальной синхронизации — быстрее
         fprintf(uiLog, "шагов сценария: %zu\n", uiSteps.size());
     }
-    showToast("H — справка · Tab — сцены · Alt+1…0 — инструменты · 1–9, 0 — быстрые сцены");
+    const std::wstring sessionPath = exeDir() + L"\\session.atoms";
+    bool restored = false;
+    if (!automation) {
+        if (opt.start == START_LAST_SCENE && opt.lastScene != 1) {
+            bool known = opt.lastScene >= 0 && opt.lastScene <= 9;
+            for (const SceneInfo& s : SCENES) known = known || s.key == opt.lastScene;
+            if (known) loadPreset(opt.lastScene, opt.lastVar % std::max(1, presetVariants(opt.lastScene)));
+        }
+        if (opt.start == START_SESSION && GetFileAttributesW(sessionPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            restored = loadState(sessionPath); undoStack.clear();
+            if (restored) viewFitPending = false;   // камера — как была при выходе
+        }
+        if (opt.startFull && !fullscreen) toggleFullscreen();
+    }
+    if (shotPreset < 0) showToast(restored ? "Прошлый сеанс восстановлен (F8 — настройки запуска)" : "H — справка · Tab — сцены · F8 — настройки · Alt+1…0 — инструменты");
     auto last = std::chrono::high_resolution_clock::now(); double fpsAcc = 0; int fpsCnt = 0; int frame = 0;
     MSG msg; bool running = true;
     while (running) {
@@ -1374,18 +1430,25 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         double frameDt = std::min(0.1, std::chrono::duration<double>(now - last).count()); last = now;
         fpsAcc += frameDt; fpsCnt++; if (fpsAcc > 0.5) { fps = fpsCnt / fpsAcc; fpsAcc = 0; fpsCnt = 0; }
         if (uiTestMode && !uiTestTick()) { running = false; break; }
+        if (scrollTo > 0) uiScrollTo(scrollTo);
+        if (shotPreset >= 0 && !shotHoverZ) { mouseX = -1000; mouseY = -1000; }   // снимок без кисти и подсказок под курсором
         if (shotHoverZ > 0 && ptOn) { auto it = uiRects.find(400 + shotHoverZ); if (it != uiRects.end()) { mouseX = (int)(it->second.x + it->second.w / 2); mouseY = (int)(it->second.y + it->second.h / 2); } }
         ui.mx = mouseX; ui.my = mouseY;
         layout(); camSetup();
-        ui.wheel = (inScene(mouseX, mouseY) && !ptOn && !menuOn) ? 0 : in.wheel;   // колесо вне сцены — панелям
-        if (!inScene(mouseX, mouseY) || ptOn || menuOn) in.wheel = 0;
+        const bool overlay = ptOn || menuOn || settingsOn;
+        ui.wheel = (inScene(mouseX, mouseY) && !overlay) ? 0 : in.wheel;   // колесо вне сцены — панелям
+        if (!inScene(mouseX, mouseY) || overlay) in.wheel = 0;
         handleKeys();
         handleMouse(frameDt);
         boxTick();
-        if (!P.paused) {
+        const bool minimized = !uiTestMode && IsIconic(hwnd);
+        const bool idle = !uiTestMode && opt.bgPause && (minimized || GetForegroundWindow() != hwnd);
+        if (!P.paused && !idle) {
             runScript();
             for (int s = 0; s < P.substeps; s++) mdStep();
         }
+        if (minimized || idle) Sleep(15);   // свёрнутое или фоновое окно не грузит процессор отрисовкой
+        { static bool wasOpen = false; if (wasOpen && !settingsOn) settingsSave(); wasOpen = settingsOn; }
         frame++;
         if ((!P.paused && frame % 4 == 0) || (P.paused && frame % 20 == 0)) analysisTick();
         if (trailsOn && !P.paused && frame % 2 == 0) trailsRecord();
@@ -1403,6 +1466,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         SwapBuffers(hdc);
     }
     if (uiLog) { fprintf(uiLog, "\nИТОГ: шагов %zu из %zu, проблем %d\n", uiStepIdx, uiSteps.size(), uiProblems); fclose(uiLog); }
+    if (!automation) {   // положение окна, последняя сцена и (по выбору) весь сеанс — к следующему запуску
+        WINDOWPLACEMENT wp = wpPrev;
+        if (fullscreen || GetWindowPlacement(hwnd, &wp)) {
+            const RECT& r = wp.rcNormalPosition;
+            if (r.right - r.left >= 400 && r.bottom - r.top >= 300) { opt.wx = r.left; opt.wy = r.top; opt.ww = r.right - r.left; opt.wh = r.bottom - r.top; }
+            opt.wmax = wp.showCmd == SW_SHOWMAXIMIZED;
+        }
+        opt.lastScene = currentPreset; opt.lastVar = presetVariant;
+        if (opt.start == START_SESSION) { toastsOff = true; saveState(sessionPath, true); }
+        settingsSave();
+    }
     wglMakeCurrent(nullptr, nullptr); wglDeleteContext(hglrc); ReleaseDC(hwnd, hdc);
     return uiProblems ? 2 : 0;
 }

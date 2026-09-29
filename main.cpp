@@ -3,13 +3,13 @@
 // взаимодействия и законов сохранения.
 //
 // C++17, Win32, OpenGL 1.x, OpenMP; внешних библиотек нет. Сборка — build.bat или вручную:
-//     rc /fo atoms.res atoms.rc
-//     cl /O2 /openmp /utf-8 /EHsc /std:c++17 /fp:fast main.cpp atoms.res /Fe:atoms.exe user32.lib gdi32.lib opengl32.lib comdlg32.lib shell32.lib
+//     rc /fo res\atoms.res res\atoms.rc
+//     cl /O2 /openmp /utf-8 /EHsc /std:c++17 /fp:fast main.cpp res\atoms.res /Fe:atoms.exe user32.lib gdi32.lib opengl32.lib comdlg32.lib shell32.lib
 //
 // Запуск без окна (проверки):
 //     --selftest            все сцены меню, решётки, NVE, кинетика → selftest.log
 //     --uitest              сценарий ввода по всему интерфейсу → uitest.log (--langcheck: строки без перевода)
-//     --shot K N [vV] …     сцена K, N кадров, снимок окна
+//     --shot K N [vV] …     сцена K, N кадров, снимок окна (все ключи — в app.inl; ими пользуется tools\media.ps1)
 //     --gradcheck K N       силы против −∇U (численная производная) после N шагов сцены K
 //     --evcheck K N         баланс энергии каждого химического события
 //     --kin K N T V         длинный прогон сцены с отчётом о фазах, реакциях и живых измерениях
@@ -46,6 +46,7 @@
 #include <complex>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <shlobj.h>
 
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -58,6 +59,7 @@ static void drawPhysPanel(float x, float y, float w, float h);   // src/panel_ph
 static void drawChemPanel(float x, float y, float w, float h);   // src/panel_chem.inl
 #include "src/lang.inl"      // перевод интерфейса (нужен fmt() из core.inl)
 #include "src/core.inl"
+#include "src/settings.inl"   // atoms.ini
 #include "src/physics.inl"
 #include "src/chemistry.inl"
 #include "src/analysis.inl"
@@ -66,4 +68,5 @@ static void drawChemPanel(float x, float y, float w, float h);   // src/panel_ch
 #include "src/ui.inl"
 #include "src/panel_phys.inl"
 #include "src/panel_chem.inl"
+#include "src/panel_settings.inl"   // окно настроек (F8)
 #include "src/app.inl"

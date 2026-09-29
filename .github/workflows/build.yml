@@ -3,7 +3,7 @@ name: Build
 on:
   push:
     branches: [main]
-    paths: ['**', '!**.md', '!docs/**', '.github/release-notes.md']
+    paths: ['**', '!**.md', '!docs/**', 'docs/*.html', '.github/release-notes.md']
   pull_request:
   workflow_dispatch:
 
@@ -27,7 +27,7 @@ jobs:
           $omp = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC*.OpenMP\vcomp140.dll" | Sort-Object FullName | Select-Object -Last 1
           if (-not $omp) { throw "vcomp140.dll not found in $vs" }
           New-Item -ItemType Directory dist | Out-Null
-          Copy-Item atoms.exe, MANUAL.html, ИНСТРУКЦИЯ.html, LICENSE, $omp.FullName dist/
+          Copy-Item atoms.exe, docs/MANUAL.html, docs/ИНСТРУКЦИЯ.html, LICENSE, $omp.FullName dist/
           Compress-Archive dist/* atoms-windows-x64.zip
           Get-ChildItem dist | Format-Table Name, Length
 
@@ -44,7 +44,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $ver = (Select-String -Path atoms.rc -Pattern '"ProductVersion",\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $ver = (Select-String -Path res/atoms.rc -Pattern '"ProductVersion",\s*"([^"]+)"').Matches[0].Groups[1].Value
           $tag = "v$ver"
           $title = "Atoms $ver"
           gh release view $tag *> $null

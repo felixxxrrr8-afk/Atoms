@@ -1103,8 +1103,8 @@ static void mdStep() {
     double vmax = std::sqrt(vmax2);
     double dtLim = std::min(vmax > 0 ? 0.02 / vmax : 1e9, EN.amax > 0 ? std::sqrt(0.003 / EN.amax) : 1e9);
     const double dtTop = P.dtBase * guardDtScale;   // после отката страж временно ограничивает шаг
-    // уменьшение — сразу до безопасного значения (раньше не более чем вдвое за шаг: при резком росте сил
-    // несколько шагов подряд шли со слишком большим dt и энергия «разгонялась»); рост — плавно, на 1% за шаг
+    // уменьшение — сразу до безопасного значения (иначе при резком росте сил энергия успевает «разогнаться»),
+    // рост — плавно, на 1% за шаг
     if (P.dt > dtLim) P.dt = std::max(P.dtBase / 64, std::min(dtLim, P.dt * 0.8));
     else if (P.dt < dtTop) P.dt = std::min({dtTop, P.dt * 1.01, dtLim});
     else if (P.dt > dtTop) P.dt = std::max(P.dtBase / 64, dtTop);

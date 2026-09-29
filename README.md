@@ -2,7 +2,7 @@
 
 **English** · [Русский](README.ru.md)
 
-<img src="docs/logo.png" width="104" alt="">
+<img src="docs/logo.png" width="96" alt="">
 
 # Atoms
 
@@ -22,20 +22,37 @@ they come out of interaction potentials and conservation laws.
 
 ### [Download for Windows](https://github.com/felixxxrrr8-afk/atoms-md/releases/latest)
 
-[Features](#features) · [Scenes](#scenes) · [Controls](#controls) · [How it works](#how-it-works) · [Building](#building-from-source)
+[In motion](#in-motion) · [Features](#features) · [Screenshots](#screenshots) · [Scenes](#scenes) · [Controls](#controls) · [Settings](#settings) · [How it works](#how-it-works) · [Building](#building-from-source)
 
 <br>
 
-<img src="docs/screenshots/en/nacl-water.png" alt="A NaCl crystal dissolving in hot water">
+<img src="docs/en/combustion.gif" width="640" alt="Hydrogen combustion">
 
-<sub>A NaCl crystal dissolving in hot water: ions leave the lattice and collect hydration shells</sub>
+<sub>2H₂ + O₂ → 2H₂O: a spark starts a chain reaction, and the heat of every new bond goes into motion</sub>
 
 </div>
 
 <br>
 
 > [!NOTE]
-> The interface is grayscale on purpose: color is kept for the atoms only, so the eye goes straight to the matter. English and Russian are switched with **RU | EN** in the top bar or <kbd>Ctrl</kbd>+<kbd>L</kbd> in the middle of a run; on first start the program follows the Windows language. Scenes are in the <kbd>Tab</kbd> menu, and everything shows a tooltip on hover.
+> The interface is grayscale on purpose: color is kept for the atoms only, so the eye goes straight to the matter. The program speaks English and Russian — <kbd>Ctrl</kbd>+<kbd>L</kbd> switches them on the fly. Scenes are in the <kbd>Tab</kbd> menu, settings are under <kbd>F8</kbd>, and every button explains itself on hover.
+
+## In motion
+
+<table>
+<tr>
+<td width="50%"><img src="docs/en/nanowire.gif" alt="Gold nanowire"><br><sub><b>Nanowire tension.</b> A gold wire is pulled 1.5% per τ: slip, a neck, a chain of single atoms, rupture</sub></td>
+<td width="50%"><img src="docs/en/shock-tube.gif" alt="Shock tube"><br><sub><b>Shock tube.</b> The membrane bursts, and dense hot gas drives a shock wave into the cold side</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/melting.gif" alt="Crystal melting"><br><sub><b>Crystal melting.</b> Constant-power heating; color shows local order — green FCC turns into gray liquid</sub></td>
+<td><img src="docs/en/gold.gif" alt="Gold nanoparticle melting"><br><sub><b>Gold nanoparticle.</b> Many-body metallic bonding; heating melts it from the surface inward</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/sodium.gif" alt="Sodium in chlorine"><br><sub><b>Sodium in chlorine.</b> 2Na + Cl₂ → 2NaCl: the metal cluster burns, ion pairs gather into salt</sub></td>
+<td><img src="docs/en/ncl3.gif" alt="NCl3 explosion"><br><sub><b>NCl₃ explosion.</b> A spark breaks the weak N–Cl bonds; the very strong N≡N bond releases the energy</sub></td>
+</tr>
+</table>
 
 ## Features
 
@@ -44,10 +61,10 @@ they come out of interaction potentials and conservation laws.
 <td width="50%" valign="top">
 
 **Physics**
-- Full 3D: perspective camera, orbit and fly modes, section plane
+- Full 3D: perspective camera, orbit and fly modes, cross-section plane
 - Lennard-Jones, screened Coulomb, Morse bonds, VSEPR bond angles, hydrogen bonds, many-body metallic bonding (Gupta)
-- Bussi, Langevin, Nosé–Hoover and Berendsen thermostats; stochastic C-rescale barostat; piston you can drag with the mouse
-- Energy bookkeeping that counts every bit of external work, so integration drift is visible
+- Bussi, Langevin, Nosé–Hoover and Berendsen thermostats; stochastic C-rescale barostat; a piston you can drag with the mouse
+- Energy bookkeeping that counts every bit of external work, so integration drift is always visible
 
 </td>
 <td width="50%" valign="top">
@@ -68,6 +85,7 @@ they come out of interaction potentials and conservation laws.
 - Tweezers, heating and cooling brush, eraser, bond scissors, shock wave
 - Field objects: attractor, heater, wind, vortex, trap, source, sink, barrier
 - Selection, copy and paste, pinning atoms; ruler and protractor with dihedral angles
+- Snapshots, frame recording, CSV export, undo, quick save
 
 </td>
 <td valign="top">
@@ -76,7 +94,7 @@ they come out of interaction potentials and conservation laws.
 - T, P, density and energies in model and real units (K, bar, g/cm³, ps, kJ/mol)
 - Per-atom phase, the model's T–ρ phase diagram, a log of transitions
 - g(r), Maxwell distribution, MSD and diffusion coefficient
-- Reaction log with ΔH, k and K<sub>c</sub>; live measurements in many scenes; CSV export
+- Reaction log with ΔH, k and K<sub>c</sub>; live measurements in many scenes
 
 </td>
 </tr>
@@ -84,41 +102,86 @@ they come out of interaction potentials and conservation laws.
 
 ## Screenshots
 
+**Matter**
+
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/en/hydrogen-combustion.png" alt="Hydrogen combustion"><br><sub><b>Hydrogen combustion.</b> 2H₂ + O₂ → 2H₂O from a spark; event log and mixture composition on the right</sub></td>
-<td width="50%"><img src="docs/screenshots/en/quench-polycrystal.png" alt="Quench"><br><sub><b>Quench.</b> A polycrystal colored by local structure: FCC grains, HCP stacking faults at the boundaries</sub></td>
+<td width="50%"><img src="docs/en/nacl-water.png" alt="NaCl in water"><br><sub><b>NaCl in water.</b> Ions leave the crystal and collect hydration shells</sub></td>
+<td width="50%"><img src="docs/en/crystal-melting.png" alt="Crystal melting"><br><sub><b>Crystal melting.</b> The Physics tab: the model's phase diagram and the current state</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/en/gold-nanoparticle.png" alt="Gold nanoparticle"><br><sub><b>Gold nanoparticle.</b> FCC inside, melting starts at the surface</sub></td>
-<td><img src="docs/screenshots/en/crystal-melting.png" alt="Crystal melting"><br><sub><b>Crystal melting.</b> The physics tab: the model's phase diagram and the current state</sub></td>
+<td><img src="docs/en/quench-polycrystal.png" alt="Quench"><br><sub><b>Quench.</b> A polycrystal colored by local structure: FCC grains, HCP stacking faults</sub></td>
+<td><img src="docs/en/glass.png" alt="Glass"><br><sub><b>Glass.</b> A fast-quenched Ar/Ne mixture has no time to order: an amorphous solid</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/en/nanowire.png" alt="Gold nanowire"><br><sub><b>Nanowire tension.</b> A gold wire is pulled until it thins down to a chain of atoms</sub></td>
-<td><img src="docs/screenshots/en/liquid-vapor.png" alt="Liquid and vapor"><br><sub><b>Liquid and vapor.</b> A liquid film in equilibrium with its vapor; both densities are compared with the phase diagram</sub></td>
+<td><img src="docs/en/ice.png" alt="Ice"><br><sub><b>Ice.</b> Cubic ice held together by directional hydrogen bonds</sub></td>
+<td><img src="docs/en/cross-section.png" alt="Cross-section"><br><sub><b>Cross-section.</b> The plane (<kbd>X</kbd>) hides everything in front of it — the inside of a crystal</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/en/methane-chlorination.png" alt="Methane chlorination"><br><sub><b>Methane chlorination.</b> UV flashes split Cl₂, and a radical chain makes CH₃Cl and HCl</sub></td>
-<td><img src="docs/screenshots/en/propane-combustion.png" alt="Propane combustion"><br><sub><b>Propane combustion.</b> C₃H₈ + 5O₂ from a spark, with the reaction log and rates</sub></td>
+<td><img src="docs/en/gold-nanoparticle.png" alt="Gold nanoparticle"><br><sub><b>Gold nanoparticle.</b> FCC inside, melting starts at the surface</sub></td>
+<td><img src="docs/en/sintering.png" alt="Sintering"><br><sub><b>Sintering.</b> Au and Ag nanoparticles grow a neck below the melting point</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/en/nickel-hydrogenation.png" alt="Hydrogenation on nickel"><br><sub><b>Hydrogenation on nickel.</b> H₂ dissociates on a Ni cluster and adds to ethylene</sub></td>
-<td><img src="docs/screenshots/en/platinum-catalysis.png" alt="Platinum catalysis"><br><sub><b>Platinum catalysis.</b> H₂ and O₂ react only on the surface of a Pt nanoparticle</sub></td>
+<td><img src="docs/en/liquid-vapor.png" alt="Liquid and vapor"><br><sub><b>Liquid and vapor.</b> Both densities are compared with the phase diagram</sub></td>
+<td><img src="docs/en/cavitation.png" alt="Cavitation"><br><sub><b>Cavitation.</b> A stretched liquid tears apart into vapor bubbles</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/en/shock-tube.png" alt="Shock tube"><br><sub><b>Shock tube.</b> The membrane bursts; the measured front speed is compared with theory</sub></td>
-<td><img src="docs/screenshots/en/heat-conduction.png" alt="Heat conduction"><br><sub><b>Heat conduction.</b> Hot and cold walls, a linear T(x) profile and κ in W/(m·K)</sub></td>
+<td><img src="docs/en/adsorption.png" alt="Adsorption"><br><sub><b>Adsorption.</b> Gas settles on attracting walls; coverage θ and pressure reach equilibrium</sub></td>
+<td><img src="docs/en/wetting.png" alt="Wetting"><br><sub><b>Wetting.</b> The contact angle of a droplet on an attracting wall</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/en/acid-ph.png" alt="Acid in water"><br><sub><b>Acid in water.</b> HCl + H₂O → H₃O⁺ + Cl⁻, the pH scale and a proton-transfer counter</sub></td>
-<td><img src="docs/screenshots/en/condensation-graphs.png" alt="Condensation"><br><sub><b>Condensation.</b> Supersaturated vapor gathers into droplets; plots of f(v), g(r), T, P, E, MSD</sub></td>
+<td><img src="docs/en/poiseuille-flow.png" alt="Poiseuille flow"><br><sub><b>Poiseuille flow.</b> A parabolic velocity profile between two walls</sub></td>
+<td><img src="docs/en/heat-conduction.png" alt="Heat conduction"><br><sub><b>Heat conduction.</b> A linear T(x) profile and κ in W/(m·K)</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/en/field-objects.png" alt="Field objects"><br><sub><b>Field objects and measurements.</b> A heater, a barrier, a selection and an angle measurement</sub></td>
-<td><img src="docs/screenshots/en/periodic-table.png" alt="Periodic table"><br><sub><b>Periodic table.</b> 118 elements; the card shows the electron configuration and physical properties</sub></td>
+<td><img src="docs/en/shock-tube.png" alt="Shock tube"><br><sub><b>Shock tube.</b> The measured front speed against theory</sub></td>
+<td><img src="docs/en/brownian-motion.png" alt="Brownian motion"><br><sub><b>Brownian motion.</b> A heavy particle among light atoms, MSD ∝ t</sub></td>
 </tr>
 <tr>
-<td colspan="2" align="center"><img src="docs/screenshots/en/scenes-menu.png" alt="Scene menu" width="60%"><br><sub><b>Scene menu.</b> 46 ready-made experiments in two sections, many with variants</sub></td>
+<td><img src="docs/en/nanowire.png" alt="Nanowire"><br><sub><b>Nanowire tension.</b> A gold wire thinned down to a chain of atoms</sub></td>
+<td><img src="docs/en/condensation-graphs.png" alt="Condensation"><br><sub><b>Condensation.</b> The Plots tab: f(v), g(r), T, P, E, MSD, molecules, phase diagram</sub></td>
+</tr>
+</table>
+
+**Chemistry**
+
+<table>
+<tr>
+<td width="50%"><img src="docs/en/hydrogen-combustion.png" alt="Hydrogen combustion"><br><sub><b>Hydrogen combustion.</b> The event log and the mixture composition on the right</sub></td>
+<td width="50%"><img src="docs/en/propane-combustion.png" alt="Propane combustion"><br><sub><b>Propane combustion.</b> C₃H₈ + 5O₂ from a spark, with reaction rates</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/methane-chlorination.png" alt="Methane chlorination"><br><sub><b>Methane chlorination.</b> UV flashes split Cl₂, and a radical chain makes CH₃Cl and HCl</sub></td>
+<td><img src="docs/en/ncl3-explosion.png" alt="NCl3 explosion"><br><sub><b>NCl₃ explosion.</b> 2NCl₃ → N₂ + 3Cl₂</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/nickel-hydrogenation.png" alt="Hydrogenation on nickel"><br><sub><b>Hydrogenation on nickel.</b> H₂ dissociates on a Ni cluster and adds to ethylene</sub></td>
+<td><img src="docs/en/platinum-catalysis.png" alt="Platinum catalysis"><br><sub><b>Platinum catalysis.</b> H₂ and O₂ react only on the surface of a Pt nanoparticle</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/acid-ph.png" alt="Acid in water"><br><sub><b>Acid in water.</b> HCl + H₂O → H₃O⁺ + Cl⁻, the pH scale and proton hops</sub></td>
+<td><img src="docs/en/ozone.png" alt="Ozone decomposition"><br><sub><b>Ozone decomposition.</b> O₃ → O₂ + O on heating</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/electrophoresis.png" alt="Electrophoresis"><br><sub><b>Electrophoresis.</b> Na⁺ and Cl⁻ drift in opposite directions, water dipoles turn</sub></td>
+<td><img src="docs/en/molecule-gallery.png" alt="Structure library"><br><sub><b>Structure library.</b> C₆₀, graphene, diamond, ice, NaCl, silica, metal clusters and organic molecules</sub></td>
+</tr>
+</table>
+
+**Interface**
+
+<table>
+<tr>
+<td width="50%"><img src="docs/en/scenes-menu.png" alt="Scene menu"><br><sub><b>Scene menu.</b> 46 ready-made experiments in two sections, many with variants</sub></td>
+<td width="50%"><img src="docs/en/periodic-table.png" alt="Periodic table"><br><sub><b>Periodic table.</b> 118 elements; the card shows the electron configuration and physical properties</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/library-panel.png" alt="Library panel"><br><sub><b>Chemistry tab.</b> Reaction switches, the event log and the structure library</sub></td>
+<td><img src="docs/en/field-objects.png" alt="Field objects"><br><sub><b>Field objects and measurements.</b> A heater, a barrier, a selection and an angle</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/settings.png" alt="Settings"><br><sub><b>Settings (F8).</b> Interface, graphics, camera, simulation, files and window</sub></td>
+<td><img src="docs/en/help.png" alt="Help"><br><sub><b>Cheat sheet (H).</b> Every key and mouse action on one page</sub></td>
 </tr>
 </table>
 
@@ -126,13 +189,14 @@ they come out of interaction potentials and conservation laws.
 
 1. Download `atoms-windows-x64.zip` from [Releases](https://github.com/felixxxrrr8-afk/atoms-md/releases/latest).
 2. Unzip it anywhere and run `atoms.exe`. Nothing to install.
-3. <kbd>Tab</kbd> opens the scene menu, <kbd>E</kbd> the periodic table, <kbd>H</kbd> a cheat sheet, <kbd>Ctrl</kbd>+<kbd>L</kbd> switches English ↔ Russian. `MANUAL.html` next to the program is the full manual (<kbd>F1</kbd>).
+3. <kbd>Tab</kbd> opens the scene menu, <kbd>E</kbd> the periodic table, <kbd>H</kbd> a cheat sheet, <kbd>F8</kbd> the settings. `MANUAL.html` next to the program is the full manual (<kbd>F1</kbd>).
 
 Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn that the program is unsigned: "More info" → "Run anyway".
 
 ## Scenes
 
-**Matter**
+<details>
+<summary><b>Matter</b> — 22 scenes</summary>
 
 | Key | Scene | What to watch |
 |---|---|---|
@@ -159,7 +223,10 @@ Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn that the
 | menu | Cavitation | a stretched liquid tears apart into vapor bubbles |
 | menu | Nanowire tension | slip, necking, an atomic chain and rupture of a gold wire |
 
-**Chemistry**
+</details>
+
+<details>
+<summary><b>Chemistry</b> — 24 scenes</summary>
 
 | Key | Scene | What to watch |
 |---|---|---|
@@ -188,24 +255,37 @@ Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn that the
 | menu | NCl₃ explosion | weak N–Cl bonds give way to the very strong N≡N |
 | menu | Autoignition | heating without a spark up to the ignition point; variant: H₂ + Cl₂ |
 
+</details>
+
 ## Controls
 
 | | |
 |---|---|
-| <kbd>Tab</kbd> | scene menu (picking the same scene again opens its variant) |
-| <kbd>Ctrl</kbd>+<kbd>L</kbd> · <kbd>F1</kbd> | interface language · the manual |
+| <kbd>Tab</kbd> · <kbd>E</kbd> · <kbd>F8</kbd> | scene menu · periodic table · settings |
+| <kbd>H</kbd> · <kbd>F1</kbd> · <kbd>Ctrl</kbd>+<kbd>L</kbd> | cheat sheet · manual · interface language |
 | <kbd>Space</kbd> · <kbd>S</kbd> · <kbd>R</kbd> | pause · single step · reset scene |
-| <kbd>E</kbd> | periodic table |
 | <kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>0</kbd>, <kbd>Alt</kbd>+<kbd>F</kbd> | tools and field objects |
 | LMB · RMB · <kbd>Shift</kbd>+RMB | tool · heat · cool |
-| <kbd>Ctrl</kbd>+LMB, wheel | camera: rotate and zoom; <kbd>V</kbd> fly mode, <kbd>X</kbd> section plane |
+| <kbd>Ctrl</kbd>+LMB, wheel | camera: rotate and zoom; <kbd>V</kbd> fly mode, <kbd>X</kbd> cross-section |
 | <kbd>C</kbd> · <kbd>B</kbd> · <kbd>T</kbd> | atom coloring · bonds · trails |
 | <kbd>L</kbd> · <kbd>K</kbd> · <kbd>U</kbd> | flash of light · catalyst zone · reverse time |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> | undo |
 | <kbd>F5</kbd> / <kbd>F9</kbd>, <kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Ctrl</kbd>+<kbd>O</kbd> | quick and regular save and load of `.atoms` files |
 | <kbd>F12</kbd> · <kbd>Ctrl</kbd>+<kbd>F12</kbd> · <kbd>Ctrl</kbd>+<kbd>E</kbd> | PNG snapshot · frame recording · export plots to CSV |
 
-Every key, tool and the physics behind them: [MANUAL.html](MANUAL.html) in English and [ИНСТРУКЦИЯ.html](ИНСТРУКЦИЯ.html) in Russian. Both are in the release archive.
+Every key, tool and the physics behind them: [MANUAL.html](docs/MANUAL.html) in English and [ИНСТРУКЦИЯ.html](docs/ИНСТРУКЦИЯ.html) in Russian. Both are in the release archive.
+
+## Settings
+
+<kbd>F8</kbd> or the gear in the top bar. Changes apply at once and are saved to `atoms.ini` next to the program.
+
+| Section | What you can change |
+|---|---|
+| Interface | language, interface scale (auto or 100–300%), tooltips, the atom card under the cursor, the clock in the top bar, how long notifications stay |
+| Graphics | vertical sync, scene background, depth dimming, highlights on atoms, box outline, bond thickness |
+| Camera and mouse | rotation sensitivity, inverted vertical axis, wheel step, camera smoothing, auto-rotation speed |
+| Simulation | number of worker threads, undo depth, pause while the window is inactive, what to open on startup — the ideal gas, the last scene or the whole previous session |
+| Files and window | where snapshots, frames and CSV go (next to the program or in Pictures), which frames to record, remembering the window position, starting in full screen |
 
 ## How it works
 
@@ -243,7 +323,7 @@ atoms.exe --uitest [--langcheck]     # click through the whole interface; list u
 atoms.exe --lang en --shot K N png   # render scene K and save a window snapshot
 ```
 
-Reports go to `.log` files next to the program. The screenshots here were made with `--shot`.
+Reports go to `.log` files next to the program. The pictures on this page are made by [`tools/media.ps1`](tools/media.ps1): it runs `--shot` for every screenshot and records frames for the animations, which [`tools/gif.py`](tools/gif.py) turns into GIFs.
 
 ## Building from source
 
@@ -256,30 +336,35 @@ build.bat
 `build.bat` finds Visual Studio by itself; `build.bat asan` builds a debug version with AddressSanitizer. By hand, from an x64 Native Tools Command Prompt:
 
 ```bash
-rc /nologo atoms.rc
-cl /O2 /openmp /utf-8 /EHsc /std:c++17 /fp:fast main.cpp atoms.res /Fe:atoms.exe /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib opengl32.lib comdlg32.lib shell32.lib
+rc /nologo /fo res\atoms.res res\atoms.rc
+cl /O2 /openmp /utf-8 /EHsc /std:c++17 /fp:fast main.cpp res\atoms.res /Fe:atoms.exe /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib opengl32.lib comdlg32.lib shell32.lib
 ```
 
-Every push to `main` is built by [GitHub Actions](https://github.com/felixxxrrr8-afk/atoms-md/actions); a new `ProductVersion` in `atoms.rc` publishes a new release.
+Every push to `main` is built by [GitHub Actions](https://github.com/felixxxrrr8-afk/atoms-md/actions); a new `ProductVersion` in `res/atoms.rc` publishes a new release.
 
 ### Layout
 
-One translation unit: `main.cpp` includes the modules from `src/` in order, about 10,000 lines plus the translation table. Comments in the code are in Russian.
+One translation unit: `main.cpp` includes the modules from `src/` in order. Comments in the code are in Russian.
 
-| File | Contents |
+| Path | Contents |
 |---|---|
 | [`main.cpp`](main.cpp) | entry point and the list of headless modes |
 | [`src/core.inl`](src/core.inl) | constants, elements and their properties, system state |
+| [`src/settings.inl`](src/settings.inl) | program settings and `atoms.ini` |
 | [`src/physics.inl`](src/physics.inl) | forces, neighbor lists, integrator, thermostats, barostat, field objects, stability guard |
 | [`src/chemistry.inl`](src/chemistry.inl) | reactions, charges and ions, pH, bond table, the structure library |
 | [`src/analysis.inl`](src/analysis.inl) | measurements for plots, local structure, per-atom phase |
 | [`src/presets.inl`](src/presets.inl) | scenes, their live measurements, undo |
 | [`src/render.inl`](src/render.inl) | OpenGL rendering and the camera |
 | [`src/ui.inl`](src/ui.inl) | panels, tools, plots, periodic table, scene menu |
-| [`src/panel_phys.inl`](src/panel_phys.inl), [`src/panel_chem.inl`](src/panel_chem.inl) | the Physics and Chemistry tabs and their headless checks |
+| [`src/panel_phys.inl`](src/panel_phys.inl), [`src/panel_chem.inl`](src/panel_chem.inl), [`src/panel_settings.inl`](src/panel_settings.inl) | the Physics and Chemistry tabs, the settings window |
 | [`src/app.inl`](src/app.inl) | window and main loop, input, saving, PNG, self-tests |
 | [`src/lang.inl`](src/lang.inl), [`src/lang_table.inl`](src/lang_table.inl) | language switching and the Russian → English string table |
-| [`tools/i18n.py`](tools/i18n.py) | extracts interface strings and checks the translation table |
+| [`res/`](res) | icon and version resource |
+| [`docs/`](docs) | manuals in two languages, screenshots and animations (`docs/en`, `docs/ru`) |
+| [`tools/`](tools) | the translation table checker and the scripts that make pictures for this page |
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed between versions.
 
 ## Simplifications
 

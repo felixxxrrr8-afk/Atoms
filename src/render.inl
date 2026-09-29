@@ -6,13 +6,9 @@ struct RGBA { float r, g, b, a; };
 static constexpr RGBA hexc(unsigned h, float a = 1) { return {((h >> 16) & 255) / 255.0f, ((h >> 8) & 255) / 255.0f, (h & 255) / 255.0f, a}; }
 static constexpr RGBA grayc(float v, float a = 1) { return {v, v, v, a}; }   // оттенок серого: 0 — чёрный, 1 — белый
 
-// ---- Страховка монохромности. Интерфейс — только оттенки серого; цветными остаются лишь атомы и то, что объясняет их цвет
-//  (легенда, образцы элементов в палитре, полоска элемента в подсказке и во вкладке «Объект», следы, образец на карточке
-//  таблицы Менделеева). Эти места рисуются внутри области MonoAtoms — «белый список». Любой другой цвет с оттенком,
-//  дошедший до OpenGL (glColor*, glClearColor, цвета вершин quadUV/segQuad), приводится к яркости (веса Rec.601).
-//  Явный дизайн на страховку не опирается: с ключом --monocheck каждый такой цвет записывается в mono_violations.log
-//  (значение, место в исходнике, раздел кадра) — в норме файл пуст. Ключ grayatoms (отладка) делает серыми и атомы —
-//  так можно проверить попиксельно целую сцену.
+// ---- Интерфейс серый, цветные только атомы и всё, что поясняет их цвет (легенда, образцы в палитре, следы…) —
+//  такие места рисуются внутри MonoAtoms. Любой другой цветной glColor* приводится к яркости (Rec.601), а с ключом
+//  --monocheck ещё и записывается в mono_violations.log, чтобы найти, откуда он взялся. grayatoms — серые и атомы.
 static bool monoCheck = false;             // --monocheck
 static bool monoGrayAtoms = false;         // grayatoms: атомы и их легенда тоже серые (отладка)
 static int monoAtomScope = 0;              // > 0 — рисуется цвет атома (белый список)
@@ -48,18 +44,9 @@ static inline void monoClearColor(float r, float g, float b, float a, const char
 #define glColor3d(...) MONO_only_glColor4f_is_allowed
 #define glColor4d(...) MONO_only_glColor4f_is_allowed
 
-// ---- Палитра интерфейса — ЕДИНСТВЕННЫЙ источник цветов (ими пользуются и панели «Физика» / «Химия»).
-//  Строгий монохромный «приборный» стиль: интерфейс — только оттенки серого (цветные только атомы и их легенда).
-//  Сцена — чистый чёрный, панели — графит, акцент — белый; тонкие линии 1 px. Всё, что раньше различалось цветом:
-//   • активное / выделенное — белая рамка или линия (C_ACC) + светлая подложка C_ACC_BG; наведение — только серая рамка C_LINE_H
-//     и светлее текст; нажатие — тёмная подложка C_PANEL2;
-//   • предупреждение — белый текст на светлой плашке (C_WARN на C_WARN_BG), ошибка — инверсия: чёрный текст на белой плашке
-//     (C_ERR_INK на C_ERR); см. statePlate() / stateInk() и состояния VS_WARN / VS_ERR;
-//   • тепло, выделение энергии, «+» — ярко и сплошной линией (C_HOT); холод, поглощение, «−» — приглушённо (C_COLD)
-//     и пунктиром или контуром (стенки, кисти, заряды, ΔH реакций, вспышки: светлое пятно / сжимающееся серое кольцо);
-//   • ряды графиков — уровень серого × тип линии (LS_SOLID / LS_DASH / LS_DOT / LS_DASHDOT), в легендах — образец линии;
-//   • величины интерфейса (профиль T, шкала pH) — яркость; категории таблицы Менделеева — уровень серого × рисунок
-//     полосы (сплошная / штрих / точки), радиоактивные — метка-треугольник в углу; оси x/y/z — яркость + подписи.
+// ---- Палитра интерфейса: все цвета панелей берутся отсюда. Сцена чёрная, панели графитовые, акцент белый.
+//  Раз цвета нет, различаем яркостью и рисунком: активное — белая рамка, предупреждение — светлая плашка, ошибка — инверсия;
+//  тепло и «+» — ярко и сплошной линией, холод и «−» — серым пунктиром; ряды графиков — яркость × тип линии.
 static const RGBA
     C_BG      = hexc(0x0A0A0A),          // фон окна
     C_SCENE   = hexc(0x000000),          // фон сцены — чистый чёрный
@@ -124,11 +111,11 @@ static std::vector<uint32_t> utf8(std::string_view s) {
 // Атлас шрифтов: GDI рисует сглаженные глифы в DIB → текстура яркость/альфа. Пересобирается при смене масштаба.
 static void buildFonts() {
     const int AW = uiScale > 1.6f ? 2048 : 1024, AH = AW;
-    if (texFont) { glDeleteTextures(1, &texFont); texFont = 0; }
     BITMAPINFO bmi = {}; bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth = AW; bmi.bmiHeader.biHeight = -AH; bmi.bmiHeader.biPlanes = 1; bmi.bmiHeader.biBitCount = 32; bmi.bmiHeader.biCompression = BI_RGB;
     void* bits = nullptr; HDC mdc = CreateCompatibleDC(hdc);
     HBITMAP bmp = CreateDIBSection(mdc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bmp || !bits) { if (bmp) DeleteObject(bmp); DeleteDC(mdc); return; }   // нет памяти под атлас — остаётся прежний шрифт
     HGDIOBJ oldb = SelectObject(mdc, bmp);
     memset(bits, 0, (size_t)AW * AH * 4);
     SetBkMode(mdc, TRANSPARENT); SetTextColor(mdc, RGB(255, 255, 255));
@@ -160,7 +147,7 @@ static void buildFonts() {
             SIZE sz; GetTextExtentPoint32W(mdc, &wc, 1, &sz);
             int w = sz.cx + 3;
             if (px + w >= AW) { px = 1; py += rowH + 2; rowH = 0; }
-            if (py + tm.tmHeight >= AH) { if (fb) SelectObject(mdc, hf); break; }   // атлас заполнен (не должно случаться)
+            if (py + tm.tmHeight >= AH) { if (fb) SelectObject(mdc, hf); break; }   // атлас заполнен
             TextOutW(mdc, px + 1, py + (fb ? (int)(tm.tmAscent - tmb.tmAscent) : 0), &wc, 1);   // выравнивание по базовой линии
             if (fb) SelectObject(mdc, hf);
             Glyph g; g.u0 = (float)px / AW; g.v0 = (float)py / AH; g.u1 = (float)(px + w) / AW; g.v1 = (float)(py + tm.tmHeight) / AH;
@@ -177,6 +164,7 @@ static void buildFonts() {
     std::vector<unsigned char> la((size_t)AW * AH * 2);
     const unsigned char* p = (const unsigned char*)bits;
     for (int i = 0; i < AW * AH; i++) { la[2 * i] = 255; la[2 * i + 1] = std::max(p[4 * i], std::max(p[4 * i + 1], p[4 * i + 2])); }
+    if (texFont) glDeleteTextures(1, &texFont);
     glGenTextures(1, &texFont); glBindTexture(GL_TEXTURE_2D, texFont);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, AW, AH, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, la.data());
@@ -337,8 +325,8 @@ static float chemW(const Font& f, std::string_view s) {
     if (!chemFormula(s)) return textWRaw(f, Tsv(s, "chemW"));
     float w = 0; char prev = 0;
     for (size_t k = 0; k < s.size(); k++) {
-        char ch = s[k]; bool small = chemSub(s, k, prev) || chemSup(s, k, prev);
-        w += textWRaw(small ? fontXS : f, s.substr(k, 1)); prev = ch;
+        char ch = s[k]; bool index = chemSub(s, k, prev) || chemSup(s, k, prev);
+        w += textWRaw(index ? fontXS : f, s.substr(k, 1)); prev = ch;
     }
     return w;
 }
@@ -375,7 +363,7 @@ static void dashedCircle(float cx, float cy, float R) {
 // ---- значки (векторные, монохромные): инструменты, объекты поля, кнопки верхней панели
 enum { IC_CAMERA, IC_SELECT, IC_MEASURE, IC_ADD, IC_ERASE, IC_HEAT, IC_COOL, IC_PUSH, IC_SHOCK, IC_CUT, IC_FIELD,
        IC_FO0,   // + FO_* — значки видов объектов поля
-       IC_PLAY = IC_FO0 + FO_N, IC_PAUSE, IC_STEP, IC_RESET, IC_UNDO, IC_OPEN, IC_SAVE, IC_SHOT, IC_REC, IC_HELP, IC_PANEL, IC_N };
+       IC_PLAY = IC_FO0 + FO_N, IC_PAUSE, IC_STEP, IC_RESET, IC_UNDO, IC_OPEN, IC_SAVE, IC_SHOT, IC_REC, IC_HELP, IC_PANEL, IC_GEAR, IC_N };
 static void drawIcon(int ic, float cx, float cy, float s, RGBA c) {
     glDisable(GL_TEXTURE_2D); col(c); glEnable(GL_LINE_SMOOTH); glLineWidth(std::max(1.0f, 1.25f * uiScale));
     const float h = s * 0.5f;
@@ -447,6 +435,11 @@ static void drawIcon(int ic, float cx, float cy, float s, RGBA c) {
     case IC_REC: { circlePx(cx, cy, h * 0.75f, 20); discPx(cx, cy, h * 0.42f, 16); break; }
     case IC_HELP: { circlePx(cx, cy, h * 0.85f, 22); break; }
     case IC_PANEL: { rectLine(cx - h * 0.9f, cy - h * 0.7f, h * 1.8f, h * 1.4f, c); rectFill(cx + h * 0.25f, cy - h * 0.7f, h * 0.65f, h * 1.4f, withA(c, c.a * 0.5f)); break; }
+    case IC_GEAR: {     // шестерёнка: кольцо и восемь зубцов
+        circlePx(cx, cy, h * 0.55f, 24); circlePx(cx, cy, h * 0.22f, 14);
+        glLineWidth(std::max(2.0f, 2.6f * uiScale)); glBegin(GL_LINES);
+        for (int k = 0; k < 8; k++) { float a = k * 0.7854f, ca = std::cos(a), sa = std::sin(a); segPx(cx + ca * h * 0.58f, cy + sa * h * 0.58f, cx + ca * h * 0.9f, cy + sa * h * 0.9f); }
+        glEnd(); break; }
     default: break;
     }
     glLineWidth(1); glDisable(GL_LINE_SMOOTH);
@@ -525,12 +518,13 @@ static bool rayBox(const double* o, const double* d, double& t0, double& t1) {
     return t1 > std::max(t0, 0.0);
 }
 // вписать ящик в окно; snap — мгновенно (при смене пресета), иначе плавный наезд
+static double fitZoom = 1.0;   // --shot … zoom=K: ближе (K < 1) или дальше, чем «вписать»
 static void fitView(bool snap = true) {
     camSetup();
     camGoal.tx = S.Lx / 2; camGoal.ty = S.Ly / 2; camGoal.tz = S.Lz / 2; camGoal.fov = cam3.fov;
     double r = 0.5 * std::sqrt(S.Lx * S.Lx + S.Ly * S.Ly + S.Lz * S.Lz);
     double fh = cam3.fov * PI / 360, fw = std::atan(std::tan(fh) * sceneW / sceneH);
-    camGoal.dist = r / std::sin(std::min(fh, fw)) * 1.02;
+    camGoal.dist = r / std::sin(std::min(fh, fw)) * 1.02 * fitZoom;
     if (snap) { camGoal.autoRot = cam3.autoRot; cam3 = camGoal; }
     camSetup();
 }
@@ -550,7 +544,7 @@ static void camRotate(double dyaw, double dpitch) {
 static void camTranslate(double dx, double dy, double dz) { camGoal.tx += dx; camGoal.ty += dy; camGoal.tz += dz; }
 // шаг камеры за кадр: автоповорот, полёт, слежение, сглаживание
 static void camUpdate(double dt, bool focused) {
-    if (cam3.autoRot) camGoal.yaw += 0.25 * dt;
+    if (cam3.autoRot) camGoal.yaw += opt.spin * dt;
     if (camMode == 1 && focused) {   // полёт: W/S — вперёд/назад, A/D — влево/вправо, Q/E — вниз/вверх, Shift — быстрее
         double L = std::max({S.Lx, S.Ly, S.Lz}), v = 0.45 * L * dt * (isDown(VK_SHIFT) ? 3.0 : 1.0);
         double off[3]; camOffset(camGoal, off); double f[3] = {-off[0] / camGoal.dist, -off[1] / camGoal.dist, -off[2] / camGoal.dist};
@@ -571,7 +565,7 @@ static void camUpdate(double dt, bool focused) {
         }
         camGoal.tx = p[0]; camGoal.ty = p[1]; camGoal.tz = p[2];
     }
-    double k = 1 - std::exp(-dt / 0.09);
+    double k = opt.camLag > 0.005 ? 1 - std::exp(-dt / opt.camLag) : 1.0;
     cam3.yaw += (camGoal.yaw - cam3.yaw) * k; cam3.pitch += (camGoal.pitch - cam3.pitch) * k;
     cam3.tx += (camGoal.tx - cam3.tx) * k; cam3.ty += (camGoal.ty - cam3.ty) * k; cam3.tz += (camGoal.tz - cam3.tz) * k;
     cam3.dist *= std::exp(std::log(camGoal.dist / cam3.dist) * k);   // масштаб — в логарифме (равномерный наезд)
@@ -864,7 +858,8 @@ static void drawScene() {
     glEnable(GL_SCISSOR_TEST); glScissor((int)sceneX, (int)(winH - sceneY - sceneH), (int)sceneW, (int)sceneH);
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_TEXTURE_2D);
-    rectFill(sceneX, sceneY, sceneW, sceneH, C_SCENE);   // фон сцены — чистый чёрный
+    static const RGBA BG[3] = {C_SCENE, hexc(0x0E0E0E), hexc(0x1A1A1A)};
+    rectFill(sceneX, sceneY, sceneW, sceneH, BG[clampv(opt.sceneBg, 0, 2)]);
     projectAll();
     // --- сетка (слой) на «полу» (y = 0); шаг — «красивое» число нанометров
     if (layerGrid) {
@@ -879,10 +874,12 @@ static void drawScene() {
     }
     // --- ящик: тонкий серый контур; периодические границы — пунктир
     glLineWidth(1.0f);
-    if (isPer()) { glEnable(GL_LINE_STIPPLE); glLineStipple(1, 0x3333); }
-    col(isPer() ? withA(C_BOX, 0.4f) : C_BOX);
-    glEnable(GL_LINE_SMOOTH); boxEdges(S.Ly); glDisable(GL_LINE_SMOOTH);
-    glDisable(GL_LINE_STIPPLE);
+    if (opt.box) {
+        if (isPer()) { glEnable(GL_LINE_STIPPLE); glLineStipple(1, 0x3333); }
+        col(isPer() ? withA(C_BOX, 0.4f) : C_BOX);
+        glEnable(GL_LINE_SMOOTH); boxEdges(S.Ly); glDisable(GL_LINE_SMOOTH);
+        glDisable(GL_LINE_STIPPLE);
+    }
     // тепловые стенки: горячая — белая сплошная толстая линия, холодная — серый пунктир
     if (P.heatWalls && !isPer()) {
         double Z = S.Lz;
@@ -940,7 +937,8 @@ static void drawScene() {
     float dmin = 1e30f, dmax = -1e30f;
     for (int i = 0; i < n; i++) { atomColor(i, cr[i], cg[i], cb[i], emin, emax); if (pvis[i]) { dmin = std::min(dmin, pdep[i]); dmax = std::max(dmax, pdep[i]); } }
     // глубинное затемнение к чёрному (depth cue): ближние атомы яркие, дальние — тусклее
-    auto fog = [&](float dep) { if (dmax <= dmin) return 1.0f; float t = (dep - dmin) / (dmax - dmin); return 1.0f - 0.62f * std::pow(t, 0.85f); };
+    const float fogK = (float)opt.fog;
+    auto fog = [&](float dep) { if (dmax <= dmin) return 1.0f; float t = (dep - dmin) / (dmax - dmin); return 1.0f - fogK * std::pow(t, 0.85f); };
     // --- следы
     if (trailsOn && trailCount > 1 && n > 0 && trailN == n) {
         size_t m = trailIdx.size(); glLineWidth(1.0f);
@@ -991,13 +989,13 @@ static void drawScene() {
             float R = (float)(visSig(S.ty[i]) * (e.fixed ? 0.5 : coreK)) * pscl[i];
             if (e.fixed) f *= 0.8f;
             { MonoAtoms atomsColored; quadAtom(psx[i], psy[i], R, cr[i] * f, cg[i] * f, cb[i] * f, 1.0f); }   // шар — цветом атома; связи — серые
-            if (R > 3.0f && !e.fixed) quadSpec(psx[i], psy[i], R, 0.55f * f);
+            if (opt.gloss && R > 3.0f && !e.fixed) quadSpec(psx[i], psy[i], R, 0.55f * f);
         } else {
             int i = it.a, j = it.b; double dx, dy, dz; dvec(i, j, dx, dy, dz);
             float x2, y2, dep2, s2; if (!project(S.x[i] + dx, S.y[i] + dy, S.z[i] + dz, x2, y2, dep2, s2)) continue;
             if (std::fabs(x2 - psx[j]) > 2 || std::fabs(y2 - psy[j]) > 2) continue;   // связь через периодическую границу не рисуем
             float f = fog(it.depth); int o = bondOrder(i, j);
-            segQuad(psx[i], psy[i], x2, y2, (0.035f + 0.022f * o) * pscl[i], 0.8f * f, 0.8f * f, 0.8f * f, 1.0f);
+            segQuad(psx[i], psy[i], x2, y2, (0.035f + 0.022f * o) * (float)opt.bondW * pscl[i], 0.8f * f, 0.8f * f, 0.8f * f, 1.0f);
         }
     }
     flushQuads(texCore);
@@ -1078,7 +1076,7 @@ static void drawScene() {
         glEnable(GL_LINE_STIPPLE); glLineStipple(1, 0x3333); rectLine(x0, y0, w, h, withA(C_ACC, 0.9f)); glDisable(GL_LINE_STIPPLE);
     }
     // --- кисть инструмента: окружность радиуса R в плоскости цели камеры
-    if (inScene(mouseX, mouseY) && !helpOn && !ptOn && !menuOn) {
+    if (inScene(mouseX, mouseY) && !helpOn && !ptOn && !menuOn && !settingsOn) {
         const int tl = lmbTool; const bool brushTool = tl == TOOL_ADD || tl == TOOL_ERASE || tl == TOOL_HEAT || tl == TOOL_COOL || tl == TOOL_PUSH || tl == TOOL_SHOCK;
         if (brushTool || heatBrush) {
             float Rpx = (float)(P.brushR * (tl == TOOL_SHOCK ? 2.5 : 1.0) * pxPerSigma());
@@ -1093,7 +1091,7 @@ static void drawScene() {
     }
     // --- подсветка: молекула под курсором и атом, за которым следит камера
     {
-        int h = (grabbed < 0 && inScene(mouseX, mouseY) && !helpOn && lmbTool != TOOL_CAMERA) ? hoverAtom() : -1;
+        int h = (grabbed < 0 && inScene(mouseX, mouseY) && !helpOn && !ptOn && !menuOn && !settingsOn && lmbTool != TOOL_CAMERA) ? hoverAtom() : -1;
         glEnable(GL_LINE_SMOOTH);
         if (h >= 0) {
             std::vector<int> mol; moleculeOf(h, mol);

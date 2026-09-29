@@ -3,3 +3,4 @@
 *.inl linguist-language=C++
 *.ico binary
 *.png binary
+*.gif binary

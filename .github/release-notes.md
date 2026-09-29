@@ -2,13 +2,11 @@
 
 Download **atoms-windows-x64.zip**, unzip it anywhere and run `atoms.exe`. Nothing to install.
 
-**New in 4.0**
-- The model is three-dimensional only: the flat mode and the <kbd>D</kbd> key are gone, and so is the code behind them
-- 8 new scenes, 46 in all: liquid and vapor, adsorption, temperature equalization, cavitation, gold nanowire tension, propane combustion, NCl₃ explosion, autoignition (with an H₂ + Cl₂ variant)
-- The molecule library grew from 65 to 127 structures: NO, NO₂, NF₃, PCl₃, BF₃, SiF₄, CS₂ and other inorganic molecules, cyclohexane, naphthalene, pyridine, styrene, aniline, glycerol, amino acids, seven new ions, fullerene C₆₀, Rh and Pb clusters
-- Reference bond data for N–F, P–F, S–F, S–Cl, Si–F, B–F, B–Cl, B–O, C–B, interhalogens, H–Se, H–Ge, H–As; tetrahedral NH₄⁺, BH₄⁻ and pyramidal H₃O⁺
-- The piston can be dragged with the mouse
-- Files saved in the flat mode of older versions no longer open
+**New in 4.1**
+- Settings window: <kbd>F8</kbd> or the gear in the top bar. Interface scale, tooltips, notifications, vertical sync, scene background, depth dimming, bond thickness, mouse sensitivity, camera smoothing, worker threads, undo depth, pause in the background, what to open on startup (including the whole previous session), where snapshots go, window position. Everything is saved in `atoms.ini`.
+- Snapshots, frame recordings and CSV can go to Pictures\Atoms; quick save always lives next to `atoms.exe`
+- English translation reviewed
+- Fixes: quick save and CSV export no longer depend on the working folder; a failed font atlas allocation no longer crashes the program; the brush circle no longer shows through open windows
 
 **Inside the archive**
 - `atoms.exe` — the program
@@ -21,7 +19,7 @@ Download **atoms-windows-x64.zip**, unzip it anywhere and run `atoms.exe`. Nothi
 
 Windows SmartScreen may warn that the program has no paid code signature: "More info" → "Run anyway".
 
-The archive is built by GitHub Actions from the sources of this release.
+The full list of changes is in [CHANGELOG.md](https://github.com/felixxxrrr8-afk/atoms-md/blob/main/CHANGELOG.md).
 
 ---
 
@@ -29,13 +27,11 @@ The archive is built by GitHub Actions from the sources of this release.
 
 Скачайте **atoms-windows-x64.zip**, распакуйте в любую папку и запустите `atoms.exe`. Устанавливать ничего не нужно.
 
-**Новое в 4.0**
-- Модель только объёмная: плоского режима и клавиши <kbd>D</kbd> больше нет, как и кода для них
-- 8 новых сцен, всего 46: жидкость и пар, адсорбция, выравнивание температур, кавитация, растяжение нанопровода золота, горение пропана, взрыв NCl₃, самовоспламенение (с вариантом H₂ + Cl₂)
-- Библиотека молекул выросла с 65 до 127 структур: NO, NO₂, NF₃, PCl₃, BF₃, SiF₄, CS₂ и другие неорганические молекулы, циклогексан, нафталин, пиридин, стирол, анилин, глицерин, аминокислоты, семь новых ионов, фуллерен C₆₀, кластеры Rh и Pb
-- Справочные данные связей N–F, P–F, S–F, S–Cl, Si–F, B–F, B–Cl, B–O, C–B, межгалогенных пар, H–Se, H–Ge, H–As; тетраэдрические NH₄⁺ и BH₄⁻, пирамидальный H₃O⁺
-- Поршень можно тянуть мышью
-- Файлы, сохранённые в плоском режиме старых версий, больше не открываются
+**Новое в 4.1**
+- Окно настроек: <kbd>F8</kbd> или шестерёнка в верхней панели. Масштаб интерфейса, подсказки, уведомления, вертикальная синхронизация, фон сцены, затемнение дальних атомов, толщина связей, чувствительность мыши, плавность камеры, число потоков, глубина отмены, пауза в фоне, что открывать при запуске (в том числе весь прошлый сеанс), куда сохранять снимки, положение окна. Всё хранится в `atoms.ini`.
+- Снимки, запись кадров и CSV можно сохранять в «Изображения\Атомы»; быстрое сохранение всегда рядом с `atoms.exe`
+- Вычитан английский перевод
+- Исправления: быстрое сохранение и экспорт CSV больше не зависят от рабочей папки; при нехватке памяти под атлас шрифтов программа не падает; кисть не просвечивает сквозь открытые окна
 
 **В архиве**
 - `atoms.exe` — программа
@@ -48,4 +44,4 @@ The archive is built by GitHub Actions from the sources of this release.
 
 SmartScreen может предупредить, что у программы нет платной цифровой подписи: «Подробнее» → «Выполнить в любом случае».
 
-Архив собран в GitHub Actions из исходников этого релиза.
+Полный список изменений — в [CHANGELOG.ru.md](https://github.com/felixxxrrr8-afk/atoms-md/blob/main/CHANGELOG.ru.md).
