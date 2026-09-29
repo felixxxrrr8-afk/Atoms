@@ -16,6 +16,9 @@ struct Settings {
     bool gloss = true;           // блики на шарах
     bool box = true;             // контур ящика
     double bondW = 1.0;          // толщина связей
+    int style = 0;               // модель молекул: 0 авто, 1 шаростержневая, 2 ван-дер-ваальсова, 3 палочки (render.inl, MS_*)
+    int font = 0;                // шрифт интерфейса: 0 Bahnschrift, 1 Segoe UI, 2 Calibri, 3 Verdana
+    bool glow = true;            // свечение раскалённых атомов (пламя, взрывы)
     double mouseSens = 1.0;      // чувствительность вращения мышью
     bool invertY = false;
     double zoomSens = 1.0;       // шаг наезда колесом
@@ -42,6 +45,7 @@ static const OptKey OPT_KEYS[] = {
     {"clock", 'b', &opt.clock, 0, 1},             {"toast_sec", 'd', &opt.toastSec, 1, 8}, {"vsync", 'b', &opt.vsync, 0, 1},
     {"scene_bg", 'i', &opt.sceneBg, 0, 2},        {"fog", 'd', &opt.fog, 0, 1},            {"gloss", 'b', &opt.gloss, 0, 1},
     {"box", 'b', &opt.box, 0, 1},                 {"bond_width", 'd', &opt.bondW, 0.4, 2.5},
+    {"model", 'i', &opt.style, 0, 3},             {"font", 'i', &opt.font, 0, 3},          {"glow", 'b', &opt.glow, 0, 1},
     {"mouse_sens", 'd', &opt.mouseSens, 0.25, 3}, {"invert_y", 'b', &opt.invertY, 0, 1},  {"zoom_sens", 'd', &opt.zoomSens, 0.25, 3},
     {"camera_lag", 'd', &opt.camLag, 0, 0.4},     {"spin", 'd', &opt.spin, 0.05, 1.5},
     {"threads", 'i', &opt.threads, 0, 256},       {"undo", 'i', &opt.undo, 1, 100},       {"bg_pause", 'b', &opt.bgPause, 0, 1},

@@ -1382,14 +1382,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         const wchar_t* op = wcsstr(cmd, L"out="); if (op) { op += 4; while (*op && *op != L' ') shotOut += *op++; }
         const wchar_t* rp = wcsstr(cmd, L"rec="); if (rp) { rp += 4; while (*rp && *rp != L' ') clipDir += *rp++; CreateDirectoryW(clipDir.c_str(), nullptr); }
         clipEvery = std::max(1, argInt(cmd, L"every=", 2)); clipFrom = argInt(cmd, L"from=", 0);
-        fitZoom = clampv(argDbl(cmd, L"zoom=", 1.0), 0.3, 3.0);
+        fitZoom = clampv(argDbl(cmd, L"zoom=", 1.0), 0.05, 3.0);
     }
     loadPreset(shotPreset >= 0 ? shotPreset : 1, shotVar);
     if (shotDemo) setupDemo();
     if (const wchar_t* lp = cmd ? wcsstr(cmd, L"lib=") : nullptr) {   // галерея структур библиотеки: lib=K1,K2,…
         std::vector<int> ks;
         for (const wchar_t* q = lp + 4; *q >= L'0' && *q <= L'9';) { ks.push_back((int)wcstol(q, (wchar_t**)&q, 10)); if (*q == L',') q++; }
-        const int n = (int)ks.size(), cols = std::max(1, (int)std::ceil(std::sqrt(n * 1.7))), rows = (n + cols - 1) / std::max(1, cols);
+        const int n = (int)ks.size(), cols = n == 1 ? 1 : std::max(1, (int)std::ceil(std::sqrt(n * 1.7))), rows = (n + cols - 1) / std::max(1, cols);
         const double cell = 8;
         worldReset(cols * cell, rows * cell, cell, B_PERIODIC);
         P.thermostat = TH_BERENDSEN; P.Tset = 0.02; P.chemistry = false; opt.box = false; colorMode = 0;

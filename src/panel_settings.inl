@@ -13,7 +13,9 @@ static void resetSettings() {
     Settings d = OPT_DEFAULT;   // язык, последняя сцена и положение окна не сбрасываются
     d.lang = opt.lang; d.lastScene = opt.lastScene; d.lastVar = opt.lastVar;
     d.wx = opt.wx; d.wy = opt.wy; d.ww = opt.ww; d.wh = opt.wh; d.wmax = opt.wmax;
+    const bool fontChanged = d.font != opt.font;
     opt = d; applySettings();
+    if (fontChanged) buildFonts();
     showToast("Настройки по умолчанию");
 }
 template <class V> static V nextIn(const std::vector<V>& list, V cur) {   // следующее значение списка по кругу
@@ -83,10 +85,19 @@ static void drawSettings() {
         static const char* BGN[3] = {"чёрный", "графит", "тёмно-серый"};
         if (cyc(1611, "Фон сцены", T(BGN[clampv(opt.sceneBg, 0, 2)]), "Цвет фона за атомами")) opt.sceneBg = (opt.sceneBg + 1) % 3;
     }
+    if (cyc(1616, "Модель молекул", T(MS_NAMES[clampv(opt.style, 0, MS_N - 1)]),
+            "Шаростержневая — шары цвета элемента и связи-цилиндры (как на рисунках молекул),\nван-дер-ваальсова — плотные шары, палочки — только связи.\n«Авто»: молекулы шаростержневые, металлы и инертные газы — плотные шары"))
+        opt.style = (opt.style + 1) % MS_N;
+    {
+        static const char* FN[4] = {"Bahnschrift", "Segoe UI", "Calibri", "Verdana"};
+        if (cyc(1617, "Шрифт интерфейса", FN[clampv(opt.font, 0, 3)], "Шрифт надписей и кнопок. Числа и таблицы — моноширинным шрифтом")) {
+            opt.font = (opt.font + 1) % 4; buildFonts(); }
+    }
     sld(1612, "Затемнение дальних атомов", &opt.fog, 0, 1, fmt("%.0f%%", opt.fog * 100), "Глубина: дальние атомы темнее ближних. 0 — все одинаково яркие");
-    chk(1613, "Блики на атомах", &opt.gloss, "Световой блик на шарах — объём без затрат на освещение");
+    chk(1613, "Блики на атомах", &opt.gloss, "Зеркальный блик на шарах и связях");
+    chk(1618, "Свечение раскалённых атомов", &opt.glow, "Атомы горячее ≈1000 K светятся, как пламя: от тёмно-красного к белому (закон Планка)");
     chk(1614, "Контур ящика", &opt.box, "Рёбра расчётного ящика; периодические границы — пунктиром");
-    sld(1615, "Толщина связей", &opt.bondW, 0.4, 2.5, fmt("%.2f×", opt.bondW), "Толщина палочек химических связей");
+    sld(1615, "Толщина связей", &opt.bondW, 0.4, 2.5, fmt("%.2f×", opt.bondW), "Толщина цилиндров химических связей");
 
     // ---- правая колонка
     nextColumn();

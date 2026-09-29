@@ -94,7 +94,7 @@ static inline double massDensity(double mass10, double vol) { return vol > 0 ? 0
 
 struct Glyph { float u0, v0, u1, v1, w, h, adv; };
 struct Font { std::unordered_map<uint32_t, Glyph> g; float h = 12; };
-// fontS/fontM — моноширинные (Consolas: числа, таблицы), fontU/fontUB — подписи интерфейса (Segoe UI),
+// fontS/fontM — моноширинные (числа, таблицы), fontU/fontUB — подписи интерфейса (шрифт из настроек),
 // fontL — заголовки, fontXS — мелкие подписи, fontXL — крупный символ элемента
 static Font fontS, fontM, fontL, fontXS, fontXL, fontU, fontUB;
 
@@ -108,7 +108,14 @@ static std::vector<uint32_t> utf8(std::string_view s) {
     }
     return out;
 }
-// Атлас шрифтов: GDI рисует сглаженные глифы в DIB → текстура яркость/альфа. Пересобирается при смене масштаба.
+// установлен ли шрифт с таким именем
+static bool hasFace(HDC dc, const wchar_t* face) {
+    LOGFONTW lf = {}; lf.lfCharSet = DEFAULT_CHARSET; wcsncpy_s(lf.lfFaceName, face, _TRUNCATE);
+    bool found = false;
+    EnumFontFamiliesExW(dc, &lf, [](const LOGFONTW*, const TEXTMETRICW*, DWORD, LPARAM p) -> int { *(bool*)p = true; return 0; }, (LPARAM)&found, 0);
+    return found;
+}
+// Атлас шрифтов: GDI рисует сглаженные глифы в DIB → текстура яркость/альфа. Пересобирается при смене масштаба и шрифта.
 static void buildFonts() {
     const int AW = uiScale > 1.6f ? 2048 : 1024, AH = AW;
     BITMAPINFO bmi = {}; bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -157,9 +164,19 @@ static void buildFonts() {
         SelectObject(mdc, of); DeleteObject(hf); DeleteObject(hfb);
         px = 1; py += rowH + 4; rowH = 0;
     };
-    bake(fontS, 13, 400, L"Consolas"); bake(fontM, 15, 400, L"Consolas"); bake(fontL, 18, 600, L"Segoe UI");
-    bake(fontXS, 12, 400, L"Segoe UI"); bake(fontU, 13, 400, L"Segoe UI"); bake(fontUB, 13, 600, L"Segoe UI");
-    bake(fontXL, 34, 700, L"Segoe UI", true);
+    // подписи — шрифтом из настроек (по умолчанию Bahnschrift: строгий гротеск с кириллицей, есть в Windows 10 с 2017 г.),
+    // числа и таблицы — моноширинным (Cascadia Mono из Windows 11 и Терминала, иначе Consolas)
+    static const wchar_t* UIF[4] = {L"Bahnschrift", L"Segoe UI", L"Calibri", L"Verdana"};
+    const wchar_t* face = UIF[clampv(opt.font, 0, 3)];
+    if (!hasFace(mdc, face)) face = L"Segoe UI";
+    const bool bahn = !wcscmp(face, L"Bahnschrift");
+    const wchar_t* bold = bahn && hasFace(mdc, L"Bahnschrift SemiBold") ? L"Bahnschrift SemiBold" : face;
+    const int bw = bold != face ? 400 : 600;   // у Bahnschrift полужирный — отдельное начертание
+    const wchar_t* mono = hasFace(mdc, L"Cascadia Mono") ? L"Cascadia Mono" : L"Consolas";
+    const float k = bahn ? 1.04f : 1.0f;       // Bahnschrift чуть мельче при том же кегле
+    bake(fontS, 13, 400, mono); bake(fontM, 15, 400, mono); bake(fontL, 18 * k, bw, bold);
+    bake(fontXS, 12 * k, 400, face); bake(fontU, 13 * k, 400, face); bake(fontUB, 13 * k, bw, bold);
+    bake(fontXL, 34, bw + 100, bold, true);
     GdiFlush();
     std::vector<unsigned char> la((size_t)AW * AH * 2);
     const unsigned char* p = (const unsigned char*)bits;
@@ -186,27 +203,33 @@ static void buildTextures() {
     // мягкое пятно (вспышки реакций): гауссов профиль
     texGlow = makeTex(128, [](double x, double y, unsigned char& l, unsigned char& a) {
         double r2 = x * x + y * y; l = 255; a = (unsigned char)(255 * std::exp(-r2 * 4.5) * (r2 < 1 ? 1 : 0)); });
-    // атлас атома 256×128: слева — шар (рассеянный свет + Ламберт от света сверху-слева, лёгкое затемнение к краю,
-    // чтобы соседние атомы не сливались), справа — неяркий зеркальный блик (Блинн–Фонг), без «мультяшного» глянца.
+    // Атлас шара 384×128, три квадрата, яркость уже умножена на покрытие (смешивание с предумноженной альфой):
+    //   [0] тело: рассеянный свет (Ламберт) от источника сверху-слева-спереди + немного окружающего, к краю темнеет
+    //       почти до чёрного — объём как у отрендеренной модели;
+    //   [1] блик Блинна–Фонга (складывается поверх, альфа 0) — белый, даже на красном кислороде;
+    //   [2] ровный диск (маска): туман к цвету фона, заливки.
+    // Цилиндры связей берут тот же атлас вдоль диаметра, перпендикулярного связи на экране, — освещение
+    // шаров и связей согласовано, как на фотографии шаростержневой модели.
     {
-        const int N = 128; std::vector<unsigned char> d((size_t)2 * N * N * 2);
-        const double Lx = -0.45, Ly = -0.55, Lz = 0.70, ll = std::sqrt(Lx * Lx + Ly * Ly + Lz * Lz);
+        const int N = 128; std::vector<unsigned char> d((size_t)3 * N * N * 2);
+        const double Lx = -0.42, Ly = -0.58, Lz = 0.70, ll = std::sqrt(Lx * Lx + Ly * Ly + Lz * Lz);
         const double lx = Lx / ll, ly = Ly / ll, lz = Lz / ll, hx0 = lx, hy0 = ly, hz0 = lz + 1, hl = std::sqrt(hx0 * hx0 + hy0 * hy0 + hz0 * hz0);
         for (int j = 0; j < N; j++) for (int i = 0; i < N; i++) {
             double x = (i + 0.5) / N * 2 - 1, y = (j + 0.5) / N * 2 - 1, r2 = x * x + y * y, r = std::sqrt(r2);
-            double edge = clampv((1.0 - r) / 0.04, 0.0, 1.0), nz = std::sqrt(std::max(0.0, 1 - r2));
+            double edge = clampv((1.0 - r) / 0.035, 0.0, 1.0), nz = std::sqrt(std::max(0.0, 1 - r2));
             double diff = std::max(0.0, x * lx + y * ly + nz * lz);
-            double rimT = clampv((r - 0.78) / 0.22, 0.0, 1.0), rim = 1.0 - 0.38 * rimT * rimT;
-            double shade = (0.20 + 0.66 * diff + 0.14 * nz) * rim;
-            double spec = std::pow(std::max(0.0, (x * hx0 + y * hy0 + nz * hz0) / hl), 60.0);
-            size_t c = ((size_t)j * 2 * N + i) * 2, h = ((size_t)j * 2 * N + N + i) * 2;
-            d[c] = (unsigned char)(255 * clampv(shade, 0.0, 1.0)); d[c + 1] = (unsigned char)(255 * edge);
-            d[h] = 255; d[h + 1] = (unsigned char)(255 * clampv(0.55 * spec * edge, 0.0, 1.0));
+            double shade = 0.10 + 0.84 * std::pow(diff, 1.15) + 0.10 * nz * nz;
+            double spec = std::pow(std::max(0.0, (x * hx0 + y * hy0 + nz * hz0) / hl), 48.0);
+            double soft = std::pow(std::max(0.0, (x * hx0 + y * hy0 + nz * hz0) / hl), 6.0);   // широкий мягкий ореол вокруг блика
+            size_t row = (size_t)j * 3 * N, c0 = (row + i) * 2, c1 = (row + N + i) * 2, c2 = (row + 2 * N + i) * 2;
+            d[c0] = (unsigned char)(255 * clampv(shade * edge, 0.0, 1.0)); d[c0 + 1] = (unsigned char)(255 * edge);
+            d[c1] = (unsigned char)(255 * clampv((0.95 * spec + 0.10 * soft) * edge, 0.0, 1.0)); d[c1 + 1] = 0;
+            d[c2] = d[c2 + 1] = (unsigned char)(255 * edge);
         }
         glGenTextures(1, &texCore); glBindTexture(GL_TEXTURE_2D, texCore);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, 2 * N, N, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, d.data());
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, 3 * N, N, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, d.data());
     }
 }
 static inline void col(const RGBA& c) { glColor4f(c.r, c.g, c.b, c.a); }
@@ -334,6 +357,22 @@ static void hsv(float h, float s, float v, float& r, float& g, float& b) {
     h = h - std::floor(h); float i = std::floor(h * 6), f = h * 6 - i, p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
     switch ((int)i % 6) { case 0: r = v; g = t; b = p; break; case 1: r = q; g = v; b = p; break; case 2: r = p; g = v; b = t; break;
                           case 3: r = p; g = q; b = v; break; case 4: r = t; g = p; b = v; break; default: r = v; g = p; b = q; }
+}
+// цвет излучения абсолютно чёрного тела (sRGB, нормирован по самой яркой компоненте) при температуре T, K —
+// таблица по расчёту М. Чарити (цветовые координаты CIE 1931, 2°), между узлами линейно
+static void blackbody(float T, float& r, float& g, float& b) {
+    static const float TT[] = {800, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6500, 8000, 10000, 15000};
+    static const float C[][3] = {{1.00f, 0.10f, 0.00f}, {1.00f, 0.22f, 0.00f}, {1.00f, 0.43f, 0.00f}, {1.00f, 0.54f, 0.07f}, {1.00f, 0.63f, 0.28f},
+                                 {1.00f, 0.71f, 0.42f}, {1.00f, 0.82f, 0.64f}, {1.00f, 0.89f, 0.81f}, {1.00f, 0.99f, 0.98f}, {0.89f, 0.91f, 1.00f},
+                                 {0.80f, 0.86f, 1.00f}, {0.71f, 0.80f, 1.00f}};
+    const int N = sizeof(TT) / sizeof(*TT);
+    if (T <= TT[0]) { r = C[0][0]; g = C[0][1]; b = C[0][2]; return; }
+    for (int k = 1; k < N; k++) if (T <= TT[k]) {
+        const float t = (T - TT[k - 1]) / (TT[k] - TT[k - 1]);
+        r = C[k - 1][0] + t * (C[k][0] - C[k - 1][0]); g = C[k - 1][1] + t * (C[k][1] - C[k - 1][1]); b = C[k - 1][2] + t * (C[k][2] - C[k - 1][2]);
+        return;
+    }
+    r = C[N - 1][0]; g = C[N - 1][1]; b = C[N - 1][2];
 }
 // ---- векторные примитивы для значков и разметки сцены
 static void segPx(float x0, float y0, float x1, float y1) { glVertex2f(x0, y0); glVertex2f(x1, y1); }
@@ -616,16 +655,27 @@ static inline void quadUV(float x, float y, float R, float r, float g, float b, 
     float d[4][4] = {{x - R, y - R, u0, 0}, {x + R, y - R, u1, 0}, {x + R, y + R, u1, 1}, {x - R, y + R, u0, 1}};
     for (auto& v : d) { vb.push_back(v[0]); vb.push_back(v[1]); vb.push_back(v[2]); vb.push_back(v[3]); vb.push_back(r); vb.push_back(g); vb.push_back(b); vb.push_back(a); }
 }
-// шар атома и его блик (левая и правая половины атласа texCore)
-static inline void quadAtom(float x, float y, float R, float r, float g, float b, float a) { quadUV(x, y, R, r, g, b, a, 0.0f, 0.5f); }
-static inline void quadSpec(float x, float y, float R, float a) { quadUV(x, y, R, 1, 1, 1, a, 0.5f, 1.0f); }
-// толстая линия как четырёхугольник (для связей): поперёк связи — полоса шара, получается объёмный «цилиндр»
-static inline void segQuad(float x1, float y1, float x2, float y2, float w, float r, float g, float b, float a) {
-    monoFix(r, g, b, "segQuad (цвет вершин)");
+// шар атома: тело, блик и ровный диск — трети атласа texCore (яркость предумножена на покрытие).
+// Блик и диск с альфой 0 складываются с тем, что под ними, тело — закрывает.
+static inline void quadAtom(float x, float y, float R, float r, float g, float b) { quadUV(x, y, R, r, g, b, 1.0f, 0.0f, 1.0f / 3); }
+static inline void quadSpec(float x, float y, float R, float k) { quadUV(x, y, R, k, k, k, 0.0f, 1.0f / 3, 2.0f / 3); }
+static inline void quadDisc(float x, float y, float R, float r, float g, float b, float a) { quadUV(x, y, R, r, g, b, a, 2.0f / 3, 1.0f); }
+// Цилиндр (часть связи) от (x1,y1) до (x2,y2), полутолщина w1 и w2 на концах (перспектива).
+// Поперёк цилиндра текстура идёт по диаметру шара в направлении нормали к связи: нормали боковой поверхности
+// цилиндра те же, что у шара на этом диаметре, поэтому свет и блик ложатся так же, как на шарах.
+static void cylQuad(float x1, float y1, float w1, float x2, float y2, float w2, float r, float g, float b, float spec) {
     float dx = x2 - x1, dy = y2 - y1, l = std::sqrt(dx * dx + dy * dy); if (l < 0.5f) return;
-    float nx = -dy / l * w * 0.5f, ny = dx / l * w * 0.5f;
-    float d[4][4] = {{x1 + nx, y1 + ny, 0.25f, 0.2f}, {x2 + nx, y2 + ny, 0.25f, 0.2f}, {x2 - nx, y2 - ny, 0.25f, 0.8f}, {x1 - nx, y1 - ny, 0.25f, 0.8f}};
-    for (auto& v : d) { vb.push_back(v[0]); vb.push_back(v[1]); vb.push_back(v[2]); vb.push_back(v[3]); vb.push_back(r); vb.push_back(g); vb.push_back(b); vb.push_back(a); }
+    monoFix(r, g, b, "cylQuad (цвет вершин)");
+    const float nx = -dy / l, ny = dx / l, du = nx * 0.46f / 3, dv = ny * 0.46f, cu = 1.0f / 6, cv = 0.5f;
+    auto put = [](float px, float py, float u, float v, float cr, float cg, float cb, float ca) {
+        vb.push_back(px); vb.push_back(py); vb.push_back(u); vb.push_back(v); vb.push_back(cr); vb.push_back(cg); vb.push_back(cb); vb.push_back(ca);
+    };
+    auto quad = [&](float u0, float cr, float cg, float cb, float ca) {
+        put(x1 + nx * w1, y1 + ny * w1, u0 + du, cv + dv, cr, cg, cb, ca); put(x2 + nx * w2, y2 + ny * w2, u0 + du, cv + dv, cr, cg, cb, ca);
+        put(x2 - nx * w2, y2 - ny * w2, u0 - du, cv - dv, cr, cg, cb, ca); put(x1 - nx * w1, y1 - ny * w1, u0 - du, cv - dv, cr, cg, cb, ca);
+    };
+    quad(cu, r, g, b, 1.0f);
+    if (spec > 0) quad(cu + 1.0f / 3, spec, spec, spec, 0.0f);
 }
 static void flushQuads(GLuint tex) {
     if (vb.empty()) return;
@@ -671,6 +721,23 @@ static void atomColor(int i, float& r, float& g, float& b, double emin, double e
     } else if (colorMode == 5 && atomPhase.size() == (size_t)S.n) {   // агрегатное состояние
         const RGBA& c = PHASE_C[std::min(3, (int)atomPhase[i])]; r = c.r; g = c.g; b = c.b;
     }
+}
+// ---- стиль модели. Шаростержневая — как привычные изображения молекул: небольшие глянцевые шары цвета CPK
+//  (≈0.3 ван-дер-ваальсова радиуса) и связи-цилиндры; ван-дер-ваальсова — плотные шары; палочки — только связи.
+//  «Авто»: где возможна химия — шаростержневая, вещество без ковалентных связей (инертный газ, металл) — плотные шары.
+enum { MS_AUTO, MS_BALL, MS_VDW, MS_STICK, MS_N };
+static const char* MS_NAMES[MS_N] = {"авто", "шаростержневая", "ван-дер-ваальсова", "палочки"};
+static inline int modelStyle() { const int s = clampv(opt.style, 0, MS_N - 1); return s != MS_AUTO ? s : (anyBondable ? MS_BALL : MS_VDW); }
+static inline double bondRadius(int style) { return style == MS_STICK ? 0.044 : 0.029; }   // σ: 0.15 и 0.10 Å
+// радиус шара атома i на экране (σ)
+static double atomDrawR(int i, int style) {
+    const int t = S.ty[i]; const Element& e = EL[t];
+    if (e.fixed) return 0.5 * visSig(t);
+    if (style == MS_VDW) return 0.42 * visSig(t);
+    if (e.metal) return 0.40 * visSig(t);
+    if (style == MS_STICK) return S.nbc[i] ? bondRadius(style) : 0.12 * visSig(t);
+    if (S.nbc[i] == 0 && std::fabs(S.q[i]) > 0.4) return 0.28 * visSig(t);   // одноатомный ион — крупнее атома в молекуле
+    return 0.145 * visSig(t);
 }
 // кэш проекций атомов (для отрисовки и выбора мышью)
 static std::vector<float> psx, psy, pdep, pscl; static std::vector<char> pvis;
@@ -937,8 +1004,9 @@ static void drawScene() {
     float dmin = 1e30f, dmax = -1e30f;
     for (int i = 0; i < n; i++) { atomColor(i, cr[i], cg[i], cb[i], emin, emax); if (pvis[i]) { dmin = std::min(dmin, pdep[i]); dmax = std::max(dmax, pdep[i]); } }
     // глубинное затемнение к чёрному (depth cue): ближние атомы яркие, дальние — тусклее
-    const float fogK = (float)opt.fog;
-    auto fog = [&](float dep) { if (dmax <= dmin) return 1.0f; float t = (dep - dmin) / (dmax - dmin); return 1.0f - fogK * std::pow(t, 0.85f); };
+    // (глубина нормируется не меньше чем на диагональ ящика: одиночная молекула не темнеет с одного бока)
+    const float fogK = (float)opt.fog, fogL = std::max(dmax - dmin, 0.7f * (float)std::sqrt(S.Lx * S.Lx + S.Ly * S.Ly + S.Lz * S.Lz));
+    auto fog = [&](float dep) { if (fogL <= 0) return 1.0f; float t = clampv((dep - dmin) / fogL, 0.0f, 1.0f); return 1.0f - fogK * std::pow(t, 0.85f); };
     // --- следы
     if (trailsOn && trailCount > 1 && n > 0 && trailN == n) {
         size_t m = trailIdx.size(); glLineWidth(1.0f);
@@ -974,37 +1042,74 @@ static void drawScene() {
         if (R > 2) { col(withA(C_COLD, (1 - t) * 0.5f)); circlePx(sx, sy, R, 32); }
     }
     glDisable(GL_LINE_SMOOTH);
-    // --- ядра атомов и связи от дальних к ближним (алгоритм художника), связи — тонкие палочки между шарами
-    const bool ballStick = bondsOn && anyBondable;
-    const float coreK = (ballStick ? 0.3f : 0.42f) * (float)atomVis;
-    std::vector<DrawItem> items; items.reserve(n * 2);
+    // --- атомы и связи от дальних к ближним (алгоритм художника). Связь — два цилиндра цветом своих атомов
+    //     (как у шаростержневой модели), каждый рисуется прямо перед своим шаром: шар закрывает начало цилиндра,
+    //     и связь выходит из его поверхности. Кратная связь — две или три тонкие параллельные трубки.
+    const int style = modelStyle();
+    const float coreK = (float)atomVis;   // множитель радиусов (слайдер «размер атомов»)
+    std::vector<DrawItem> items; items.reserve(n * 3);
     for (int i = 0; i < n; i++) if (pvis[i]) items.push_back({pdep[i], i, -1});
-    if (bondsOn)
-        for (int i = 0; i < n; i++) for (int k = 0; k < S.nbc[i]; k++) { int j = S.nb[i][k]; if (j > i && pvis[i] && pvis[j]) items.push_back({0.5f * (pdep[i] + pdep[j]) + 0.01f, i, j}); }
+    if (bondsOn && style != MS_VDW)
+        for (int i = 0; i < n; i++) if (pvis[i]) for (int k = 0; k < S.nbc[i]; k++) { int j = S.nb[i][k]; if (pvis[j]) items.push_back({pdep[i] + 1e-3f, i, j}); }
     std::sort(items.begin(), items.end(), [](const DrawItem& a, const DrawItem& b) { return a.depth > b.depth; });
-    vb.reserve((size_t)items.size() * 64);
+    vb.reserve((size_t)items.size() * 72);
+    const float rb0 = (float)(bondRadius(style) * opt.bondW);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);   // предумноженная альфа: тела, блики и связи — одним пакетом
     for (auto& it : items) {
+        const int i = it.a; const Element& e = EL[S.ty[i]];
+        float f = fog(pdep[i]); if (e.fixed) f *= 0.8f;
         if (it.b < 0) {
-            int i = it.a; const Element& e = EL[S.ty[i]]; float f = fog(pdep[i]);
-            float R = (float)(visSig(S.ty[i]) * (e.fixed ? 0.5 : coreK)) * pscl[i];
-            if (e.fixed) f *= 0.8f;
-            { MonoAtoms atomsColored; quadAtom(psx[i], psy[i], R, cr[i] * f, cg[i] * f, cb[i] * f, 1.0f); }   // шар — цветом атома; связи — серые
-            if (opt.gloss && R > 3.0f && !e.fixed) quadSpec(psx[i], psy[i], R, 0.55f * f);
-        } else {
-            int i = it.a, j = it.b; double dx, dy, dz; dvec(i, j, dx, dy, dz);
-            float x2, y2, dep2, s2; if (!project(S.x[i] + dx, S.y[i] + dy, S.z[i] + dz, x2, y2, dep2, s2)) continue;
-            if (std::fabs(x2 - psx[j]) > 2 || std::fabs(y2 - psy[j]) > 2) continue;   // связь через периодическую границу не рисуем
-            float f = fog(it.depth); int o = bondOrder(i, j);
-            segQuad(psx[i], psy[i], x2, y2, (0.035f + 0.022f * o) * (float)opt.bondW * pscl[i], 0.8f * f, 0.8f * f, 0.8f * f, 1.0f);
+            const float R = (float)(atomDrawR(i, style) * coreK) * pscl[i];
+            { MonoAtoms atomsColored; quadAtom(psx[i], psy[i], R, cr[i] * f, cg[i] * f, cb[i] * f); }
+            if (opt.gloss && R > 2.0f && !e.fixed) quadSpec(psx[i], psy[i], R, 0.85f * f);
+            continue;
+        }
+        const int j = it.b; double dx, dy, dz; dvec(i, j, dx, dy, dz);
+        float x2, y2, dep2, s2; if (!project(S.x[i] + dx, S.y[i] + dy, S.z[i] + dz, x2, y2, dep2, s2)) continue;
+        if (std::fabs(x2 - psx[j]) > 2 || std::fabs(y2 - psy[j]) > 2) continue;   // связь через периодическую границу не рисуем
+        // граница цветов — посередине видимой части связи (между поверхностями шаров)
+        const double d = std::sqrt(dx * dx + dy * dy + dz * dz); if (d < 1e-6) continue;
+        const double Ri = atomDrawR(i, style) * coreK, Rj = atomDrawR(j, style) * coreK, gap = d - Ri - Rj;
+        const double s = gap > 0 ? (Ri + 0.5 * gap) / d : Ri / std::max(1e-9, Ri + Rj);
+        float xm, ym, dm, sm; if (!project(S.x[i] + dx * s, S.y[i] + dy * s, S.z[i] + dz * s, xm, ym, dm, sm)) continue;
+        const int o = style == MS_STICK ? 1 : std::max(1, bondOrder(i, j));
+        const float wk = o == 1 ? 1.0f : o == 2 ? 0.66f : 0.55f, sep = rb0 * (o == 2 ? 1.35f : 2.1f);
+        const float sx = xm - psx[i], sy = ym - psy[i], sl = std::sqrt(sx * sx + sy * sy); if (sl < 0.5f) continue;
+        const float nx = -sy / sl, ny = sx / sl, spec = opt.gloss ? 0.7f * f : 0.0f;
+        MonoAtoms atomsColored;
+        for (int q = 0; q < o; q++) {
+            const float off = (q - 0.5f * (o - 1)) * sep;
+            cylQuad(psx[i] + nx * off * pscl[i], psy[i] + ny * off * pscl[i], rb0 * wk * pscl[i], xm + nx * off * sm, ym + ny * off * sm, rb0 * wk * sm,
+                    cr[i] * f, cg[i] * f, cb[i] * f, spec);
         }
     }
     flushQuads(texCore);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // --- свечение раскалённых атомов: цвет абсолютно чёрного тела при «температуре» атома (его кинетическая энергия,
+    //     сглаженная по времени), яркость растёт как T⁴ — тёмно-красное каление около 1000 K, белое выше 5000 K
+    if (opt.glow && n > 0) {
+        static std::vector<float> Tsm; if ((int)Tsm.size() != n) Tsm.assign(n, 0.0f);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        MonoAtoms atomsColored;
+        for (int i = 0; i < n; i++) {
+            const Element& e = EL[S.ty[i]]; if (e.fixed) continue;
+            const float Ti = (float)realK(e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]) / 3);
+            Tsm[i] += (Ti - Tsm[i]) * 0.12f;
+            if (Tsm[i] < 900 || !pvis[i]) continue;
+            float r, g, b; blackbody(Tsm[i], r, g, b);
+            const float u = std::min(1.0f, (Tsm[i] - 900) / 2600), a = 0.75f * u * u * (0.4f + 0.6f * u);
+            const float R = (float)std::max(0.5, 2.6 * atomDrawR(i, style) * coreK) * pscl[i];
+            quadUV(psx[i], psy[i], R, r, g, b, a * fog(pdep[i]));
+        }
+        flushQuads(texGlow);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
     // --- слои: заряды, скорости, силы, закреплённые атомы, выделение
     glEnable(GL_LINE_SMOOTH);
     if (layerCharges && anyCharge) {
         for (int i = 0; i < n; i++) {
             if (!pvis[i] || std::fabs(S.q[i]) < 0.05) continue;
-            float R = (float)(visSig(S.ty[i]) * coreK) * pscl[i] + uiPx(2.5f);
+            float R = (float)(atomDrawR(i, style) * coreK) * pscl[i] + uiPx(2.5f);
             float a = (float)clampv(0.35 + 0.6 * std::fabs(S.q[i]), 0.35, 0.95);
             // «+» — яркое сплошное кольцо, «−» — серое пунктирное (и знак внутри)
             if (S.q[i] > 0) { col(withA(C_HOT, a)); circlePx(psx[i], psy[i], R, 20); } else { col(withA(C_COLD, a)); dashedCircle(psx[i], psy[i], R); }
@@ -1032,7 +1137,7 @@ static void drawScene() {
         col(withA(C_TEXT_HI, 0.85f)); glBegin(GL_LINES);
         for (int i = 0; i < n && i < (int)S.pin.size(); i++) {
             if (!S.pin[i] || !pvis[i]) continue;
-            float h = std::max(uiPx(3.5f), (float)(visSig(S.ty[i]) * coreK) * pscl[i] * 0.55f);
+            float h = std::max(uiPx(3.5f), (float)(atomDrawR(i, style) * coreK) * pscl[i] * 0.55f);
             segPx(psx[i] - h, psy[i] - h, psx[i] + h, psy[i] - h); segPx(psx[i] + h, psy[i] - h, psx[i] + h, psy[i] + h);
             segPx(psx[i] + h, psy[i] + h, psx[i] - h, psy[i] + h); segPx(psx[i] - h, psy[i] + h, psx[i] - h, psy[i] - h);
             segPx(psx[i] - h * 0.5f, psy[i], psx[i] + h * 0.5f, psy[i]); segPx(psx[i], psy[i] - h * 0.5f, psx[i], psy[i] + h * 0.5f);
@@ -1043,7 +1148,7 @@ static void drawScene() {
         col(withA(C_ACC, 0.95f));
         for (int i : selList) {
             if (i < 0 || i >= n || !pvis[i]) continue;
-            float R = (float)(visSig(S.ty[i]) * coreK) * pscl[i] + uiPx(2);
+            float R = (float)(atomDrawR(i, style) * coreK) * pscl[i] + uiPx(2);
             circlePx(psx[i], psy[i], std::max(R, uiPx(4)), 20);
         }
     }
@@ -1097,7 +1202,7 @@ static void drawScene() {
             std::vector<int> mol; moleculeOf(h, mol);
             if (mol.size() <= 400) for (int a : mol) {
                 if (a >= n || !pvis[a]) continue;
-                float R = (float)(visSig(S.ty[a]) * coreK) * pscl[a] + uiPx(2);
+                float R = (float)(atomDrawR(a, style) * coreK) * pscl[a] + uiPx(2);
                 col(grayc(1, a == h ? 0.8f : 0.35f)); circlePx(psx[a], psy[a], R, 28);
             }
         }
