@@ -251,11 +251,11 @@ static void zGroupPeriod(int Z, int& grp, int& per) {
     else if (per <= 5) grp = k;
     else grp = k <= 2 ? k : (k <= 16 ? 0 : k - 14);   // 6–7 период: La…Yb / Ac…No (k = 3…16) — f-блок; Lu, Lr — 3-я группа
 }
-// электронная конфигурация основного состояния: правило Клечковского + известные исключения; [остов благородного газа]
-static std::string zElectronConfig(int Z) {
-    static const int ON[19] = {1, 2, 2, 3, 3, 4, 3, 4, 5, 4, 5, 6, 4, 5, 6, 7, 5, 6, 7};   // n подоболочек в порядке заполнения
-    static const int OL[19] = {0, 0, 1, 0, 1, 0, 2, 1, 0, 2, 1, 0, 3, 2, 1, 0, 3, 2, 1};   // l
-    int occ[8][4] = {};
+// заселённость подоболочек основного состояния occ[n][l]: правило Клечковского + известные исключения (Cr, Cu, Pd, Au…)
+static const int ON[19] = {1, 2, 2, 3, 3, 4, 3, 4, 5, 4, 5, 6, 4, 5, 6, 7, 5, 6, 7};   // n подоболочек в порядке заполнения
+static const int OL[19] = {0, 0, 1, 0, 1, 0, 2, 1, 0, 2, 1, 0, 3, 2, 1, 0, 3, 2, 1};   // l
+static void zOccupancy(int Z, int occ[8][4]) {
+    memset(occ, 0, sizeof(int) * 32);
     for (int e = Z, i = 0; e > 0 && i < 19; i++) { int c = std::min(e, 4 * OL[i] + 2); occ[ON[i]][OL[i]] = c; e -= c; }
     auto mv = [&](int n1, int l1, int n2, int l2, int c) { occ[n1][l1] -= c; occ[n2][l2] += c; };   // c электронов из n1l1 в n2l2
     switch (Z) {
@@ -268,6 +268,10 @@ static std::string zElectronConfig(int Z) {
     case 90: mv(5, 3, 6, 2, 2); break;
     case 103: mv(6, 2, 7, 1, 1); break;
     }
+}
+// электронная конфигурация основного состояния строкой: [остов благородного газа] и внешние подоболочки
+static std::string zElectronConfig(int Z) {
+    int occ[8][4]; zOccupancy(Z, occ);
     static const int NG[6] = {2, 10, 18, 36, 54, 86}; static const char* NGS[6] = {"[He]", "[Ne]", "[Ar]", "[Kr]", "[Xe]", "[Rn]"};
     int core = -1; for (int k = 0; k < 6; k++) if (NG[k] < Z) core = k;
     int left[8][4]; memcpy(left, occ, sizeof(occ));

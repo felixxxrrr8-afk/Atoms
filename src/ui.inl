@@ -1479,14 +1479,17 @@ static void drawTooltip() {
     int i = hoverAtom(); if (i < 0 || grabbed >= 0) return;
     auto L = atomInfoLines(i);
     float w = 0; for (size_t k = 0; k < L.size(); k++) w = std::max(w, textW(k == 0 ? fontU : fontXS, L[k]));
-    float lh = fontXS.h + uiPx(2), h = fontU.h + uiPx(3) + (L.size() - 1) * lh + uiPx(10);
+    float lh = fontXS.h + uiPx(2), h = std::max(uiPx(78), fontU.h + uiPx(3) + (L.size() - 1) * lh + uiPx(10));
+    const float ms = uiPx(70);   // миниатюра: электронное облако атома
     float x = (float)mouseX + uiPx(18), y = (float)mouseY + uiPx(18);
-    if (x + w + uiPx(20) > sceneX + sceneW) x = mouseX - w - uiPx(28);
+    if (x + w + ms + uiPx(28) > sceneX + sceneW) x = mouseX - w - ms - uiPx(36);
     if (y + h > sceneY + sceneH) y = mouseY - h - uiPx(8);
     const Element& e = EL[S.ty[i]];
-    boxPanel(x, y, w + uiPx(20), h, withA(C_PANEL2, 0.95f), C_LINE_H); { MonoAtoms atomsColored; rectFill(x, y, uiPx(2), h, {e.r, e.g, e.b, 1}); }
+    boxPanel(x, y, w + ms + uiPx(28), h, withA(C_PANEL2, 0.95f), C_LINE_H); { MonoAtoms atomsColored; rectFill(x, y, uiPx(2), h, {e.r, e.g, e.b, 1}); }
     float yy = y + uiPx(5);
     for (size_t k = 0; k < L.size(); k++) { drawText(k == 0 ? fontU : fontXS, x + uiPx(10), yy, L[k], k == 0 ? C_TEXT_HI : C_TEXT); yy += k == 0 ? fontU.h + uiPx(3) : lh; }
+    if (e.Z >= 1) { const float mx = x + w + uiPx(18), my = y + uiPx(4); rectFill(mx, my, ms, ms, hexc(0x050505)); drawAtomMini(e.Z, mx, my, ms, (float)uiClock);
+                    drawTextR(fontXS, mx + ms - uiPx(2), my + ms - fontXS.h, "F7", C_FAINT); }
 }
 static void drawHelp() {
     static const char* lines[] = {
@@ -1565,6 +1568,9 @@ static void ptPos(int Z, int& row, int& col) {
 }
 static PR ptRect, menuRect;
 static int ptHoverZ = 0;
+static void drawAtomMini(int Z, float x, float y, float s, float t);   // orbitals.inl
+static int avZ = 6;                                                    // элемент окна «Строение атома» (orbitals.inl)
+static double uiClock = 0;                                             // секунды с запуска (медленное вращение миниатюр)
 static std::string elementModelNote(int t) {
     const Element& e = EL[t];
     if (e.Z == 0) return "";
@@ -1627,11 +1633,15 @@ static void drawPeriodicTable() {
             int t = typeOfZ(z); const Element& e = EL[t]; const ZData& d = ZD[z]; const RGBA& cc = CATC[d.cat];
             boxPanel(cx, cy, cw, ch, C_PANEL2, C_LINE);
             float bs = std::min(ch - uiPx(16), 2.2f * cell);
-            rectFill(cx + uiPx(8), cy + uiPx(8), bs, bs, grayc(cc.r * 0.14f + 0.07f)); catStrip(cx + uiPx(8), cy + uiPx(8), bs, uiPx(4), d.cat);
-            { MonoAtoms atomsColored; float q = uiPx(12); rectFill(cx + uiPx(8) + bs - q - uiPx(6), cy + uiPx(8) + bs - q - uiPx(6), q, q, {e.r, e.g, e.b, 1}); }   // цвет атома в сцене
-            const Font& big = bs >= uiPx(70) ? fontXL : fontL;
-            drawTextC(big, cx + uiPx(8) + bs / 2, cy + uiPx(8) + (bs - big.h) / 2, e.sym, C_TEXT_HI);
-            drawText(fontXS, cx + uiPx(12), cy + uiPx(12), std::to_string(z), C_TEXT);
+            // миниатюра атома: электронное облако (не орбиты!); щелчок — окно «Строение атома»
+            const PR mini{cx + uiPx(8), cy + uiPx(8), bs, bs};
+            rectFill(mini.x, mini.y, bs, bs, hexc(0x060606)); catStrip(mini.x, mini.y, bs, uiPx(4), d.cat);
+            drawAtomMini(z, mini.x, mini.y + uiPx(4), bs, (float)uiClock);
+            { MonoAtoms atomsColored; float q = uiPx(10); rectFill(mini.x + bs - q - uiPx(5), mini.y + bs - q - uiPx(5), q, q, {e.r, e.g, e.b, 1}); }   // цвет атома в сцене
+            drawText(fontUB, mini.x + uiPx(5), mini.y + bs - fontUB.h - uiPx(22), e.sym, C_TEXT_HI);
+            drawText(fontXS, mini.x + uiPx(5), mini.y + uiPx(6), std::to_string(z), C_TEXT);
+            if (uiButton(1790, mini.x, mini.y + bs - uiPx(18), bs, uiPx(18), "строение атома · F7", false, false,
+                         "Электронные облака и орбитали этого атома — не планетарная модель, а волны |ψ|²")) { avZ = z; atomViewOn = true; ptOn = false; }
             float tx = cx + bs + uiPx(20), ty = cy + uiPx(8);
             pushClip(tx, cy, cw - bs - uiPx(24), ch);
             drawText(fontL, tx, ty, fmt("%s — %s", e.sym, T(e.name)), C_TEXT_HI); ty += fontL.h + uiPx(4);

@@ -69,4 +69,5 @@ static void drawChemPanel(float x, float y, float w, float h);   // src/panel_ch
 #include "src/panel_phys.inl"
 #include "src/panel_chem.inl"
 #include "src/panel_settings.inl"   // окно настроек (F8)
+#include "src/orbitals.inl"   // строение атома: электронные облака и орбитали (F7)
 #include "src/app.inl"

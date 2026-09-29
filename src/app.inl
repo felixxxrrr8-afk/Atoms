@@ -395,8 +395,10 @@ static void handleKeys() {
             else if (k == 'L') setLanguage(LANG == LANG_EN ? LANG_RU : LANG_EN);   // язык интерфейса RU/EN
             continue;
         }
-        if (k == VK_F8) { settingsOn = !settingsOn; ptOn = menuOn = helpOn = false; continue; }
+        if (k == VK_F8) { settingsOn = !settingsOn; ptOn = menuOn = helpOn = atomViewOn = false; continue; }
         if (settingsOn) { if (k == VK_ESCAPE) settingsOn = false; continue; }   // пока открыты настройки, клавиши сцены не работают
+        if (k == VK_F7) { if (!atomViewOn && hoverAtom() >= 0) avZ = EL[S.ty[hoverAtom()]].Z; atomViewOn = !atomViewOn; ptOn = menuOn = helpOn = false; continue; }
+        if (atomViewOn) { if (k == VK_ESCAPE) atomViewOn = false; if (k == 'E') { atomViewOn = false; ptOn = true; } continue; }
         if (k >= '0' && k <= '9') {
             int p = k - '0';
             if (shift) { if (p >= 1 && p <= 5) { ptOn = menuOn = false; openScene(10 + p); } continue; }   // Shift+1…5 — новые сцены
@@ -493,7 +495,7 @@ static void handleMouse(double frameDt) {
     const bool ctrl = isDown(VK_CONTROL), shift = isDown(VK_SHIFT), alt = isDown(VK_MENU);
     const bool cut = sliceOn;
     selValidate();
-    if (ptOn || menuOn || settingsOn) {   // открыто окно поверх сцены — сцена ввод не получает
+    if (anyOverlay()) {   // открыто окно поверх сцены — сцена ввод не получает
         in.wheel = 0; in.lPress = in.lRel = in.mPress = in.rPress = in.dbl = false; heatBrush = 0;
         grabbed = -1; panning = rotating = false; wallStroke = false; lInScene = false; pistonGrab = false; lDragTool = 0;
         lMode = LM_NONE; rubberOn = throwDrag = foPlacing = false;
@@ -786,7 +788,8 @@ static void renderFrame(double frameDt) {
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     hotId = -1;
-    uiModal = ptOn || menuOn || settingsOn;
+    uiModal = anyOverlay();
+    uiClock += frameDt;
     monoCtx = "сцена"; drawScene();
     pushClip(sceneX, sceneY, sceneW, sceneH); drawRingsFx(); popClip();
     monoCtx = "надписи сцены"; drawSceneOverlay();
@@ -801,11 +804,12 @@ static void renderFrame(double frameDt) {
     monoCtx = "объекты поля (выбор)"; drawFoFlyout();
     uiModal = false;
     monoCtx = "уведомление"; drawToast();
-    monoCtx = "подсказка атома"; if (opt.atomCard && !ptOn && !menuOn && !settingsOn && !overSceneUI(mouseX, mouseY)) drawTooltip();
+    monoCtx = "подсказка атома"; if (opt.atomCard && !anyOverlay() && !overSceneUI(mouseX, mouseY)) drawTooltip();
     monoCtx = "справка"; if (helpOn) drawHelp();
     monoCtx = "таблица Менделеева"; if (ptOn) drawPeriodicTable();
     monoCtx = "меню сцен"; if (menuOn) drawScenesMenu();
     monoCtx = "настройки"; if (settingsOn) drawSettings();
+    monoCtx = "строение атома"; if (atomViewOn) drawAtomView(frameDt);
     monoCtx = "всплывающая подсказка"; drawHint(frameDt);
     monoCtx = "";
     if (shotPending == 2) { doCapture(2); shotPending = 0; }
@@ -1482,6 +1486,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         if (wcsstr(cmd, L" table")) ptOn = true;      // таблица Менделеева
         if (wcsstr(cmd, L" menu")) menuOn = true;     // меню сцен
         if (wcsstr(cmd, L" settings")) settingsOn = true;
+        if (wcsstr(cmd, L" atomview")) { atomViewOn = true; avZ = argInt(cmd, L"avz=", 6); avMode = clampv(argInt(cmd, L"avmode=", 0), 0, 2); avN = argInt(cmd, L"avn=", 2); avL = argInt(cmd, L"avl=", 1); avM = argInt(cmd, L"avm=", 0); }
         const wchar_t* hz = wcsstr(cmd, L" hover"); if (hz) shotHoverZ = (int)wcstol(hz + 6, nullptr, 10);   // навести курсор на элемент Z
         sideTab = clampv(argInt(cmd, L"tab=", 0), 0, 4); lmbTool = clampv(argInt(cmd, L"tool=", TOOL_ADD), 0, TOOL_N - 1); foKind = clampv(argInt(cmd, L"fo=", 0), 0, FO_N - 1);
         shotPng = wcsstr(cmd, L" png") != nullptr; shotDemo = wcsstr(cmd, L" demo") != nullptr;
@@ -1545,7 +1550,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         if (shotHoverZ > 0 && ptOn) { auto it = uiRects.find(400 + shotHoverZ); if (it != uiRects.end()) { mouseX = (int)(it->second.x + it->second.w / 2); mouseY = (int)(it->second.y + it->second.h / 2); } }
         ui.mx = mouseX; ui.my = mouseY;
         layout(); camSetup();
-        const bool overlay = ptOn || menuOn || settingsOn;
+        const bool overlay = anyOverlay();
         ui.wheel = (inScene(mouseX, mouseY) && !overlay) ? 0 : in.wheel;   // колесо вне сцены — панелям
         if (!inScene(mouseX, mouseY) || overlay) in.wheel = 0;
         handleKeys();

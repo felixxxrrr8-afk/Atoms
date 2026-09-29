@@ -38,6 +38,7 @@ struct Settings {
 static Settings opt;
 static const Settings OPT_DEFAULT;
 static bool settingsOn = false;   // открыто окно настроек
+static bool atomViewOn = false;   // открыто окно «Строение атома» (orbitals.inl, F7)
 
 struct OptKey { const char* key; char type; void* p; double lo, hi; };
 static const OptKey OPT_KEYS[] = {

@@ -1184,7 +1184,7 @@ static void drawScene() {
         glEnable(GL_LINE_STIPPLE); glLineStipple(1, 0x3333); rectLine(x0, y0, w, h, withA(C_ACC, 0.9f)); glDisable(GL_LINE_STIPPLE);
     }
     // --- кисть инструмента: окружность радиуса R в плоскости цели камеры
-    if (inScene(mouseX, mouseY) && !helpOn && !ptOn && !menuOn && !settingsOn) {
+    if (inScene(mouseX, mouseY) && !helpOn && !anyOverlay()) {
         const int tl = lmbTool; const bool brushTool = tl == TOOL_ADD || tl == TOOL_ERASE || tl == TOOL_HEAT || tl == TOOL_COOL || tl == TOOL_PUSH || tl == TOOL_SHOCK;
         if (brushTool || heatBrush) {
             float Rpx = (float)(P.brushR * (tl == TOOL_SHOCK ? 2.5 : 1.0) * pxPerSigma());
@@ -1199,7 +1199,7 @@ static void drawScene() {
     }
     // --- подсветка: молекула под курсором и атом, за которым следит камера
     {
-        int h = (grabbed < 0 && inScene(mouseX, mouseY) && !helpOn && !ptOn && !menuOn && !settingsOn && lmbTool != TOOL_CAMERA) ? hoverAtom() : -1;
+        int h = (grabbed < 0 && inScene(mouseX, mouseY) && !helpOn && !anyOverlay() && lmbTool != TOOL_CAMERA) ? hoverAtom() : -1;
         glEnable(GL_LINE_SMOOTH);
         if (h >= 0) {
             std::vector<int> mol; moleculeOf(h, mol);

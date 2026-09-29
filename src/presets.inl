@@ -16,6 +16,8 @@ static bool trailsOn = false, bondsOn = true;
 static double atomVis = 1.0;           // визуальный масштаб шаров
 static int lmbTool = 0;                // инструмент ЛКМ: 0 добавить/пинцет, 1 ластик, 2 нагрев, 3 охлаждение, 4 камера
 static bool ptOn = false, menuOn = false;   // открыты таблица Менделеева / меню сцен
+// открыто окно поверх сцены (таблица, меню сцен, настройки, строение атома) — сцена ввод не получает
+static inline bool anyOverlay() { return ptOn || menuOn || settingsOn || atomViewOn; }
 static int colorMode = 0;
 static int selPal = 1;
 // режим «штампа» молекулы библиотеки: выбрана структура из вкладки «Химия» (первая ячейка палитры).
