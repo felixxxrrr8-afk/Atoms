@@ -54,9 +54,11 @@ static void setLanguage(int l) {   // переключение на лету: к
 
 // ===================================== СОХРАНЕНИЕ / ЗАГРУЗКА / ЭКСПОРТ ======================
 // Бинарный файл .atoms: полное состояние (атомы, связи, скорости, параметры, камера).
-// Версия 3 (обратно совместима со 2): после основной части — блоки «метка(4) + размер(4) + данные»:
-//   PIN_ — закреплённые атомы, FOBJ — объекты поля, VIEW — слои отображения и инструменты. Неизвестные блоки пропускаются.
+// После основной части — блоки «метка(4) + размер(4) + данные»: PIN_ — закреплённые атомы, FOBJ — объекты поля,
+// VIEW — слои отображения и инструменты. Неизвестные блоки пропускаются.
 // Params и FieldObj пишутся с размером: при чтении файла с другим размером берётся общий префикс (новые поля — по умолчанию).
+// Версия 4 (5.0): до 6 связей у атома (число записано в файле), реальная шкала энергий. Файлы версии 3 читаются:
+// связи переносятся, заряды пересчитываются (ионы там несли ±0.8).
 static const char SAVE_MAGIC[8] = {'A', 'T', 'O', 'M', 'S', 'A', 'V', '2'};
 static void resetAnalysis();
 static bool toastsOff = false;   // сохранение сеанса при выходе — без уведомлений
@@ -64,9 +66,10 @@ static bool saveState(const std::wstring& path, bool quiet) {
     FILE* f = _wfopen(path.c_str(), L"wb"); if (!f) { showToast("Не удалось записать файл"); return false; }
     auto w = [&](const void* p, size_t sz) { if (sz) fwrite(p, 1, sz, f); };
     auto wv = [&](const auto& v) { w(v.data(), v.size() * sizeof(v[0])); };
-    uint32_t ver = 3, szP = sizeof(Params), szC = sizeof(Cam3);
+    uint32_t ver = 4, szP = sizeof(Params), szC = sizeof(Cam3);
     w(SAVE_MAGIC, 8); w(&ver, 4); w(&szP, 4); w(&szC, 4);
     int32_t hdr[8] = {3, currentPreset, presetVariant, colorMode, (int)trailsOn, (int)bondsOn, EL[customType].Z, lmbTool}; w(hdr, sizeof(hdr));
+    int32_t maxb = cfg::MAXB; w(&maxb, 4);
     w(&P, sizeof(Params));
     int32_t n = S.n; w(&n, 4);
     double sc[9] = {S.Lx, S.Ly, S.Lz, S.pistonV, S.pistonM, S.xi, S.eta, S.t, (double)S.step}; w(sc, sizeof(sc));
@@ -96,8 +99,10 @@ static bool loadState(const std::wstring& path) {
     auto r = [&](void* p, size_t sz) { if (ok && sz && fread(p, 1, sz, f) != sz) ok = false; };
     auto skip = [&](long sz) { if (ok && sz > 0 && fseek(f, sz, SEEK_CUR) != 0) ok = false; };
     char mg[8]; uint32_t ver = 0, szP = 0, szC = 0; r(mg, 8); r(&ver, 4); r(&szP, 4); r(&szC, 4);
-    if (!ok || memcmp(mg, SAVE_MAGIC, 8) != 0 || (ver != 2 && ver != 3) || szP < 64 || szP > 65536 || szC != sizeof(Cam3)) { fclose(f); showToast("Это не файл состояния «Атомы» (или другая версия)"); return false; }
+    if (!ok || memcmp(mg, SAVE_MAGIC, 8) != 0 || ver < 2 || ver > 4 || szP < 64 || szP > 65536 || szC != sizeof(Cam3)) { fclose(f); showToast("Это не файл состояния «Атомы» (или другая версия)"); return false; }
     int32_t hdr[8]; r(hdr, sizeof(hdr));
+    int32_t maxb = 4; if (ver >= 4) r(&maxb, 4);   // связей на атом в записи файла (до версии 4 — четыре)
+    if (maxb < 1 || maxb > 16) { fclose(f); showToast("Файл повреждён"); return false; }
     Params np = P;   // поля, которых нет в файле (более старая версия), остаются текущими
     { size_t m = std::min<size_t>(szP, sizeof(Params)); r(&np, m); skip((long)szP - (long)m); }
     int32_t n = 0; r(&n, 4);
@@ -108,7 +113,17 @@ static bool loadState(const std::wstring& path) {
     ns.Lx = sc[0]; ns.Ly = sc[1]; ns.Lz = sc[2]; ns.pistonV = sc[3]; ns.pistonM = sc[4]; ns.xi = sc[5]; ns.eta = sc[6]; ns.t = sc[7]; ns.step = (long long)sc[8];
     auto rv = [&](auto& v) { r(v.data(), v.size() * sizeof(v[0])); };
     for (auto* v : {&ns.x, &ns.y, &ns.z, &ns.vx, &ns.vy, &ns.vz, &ns.ux, &ns.uy, &ns.uz, &ns.q}) rv(*v);
-    rv(ns.ty); rv(ns.nb); rv(ns.bo); rv(ns.nbc); rv(ns.bc); rv(ns.gh); rv(ns.ghc);
+    rv(ns.ty);
+    if (maxb == cfg::MAXB) { rv(ns.nb); rv(ns.bo); rv(ns.nbc); rv(ns.bc); }
+    else {   // другая ширина записи связей: читаем построчно и переносим, лишние (если их больше, чем помещается) отбрасываем
+        std::vector<int> nb((size_t)n * maxb); std::vector<unsigned char> bo((size_t)n * maxb); std::vector<double> bc((size_t)n * maxb);
+        rv(nb); rv(bo); rv(ns.nbc); rv(bc);
+        for (int i = 0; ok && i < n; i++) {
+            if (ns.nbc[i] > cfg::MAXB) { ok = false; break; }
+            for (int k = 0; k < ns.nbc[i]; k++) { ns.nb[i][k] = nb[(size_t)i * maxb + k]; ns.bo[i][k] = bo[(size_t)i * maxb + k]; ns.bc[i][k] = bc[(size_t)i * maxb + k]; }
+        }
+    }
+    rv(ns.gh); rv(ns.ghc);
     uint32_t tl = 0; r(&tl, 4); std::string title; if (ok && tl < 4096) { title.resize(tl); if (tl) r(&title[0], tl); } else ok = false;
     Cam3 c3; double c2[3]; int32_t cm = 0; long long ch[3] = {0, 0, 0}; r(&c3, sizeof(Cam3)); r(c2, sizeof(c2)); r(&cm, 4); r(ch, sizeof(ch));
     // блоки версии 3
@@ -160,8 +175,9 @@ static bool loadState(const std::wstring& path) {
         layerScale = view[6] != 0; layerPins = view[7] != 0; foKind = clampv((int)view[8], 0, FO_N - 1); sideTab = clampv((int)view[9], 0, 4); graphsOn = view[10] != 0;
         toolPower = clampv(view[11] / 1000.0, 0.1, 10.0); selPal = clampv((int)view[12], 0, (int)palette.size() - 1);
     }
+    if (ver < 4) rechargeAll(0.8);   // файл до перехода на реальную шкалу: однозарядные ионы несли ±0.8
     buildPairTables(); updatePresence(); computeForces(); resetEnergyRef(); resetAnalysis(); resetMSD();
-    showToast(ver >= 3 ? "Состояние загружено" : "Состояние загружено (файл версии 2)");
+    showToast(ver >= 4 ? "Состояние загружено" : "Состояние загружено (файл прежней версии: заряды пересчитаны)");
     return true;
 }
 // диалог выбора файла (в автотесте — без диалога)
@@ -1206,8 +1222,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         computeMolecules();
         for (auto& kv : A::mol) fprintf(f, "%s:%d ", kv.first.c_str(), kv.second);
         fprintf(f, "\n");
-        auto U = [&]() { computeForces(); return EN.enb + EN.ebond + EN.egrav; };
+        auto U = [&]() { computeForces(); return EN.enb + EN.ebond + EN.egrav + EN.efo; };
         U(); std::vector<double> F0x = S.fx, F0y = S.fy, F0z = S.fz;
+        for (int i = 0; i < S.n; i++) { F0x[i] += S.bx[i]; F0y[i] += S.by[i]; F0z[i] += S.bz[i]; }   // медленные + быстрые
         const double h = 1e-5; double worst = 0; int bad = 0, tested = 0;
         for (int i = 0; i < S.n; i++) {
             if (EL[S.ty[i]].fixed) continue;
@@ -1262,11 +1279,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         initBondTable(); initKlm(); EL[E_O].sig = sO; EL[E_O].eps = eO; rebuildTables(); loadPreset(2, L_ICE);
         P.thermostat = TH_BERENDSEN; P.Tset = T; P.tauT = 0.2;
         FILE* f = fopen(fmt("ice_%.2f_%.2f_%.2f.log", sO, eO, T).c_str(), "w"); if (!f) return 1;
-        {   // диагностика исходной решётки: водородные связи и силы
+        {   // диагностика исходной решётки: водородные связи (H···O ближе 2.2 Å) и силы
             int nhb = 0; double ehb = 0, emin = 0;
             for (int h = 0; h < S.n; h++) { int d = hbDonor(h); if (d < 0) continue;
                 for (int p = nlStart[h]; p < nlStart[h + 1]; p++) { int a = nlIdx[p]; if (a == d || !hbAcceptor(S.ty[a]) || bonded(a, d)) continue;
-                    double U = hbTerm(d, h, a, false, nullptr); ehb += U; if (U < -0.5) nhb++; emin = std::min(emin, U); } }
+                    const double r2 = dist2(h, a); if (r2 > (2.2 / 3.405) * (2.2 / 3.405)) continue;
+                    double U = pairEnergy(h, a, r2); ehb += U; nhb++; emin = std::min(emin, U); } }
             double fO = 0, fH = 0, fOm = 0, fHm = 0; int nO = 0, nH = 0;
             for (int i = 0; i < S.n; i++) { double F = std::sqrt(S.fx[i] * S.fx[i] + S.fy[i] * S.fy[i] + S.fz[i] * S.fz[i]);
                 if (S.ty[i] == E_O) { fO += F; fOm = std::max(fOm, F); nO++; } else { fH += F; fHm = std::max(fHm, F); nH++; } }
@@ -1282,6 +1300,98 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
             if (s % 1000 == 0) { analysisTick(); fprintf(f, "t=%5.1f T=%.3f ICE %d/%d coord=%.2f phase=%s\n", S.t, EN.T, A::stCount[ST_ICE], S.n, A::meanCoord, A::phase.c_str()); fflush(f); }
         }
         fclose(f); return 0;
+    }
+    // --geom K1,K2…: геометрия структур библиотеки — длины связей и углы у каждого центра сразу после построения и после
+    // 2 пс динамики при 300 K в пустом ящике (проверка VSEPR и π-связей), отчёт geom.log
+    if (cmd && wcsstr(cmd, L"--geom")) {
+        initBondTable(); initKlm(); rebuildTables();
+        FILE* f = fopen("geom.log", "w"); if (!f) return 1;
+        std::vector<int> ks;
+        for (const wchar_t* q = wcsstr(cmd, L"--geom") + 6; *q;) { while (*q == L' ' || *q == L',') q++; if (*q < L'0' || *q > L'9') break; ks.push_back((int)wcstol(q, (wchar_t**)&q, 10)); }
+        auto report = [&](const char* when) {
+            fprintf(f, "  %s:\n", when);
+            for (int c = 0; c < S.n; c++) {
+                if (S.nbc[c] == 0) continue;
+                fprintf(f, "    %s%d (%d св., своб.вал %d):", EL[S.ty[c]].sym, c, S.nbc[c], freeVal(c));
+                for (int a = 0; a < S.nbc[c]; a++) fprintf(f, " %s%d %s%.3fÅ", S.bo[c][a] == 2 ? "=" : S.bo[c][a] == 3 ? "≡" : "–", S.nb[c][a], EL[S.ty[S.nb[c][a]]].sym, std::sqrt(dist2(c, S.nb[c][a])) * 3.405);
+                if (S.nbc[c] >= 2) {
+                    fprintf(f, " | углы:");
+                    for (int a = 0; a < S.nbc[c]; a++) for (int b = a + 1; b < S.nbc[c]; b++) {
+                        double u[3], v[3]; dvec(c, S.nb[c][a], u[0], u[1], u[2]); dvec(c, S.nb[c][b], v[0], v[1], v[2]); fprintf(f, " %.0f", angleDeg(u, v)); }
+                }
+                fprintf(f, "\n");
+            }
+        };
+        for (int k : ks) {
+            if (k < 0 || k >= ML_N) continue;
+            worldReset(12, 12, 12, B_PERIODIC); P.chemistry = false; P.Tset = 300 / cfg::U_T_K; P.thermostat = TH_BUSSI; P.tauT = 0.2;
+            insertMolecule(k, 6, 6, 6);
+            for (int i = 0; i < S.n; i++) thermalVel(S.ty[i], P.Tset, S.vx[i], S.vy[i], S.vz[i]);
+            finishPreset();
+            fprintf(f, "[%d] %s\n", k, MOL_LIB_NAMES[k]);
+            report("шаблон");
+            {   // силы против численного градиента энергии
+                auto U = [&]() { computeForces(); return EN.enb + EN.ebond + EN.egrav + EN.efo; };
+                U(); std::vector<double> Fa(3 * S.n);
+                for (int i = 0; i < S.n; i++) { Fa[3 * i] = S.fx[i] + S.bx[i]; Fa[3 * i + 1] = S.fy[i] + S.by[i]; Fa[3 * i + 2] = S.fz[i] + S.bz[i]; }
+                double worst = 0; int wi = -1;
+                for (int i = 0; i < S.n; i++) for (int c = 0; c < 3; c++) {
+                    double* X = c == 0 ? &S.x[i] : (c == 1 ? &S.y[i] : &S.z[i]); const double x0 = *X, h = 1e-6;
+                    *X = x0 + h; const double Ep = U(); *X = x0 - h; const double Em = U(); *X = x0;
+                    const double err = std::fabs(-(Ep - Em) / (2 * h) - Fa[3 * i + c]) / std::max(10.0, std::fabs(Fa[3 * i + c]));
+                    if (err > worst) { worst = err; wi = i; }
+                }
+                U(); fprintf(f, "  градиент: худшая отн. ошибка %.2e (атом %d)\n", worst, wi);
+            }
+            double Tsum = 0; const int rb0 = physRollbacks; for (int s = 0; s < 1500; s++) { mdStep(); Tsum += EN.T; }
+            report(fmt("после %.1f пс: средняя T %.0f K, откатов %d, шаг %.2f фс", toPs(S.t), toKelvin(Tsum / 1500), physRollbacks - rb0, P.dt * 1000 * cfg::U_T_PS).c_str());
+            fflush(f);
+        }
+        fclose(f); return 0;
+    }
+    // --water T P N шагов: проверка модели воды — N молекул при T (K) и давлении P (атм; 0 — объём постоянный),
+    // отчёт water_*.log: плотность, энергия взаимодействия на молекулу, коэффициент диффузии, g(r) O–O
+    if (cmd && wcsstr(cmd, L"--water")) {
+        wchar_t* p = wcsstr(cmd, L"--water") + 7; const double TK = wcstod(p, &p), Pa = wcstod(p, &p);
+        const int N = (int)wcstol(p, &p, 10), steps = (int)wcstol(p, &p, 10);
+        initBondTable(); initKlm();
+        // подбор модели: a= (α DSF, Å⁻¹) kq= (κ зарядов) so= eo= (σ, Å и ε, K кислорода) r0= (O–H, Å) th= (угол H–O–H)
+        dsfA = argDbl(cmd, L"a=", cfg::DSF_A / 3.405) * 3.405; kappaQ = argDbl(cmd, L"kq=", cfg::KAPPA_Q);
+        EL[E_O].sig = argDbl(cmd, L"so=", EL[E_O].sig * 3.405) / 3.405; EL[E_O].eps = argDbl(cmd, L"eo=", EL[E_O].eps * cfg::U_T_K) / cfg::U_T_K;
+        waterAngle = argDbl(cmd, L"th=", waterAngle); waterR0 = argDbl(cmd, L"r0=", waterR0);
+        rebuildTables();
+        const double L = std::cbrt(N * 29.915 / 39.476);
+        worldReset(L, L, L, B_PERIODIC);
+        const int placed = fillGrid(palette[findPal("H2O")], N, 0, 0, 0, L, L, L, TK / cfg::U_T_K);
+        P.Tset = TK / cfg::U_T_K; P.thermostat = TH_BUSSI; P.tauT = 0.1; P.npt = Pa > 0; P.pExt = Pa / cfg::U_P_ATM; P.tauP = 2.0; P.chemistry = false;
+        respaOn = argInt(cmd, L"respa=", 1) != 0;
+        finishPreset();
+        if (wcsstr(cmd, L" nve")) {   // сначала 2000 шагов с термостатом, затем без него — проверка сохранения энергии
+            for (int s = 0; s < 2000; s++) mdStep();
+            P.thermostat = TH_NVE; P.npt = false; resetEnergyRef();
+        }
+        std::string tag; if (const wchar_t* tp = wcsstr(cmd, L"tag=")) for (tp += 4; *tp && *tp != L' '; tp++) tag += (char)*tp;
+        FILE* f = fopen(fmt("water_%.0f_%.0f_%d%s.log", TK, Pa, N, tag.c_str()).c_str(), "w"); if (!f) return 1;
+        fprintf(f, "N=%d (поставлено %d) L=%.3f σ, начальная плотность %.3f г/см³\n", N, placed, L, massDensityNow());
+        auto t0 = std::chrono::high_resolution_clock::now(); double rhoSum = 0, eSum = 0; int cnt = 0;
+        for (int s = 1; s <= steps; s++) {
+            mdStep();
+            if (s % 100 == 0) analysisTick();
+            if (s > steps / 2 && s % 50 == 0) { measure(); rhoSum += massDensityNow(); eSum += EN.enb / placed * cfg::U_KJMOL; cnt++; }
+            if (s % 1000 == 0) {
+                measure(); const double sec = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count();
+                fprintf(f, "t=%.2f пс T=%.1f K P=%.0f атм ρ=%.4f г/см³ Eвз=%.2f кДж/моль D=%.3g м²/с dt=%.2f фс drift=%.4f%% (%.0f шагов/с)\n", toPs(S.t), toKelvin(EN.T), toAtm(EN.P),
+                        massDensityNow(), EN.enb / placed * cfg::U_KJMOL, A::D * 1.161e-7, P.dt * cfg::U_T_PS * 1000, driftPct(), s / sec);
+                fflush(f);
+            }
+        }
+        if (cnt) fprintf(f, "среднее за вторую половину: ρ=%.4f г/см³, Eвз=%.2f кДж/моль (вода: 0.997 и −41.5)\n", rhoSum / cnt, eSum / cnt);
+        std::vector<double> g(80, 0.0); int no = 0;   // g(r) O–O до 8 Å
+        for (int i = 0; i < S.n; i++) if (S.ty[i] == E_O) { no++; for (int j = 0; j < S.n; j++) if (j != i && S.ty[j] == E_O) { const double r = std::sqrt(dist2(i, j)) * 3.405; if (r < 8) g[(int)(r * 10)] += 1; } }
+        const double rhoO = no / boxVolume() / 39.476;
+        fprintf(f, "g(r) O-O:");
+        for (int k = 20; k < 80; k += 2) { const double r1 = k * 0.1, r2 = (k + 2) * 0.1, shell = 4.0 / 3 * PI * (r2 * r2 * r2 - r1 * r1 * r1); fprintf(f, " %.1f:%.2f", r1, (g[k] + g[k + 1]) / (no * rhoO * shell)); }
+        fprintf(f, "\n"); fclose(f); return 0;
     }
     // --kin K шагов T вариант: длинный прогон одного пресета без окна (T ≤ 0 — как в пресете), отчёт в kin_*.log
     if (cmd && wcsstr(cmd, L"--kin")) {

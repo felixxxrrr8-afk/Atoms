@@ -331,14 +331,16 @@ static inline bool chemSup(std::string_view s, size_t k, char prev) {
     const char ch = s[k];
     return (ch == '+' || ch == '-') && k + 1 == s.size() && (std::isalpha((unsigned char)prev) || (prev >= '0' && prev <= '9'));
 }
+// многозарядный ион записан через «^» (SO4^2-): всё после «^» — верхний индекс
 static float drawChem(const Font& f, float x, float y, std::string_view s, RGBA c) {
     if (!chemFormula(s)) return drawTextRaw(f, x, y, Tsv(s, "drawChem"), c);   // не формула (кириллица → перевод)
-    float x0 = x; char prev = 0;
+    float x0 = x; char prev = 0; bool up = false;
     for (size_t k = 0; k < s.size(); k++) {
         char ch = s[k]; std::string_view one = s.substr(k, 1);
-        bool sub = chemSub(s, k, prev), sup = chemSup(s, k, prev);
+        if (ch == '^') { up = true; continue; }
+        bool sub = !up && chemSub(s, k, prev), sup = up || chemSup(s, k, prev);
         if (sub) x += drawTextRaw(fontXS, x, y + f.h * 0.34f, one, c);
-        else if (sup) x += drawTextRaw(fontXS, x, y - f.h * 0.22f, ch == '-' ? "−" : "+", c);
+        else if (sup) x += drawTextRaw(fontXS, x, y - f.h * 0.22f, ch == '-' ? "−" : one, c);
         else x += drawTextRaw(f, x, y, one, c);
         prev = ch;
     }
@@ -346,10 +348,11 @@ static float drawChem(const Font& f, float x, float y, std::string_view s, RGBA 
 }
 static float chemW(const Font& f, std::string_view s) {
     if (!chemFormula(s)) return textWRaw(f, Tsv(s, "chemW"));
-    float w = 0; char prev = 0;
+    float w = 0; char prev = 0; bool up = false;
     for (size_t k = 0; k < s.size(); k++) {
-        char ch = s[k]; bool index = chemSub(s, k, prev) || chemSup(s, k, prev);
-        w += textWRaw(index ? fontXS : f, s.substr(k, 1)); prev = ch;
+        char ch = s[k]; if (ch == '^') { up = true; continue; }
+        bool index = up || chemSub(s, k, prev) || chemSup(s, k, prev);
+        w += textWRaw(index ? fontXS : f, ch == '-' && index ? std::string_view("−") : s.substr(k, 1)); prev = ch;
     }
     return w;
 }

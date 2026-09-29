@@ -1,29 +1,34 @@
 // ===================================== CONFIG =========================================
 namespace cfg {
 constexpr double DT_LJ = 0.006;       // шаг для чистого LJ (Ar: m=4)
-constexpr double DT_CHEM = 0.002;     // шаг при наличии химических связей (быстрые колебания H)
-constexpr double F_CAP = 30000.0;     // аварийное ограничение модуля силы (защита от «взрыва»)
-constexpr double K_COUL = 12.0;       // константа Кулона в ε·σ/e²
-constexpr double L_DEBYE = 1.2;       // длина экранирования (потенциал Юкавы)
-constexpr double RC_COUL = 2.6;       // обрезка Кулона (shifted-force)
+constexpr double DT_CHEM = 0.002;     // внешний шаг при химических связях (2 фс); связи и углы — внутренним шагом RESPA
+constexpr int RESPA_N = 4;            // внутренних шагов на внешний: колебания O–H (период 9 фс) — шагом 0.5 фс
+constexpr double F_CAP = 300000.0;    // аварийное ограничение модуля силы (защита от «взрыва»)
+// Все энергии — в одной реальной шкале: 1 эВ = 11604.5 K / 139.8 K = 83.0 ε. Связь O–H (4.8 эВ) — это 400 kT при 300 K,
+// поэтому молекулы не разваливаются от нагрева, пока температура не дойдёт до тысяч кельвинов, — как на самом деле.
+constexpr double EV = 83.008;
+// Кулон — настоящая постоянная e²/(4πε0) = 14.400 эВ·Å, затухающий сдвинутый потенциал DSF (Fennell, Gezelter 2006):
+// U = q_i q_j·K·[erfc(αr)/r − erfc(αr_c)/r_c + (erfc(αr_c)/r_c² + 2α/√π·e^{−α²r_c²}/r_c)(r − r_c)] — парная замена суммы Эвальда
+constexpr double K_COUL = 14.39964 * EV / 3.405;   // 351.0 ε·σ/e²
+constexpr double DSF_A = 0.23 * 3.405;             // α = 0.23 Å⁻¹ (в 1/σ)
+constexpr double RC_COUL = 9.5 / 3.405;            // обрезка 9.5 Å
+constexpr double RC_LJ_MAX = 3.0;     // обрезка LJ не дальше 3σ (у больших анионов 2.5σ_ij вышло бы до 12 Å)
 constexpr double SKIN = 0.4;          // «кожа» списка Верле: список пересобирается, когда атом сместился на SKIN/2
-constexpr double KAPPA_Q = 0.35;      // частичный заряд на связь: δq = κ·(χ_j − χ_i); вода: O −0.87, H +0.43 (как SPC/E)
-constexpr double EV = 4.0;            // 1 эВ = 4 ε (химический масштаб)
-constexpr double MORSE_A = 4.0;       // ширина ямы Морзе, 1/σ
+// частичный заряд на связь δq = κ·Δχ·min(1, |Δχ|); вода: O −0.86, H +0.43. Вместе с σ кислорода подобран по жидкой
+// воде при 300 K и 1 атм (--water): плотность 0.96 г/см³, коэффициент диффузии 2.5·10⁻⁹ м²/с (опыт: 1.00 и 2.3·10⁻⁹)
+constexpr double KAPPA_Q = 0.345;
+constexpr double MORSE_A = 2.0 * 3.405;   // ширина ямы Морзе по умолчанию 2.0 Å⁻¹ (у известных связей — по спектрам, BondT::a)
 constexpr double R_FORM = 0.45;       // связь может возникнуть при r < r0 + R_FORM
-constexpr double R_BREAK = 0.75;      // связь рвётся при r > r0 + R_BREAK (там U_Morse ≈ −0.1·D)
-constexpr double EA_EXCH = 2.0;       // базовый барьер обменной реакции (ε)
+constexpr double R_BREAK = 0.75;      // связь рвётся при r > r0 + R_BREAK (там от ямы Морзе остаётся < 1%)
+// барьеры реакций (правило Семёнова — Поляни): Ea = E0 + α·ΔH, E0 = 11.5 ккал/моль; α = 0.25 для экзотермических
+// и 0.75 для эндотермических стадий, и всегда Ea ≥ ΔH
+constexpr double EA_EXCH = 0.50 * EV;
 constexpr double EA_ASSOC = 0.0;      // рекомбинация радикалов — без барьера
-constexpr double EP_ALPHA = 0.5;      // Эванс–Поляни: Ea = E0 + α·ΔH
+constexpr double EP_ALPHA_EXO = 0.25, EP_ALPHA_ENDO = 0.75;
 constexpr double CAT_FACTOR = 0.25;   // катализатор уменьшает Ea в 4 раза
-constexpr double K_ANGLE = 20.0;      // жёсткость угла: U = k(cosθ − cosθ0)²
+constexpr double K_ANGLE = 146.0;     // жёсткость угла: U = k(cosθ − cosθ0)²; у воды k_θ = 75.9 ккал/(моль·рад²), как в SPC/Fw
 constexpr double TWEEZER_K = 80.0;    // жёсткость «пинцета» (на единицу массы)
 constexpr double TAU_HEAT = 0.1;      // время перехода теплоты реакции в кинетическую энергию
-// водородная связь D–H···A (DREIDING): U = D_hb·[5(R0/R)^12 − 6(R0/R)^10]·cos⁴θ_DHA, R — расстояние донор–акцептор
-constexpr double HB_D = 1.5, HB_R0 = 0.90, HB_RON = 1.05, HB_ROFF = 1.30;
-// тетраэдричность сетки воды (трёхчастичный член Стиллинджера–Вебера, как в модели mW):
-// U3 = λ·Σ φ(r_ij)φ(r_ik)(cosθ_jik − cosθ0)²,  φ(r) = exp(γ/(r − a)),  θ0 = 109.47°
-constexpr double SW_LAMBDA = 60.0, SW_GAMMA = 0.6, SW_A = 1.25;
 // пересчёт в реальные единицы (аргон). Модель — LJ с обрезкой 2.5σ и сдвигом (LJTS): её критическая точка
 // T*c = 1.078, ρ*c = 0.319 (Vrabec и др., 2006), а не 1.31 как у полного LJ. Поэтому ε/k откалиброван так, чтобы
 // Tc модели совпала с Tc аргона (150.7 K): ε/k = 139.8 K (вместо 119.8 K для полного потенциала). Тогда тройная
@@ -31,7 +36,7 @@ constexpr double SW_LAMBDA = 60.0, SW_GAMMA = 0.6, SW_A = 1.25;
 // Отсюда P = ε/σ³ = 482.5 атм, τ = σ√(m/ε) = 0.999 пс при единице массы 10 а.е.м.
 constexpr double U_T_K = 139.8, U_L_NM = 0.3405, U_T_PS = 0.9987, U_P_ATM = 482.5;
 constexpr double U_KJMOL = 139.8 * 0.0083144626;   // ε в кДж/моль (1.162)
-constexpr int MAXB = 4;               // максимум связей у атома
+constexpr int MAXB = 6;               // максимум связей у атома (SF6, октаэдрические комплексы)
 constexpr int HIST = 600;             // длина скользящего окна графиков
 }
 
@@ -62,10 +67,10 @@ static Element EL[NEL] = {
     {"H",  "водород",       0.101, 0.40, 0.05,  0.0, 1, 2.20, 0.95f, 0.95f, 0.97f, 2.5,   false},   // слабый LJ у H, как в моделях воды
     {"C",  "углерод",       1.201, 0.90, 0.50,  0.0, 4, 2.55, 0.58f, 0.60f, 0.64f, 2.5,   false},
     {"N",  "азот",          1.401, 0.82, 0.60,  0.0, 3, 3.04, 0.30f, 0.48f, 1.00f, 2.5,   false},
-    {"O",  "кислород",      1.600, 0.93, 0.15,  0.0, 2, 3.44, 1.00f, 0.08f, 0.06f, 2.5,   false},   // σ,ε близки к SPC/E
-    {"Na+","ион натрия",    2.299, 0.70, 0.30, +0.8, 0, 0.93, 0.70f, 0.40f, 1.00f, 2.5,   false},
+    {"O",  "кислород",      1.600, 0.9075, 0.559, 0.0, 2, 3.44, 1.00f, 0.08f, 0.06f, 2.5, false},   // σ = 3.09 Å, ε/k = 78.2 K (как SPC/Fw)
+    {"Na+","ион натрия",    2.299, 0.6344, 1.269, +1.0, 0, 0.93, 0.70f, 0.40f, 1.00f, 2.5, false},   // Джунг — Чиэтэм (2008): σ = 2.160 Å, ε = 1.475 кДж/моль
     {"Cl", "хлор",          3.545, 0.92, 1.00,  0.0, 1, 3.16, 0.25f, 0.92f, 0.30f, 2.5,   false},
-    {"Cl-","хлорид-ион",    3.545, 1.00, 1.00, -0.8, 0, 3.16, 0.55f, 1.00f, 0.50f, 2.5,   false},
+    {"Cl-","хлорид-ион",    3.545, 1.4185, 0.0460, -1.0, 0, 3.16, 0.55f, 1.00f, 0.50f, 2.5, false},   // σ = 4.830 Å, ε = 0.0535 кДж/моль
     {"Big","броун. частица",60.0,  4.00, 1.00,  0.0, 0, 0.00, 1.00f, 0.80f, 0.30f, 1.122, false},
     {"W",  "стенка",        1e9,   1.00, 1.00,  0.0, 0, 0.00, 0.40f, 0.43f, 0.50f, 2.5,   true},
 };
@@ -276,6 +281,29 @@ static std::string zElectronConfig(int Z) {
     }
     return s;
 }
+// ---- Валентность по счёту электронов. У атома главной подгруппы VE валентных электронов; каждая ковалентная связь
+// берёт один, остальные — неподелённые пары и неспаренные электроны. Элементы 2-го периода держат не больше 8 электронов
+// (октет), начиная с 3-го периода у p-элементов октет расширяется до 12–14 (SF6, PCl5, ClF3, XeF4): неподелённая пара
+// «распаривается» и даёт ещё две связи, но только с электроотрицательными соседями (F, O, Cl, N) и с потерей энергии
+// на промотирование электрона (EPROM на каждую связь сверх обычной валентности).
+static int VE[NEL];          // валентные электроны (номер группы для главных подгрупп; у переходных — обычная валентность)
+static bool HYPER[NEL];      // может расширять октет
+static double EPROM[NEL];    // энергия каждой связи сверх обычной валентности, ε
+static inline int valMax(int t) { return HYPER[t] ? std::max(EL[t].val, std::min(VE[t], 14 - VE[t])) : EL[t].val; }
+static void initValence() {
+    for (int t = 0; t < NEL; t++) {
+        const int Z = EL[t].Z; VE[t] = EL[t].val; HYPER[t] = false; EPROM[t] = 0;
+        if (Z < 1 || Z > 118 || EL[t].fixed) continue;
+        int grp, per; zGroupPeriod(Z, grp, per);
+        if (grp == 1 || grp == 2) VE[t] = grp;
+        else if (grp >= 13) VE[t] = grp - 10;
+        HYPER[t] = per >= 3 && grp >= 14 && Z != 18;   // Si, P, S, Cl, Ge, As, Se, Br, Kr, Sn, Sb, Te, I, Xe…
+        double e = 1.0;   // эВ: по теплотам образования SF2 → SF4 → SF6, PF3 → PF5, ClF → ClF3, XeF2 → XeF4 (NIST)
+        switch (Z) { case 16: e = 0.2; break; case 34: case 52: e = 0.3; break; case 15: case 33: e = 1.3; break; case 51: e = 0.8; break;
+                     case 17: e = 1.2; break; case 35: e = 1.0; break; case 53: e = 0.7; break; case 54: e = 1.3; break; case 36: e = 2.0; break; }
+        EPROM[t] = e * cfg::EV;
+    }
+}
 static int TZ[119];                       // тип частицы для элемента с номером Z
 static int E_F = -1;                      // тип фтора (донор/акцептор водородной связи)
 static inline bool isRadioactive(int Z) { return Z == 43 || Z == 61 || Z >= 84; }
@@ -301,6 +329,7 @@ static void initElements() {
         if (TZ[z] >= 0) continue;
         const ZData& d = ZD[z]; Element& e = EL[t];
         e.sym = d.sym; e.name = d.name; e.m = d.mass / 10.0; e.fq = 0; e.val = d.val; e.chi = d.cat == CAT_NOB ? 0 : d.chi;
+        if (z == 36) e.chi = 3.00; else if (z == 54) e.chi = 2.60; else if (z == 86) e.chi = 2.20;   // тяжёлые благородные газы образуют фториды и оксиды
         e.r = ((d.rgb >> 16) & 255) / 255.0f; e.g = ((d.rgb >> 8) & 255) / 255.0f; e.b = (d.rgb & 255) / 255.0f;
         // тёмные цвета Jmol плохо видны на тёмном фоне — поднимаем яркость
         float lum = 0.3f * e.r + 0.59f * e.g + 0.11f * e.b;
@@ -320,13 +349,19 @@ static void initElements() {
 }
 static inline int typeOfZ(int z) { return z >= 1 && z <= 118 ? TZ[z] : -1; }
 
-// Таблица связей: энергии диссоциации по порядку связи (эВ → ε) и длины (Å → σ_Ar)
-struct BondT { double D[4] = {0, 0, 0, 0}; double r0[4] = {0, 0, 0, 0}; int maxOrder = 0; };
+// Таблица связей: энергии диссоциации по порядку связи (эВ → ε), длины (Å → σ_Ar) и ширина ямы Морзе a (1/σ).
+// a = ω·√(μ/2D) — по частоте колебаний: тогда кривизна ямы 2Da² даёт реальную частоту связи.
+struct BondT { double D[4] = {0, 0, 0, 0}; double r0[4] = {0, 0, 0, 0}; double a[4] = {0, 0, 0, 0}; int maxOrder = 0; };
 static BondT BT[NEL][NEL];
-static void setBond(int a, int b, std::initializer_list<double> Dev, std::initializer_list<double> rA) {
+// a — в Å⁻¹ по порядкам связи (пустой список — 2.0 Å⁻¹, у кратных связей яма чуть уже)
+static void setBond(int a, int b, std::initializer_list<double> Dev, std::initializer_list<double> rA, std::initializer_list<double> aA = {}) {
     BondT t; int o = 1;
-    auto ri = rA.begin();
-    for (double d : Dev) { t.D[o] = d * cfg::EV; t.r0[o] = (*ri) / 3.405; ++ri; t.maxOrder = o; ++o; }
+    auto ri = rA.begin(); auto ai = aA.begin();
+    for (double d : Dev) {
+        t.D[o] = d * cfg::EV; t.r0[o] = (*ri) / 3.405;
+        t.a[o] = (ai != aA.end() ? *ai++ : 2.0 + 0.15 * (o - 1)) * 3.405;
+        ++ri; t.maxOrder = o; ++o;
+    }
     BT[a][b] = t; BT[b][a] = t;
 }
 // элементы, образующие кратные связи (π-связи): B, C, N, O, Si, P, S, Ge, As, Se
@@ -345,14 +380,17 @@ static void genericBonds() {
         double r1 = A.rcov + B.rcov - 0.09 * dchi;
         int mo = (multiBonder(A.Z) && multiBonder(B.Z)) ? std::min(3, std::min(A.val, B.val)) : 1;
         const double kD[4] = {0, 1.0, 1.75, 2.4}, dr[4] = {0, 0, 0.20, 0.34};
+        // ширина ямы: ковалентная связь ≈ 2 Å⁻¹, ионная (большая разность χ) шире и мягче — у молекулы NaCl 1.0 Å⁻¹
+        const double aw = std::max(1.0, 2.0 - 0.4 * std::max(0.0, dchi - 1.0));
         BondT t; t.maxOrder = mo;
-        for (int o = 1; o <= mo; o++) { t.D[o] = D1 * kD[o] * cfg::EV; t.r0[o] = (r1 - dr[o]) / 3.405; }
+        for (int o = 1; o <= mo; o++) { t.D[o] = D1 * kD[o] * cfg::EV; t.r0[o] = (r1 - dr[o]) / 3.405; t.a[o] = (aw + 0.15 * (o - 1)) * 3.405; }
         BT[a][b] = t; BT[b][a] = t;
     }
 }
 static void initChemTables();   // chemistry.inl: справочные энергии и длины связей для конкретных пар
 static void initBondTable() {
     initElements();
+    initValence();
     genericBonds();     // сначала общее правило для любой пары,
     initChemTables();   // затем реальные значения там, где они известны
 }
@@ -380,7 +418,7 @@ static const char* BD_NAMES[] = {"периодич.", "стенки", "порш�
 
 struct Sim {
     int n = 0;
-    std::vector<double> x, y, z, vx, vy, vz, fx, fy, fz, ux, uy, uz, q, ep;
+    std::vector<double> x, y, z, vx, vy, vz, fx, fy, fz, bx, by, bz, ux, uy, uz, q, ep;   // f — медленные силы, b — быстрые (связи, углы)
     std::vector<int> ty;
     std::vector<std::array<int, cfg::MAXB>> nb;            // соседи по связям
     std::vector<std::array<unsigned char, cfg::MAXB>> bo;  // порядок связи
@@ -393,10 +431,13 @@ struct Sim {
     double xi = 0, eta = 0;                                // Нозе–Гувер
     double t = 0; long long step = 0;
     std::vector<unsigned char> pin;                        // 1 = атом закреплён (интегратор его не двигает)
+    // неподелённые пары гипервалентных центров (physics.inl, VSEPR): до 4 направлений и ключ «сколько пар + неспаренный»
+    std::vector<std::array<double, 12>> lp;
+    std::vector<unsigned char> lpk;
     void resize(int m) {
-        for (auto* v : {&x, &y, &z, &vx, &vy, &vz, &fx, &fy, &fz, &ux, &uy, &uz, &q, &ep}) v->resize(m);
+        for (auto* v : {&x, &y, &z, &vx, &vy, &vz, &fx, &fy, &fz, &bx, &by, &bz, &ux, &uy, &uz, &q, &ep}) v->resize(m);
         ty.resize(m); nb.resize(m); bo.resize(m); nbc.resize(m); bc.resize(m); gh.resize(m); ghc.resize(m);
-        pin.resize(m);
+        pin.resize(m); lp.resize(m); lpk.resize(m);
     }
 };
 static Sim S;

@@ -22,21 +22,27 @@ static std::vector<Flash> flashes;
 static std::vector<char> usedFlag;
 
 namespace chem {
-constexpr double ZION = 0.8;          // заряд однозарядного иона в модели (как у Na+ и Cl−)
+constexpr double ZION = 1.0;          // заряд однозарядного иона (Na+, Cl−, H3O+, OH−) — заряд электрона
 constexpr double KJ_PER_EV = 96.485;  // 1 эВ на частицу = 96.485 кДж/моль
-constexpr double EA_PT = 1.5;         // базовый барьер переноса протона, ε: протон в воде «прыгает» примерно раз в пикосекунду
+constexpr double EA_PT = 0.10 * cfg::EV;   // барьер прыжка протона по водородной связи ≈ 0.1 эВ: в воде — раз в 1–2 пс
 constexpr double R_PT = 0.40;         // перенос протона возможен при r(H···A) < r0(A–H) + R_PT
 constexpr double CAT_SURF = 0.3;      // поверхность металла-катализатора (Pt, Pd, Ni, Fe…): множитель кинетической части барьера
-constexpr double E_OXONIUM = 4.0;     // энергия образования иона без сольватации (относительно нейтральных частиц), ε
-constexpr double E_HYDROXIDE = 40.0;
-constexpr double E_AMMONIUM = 4.0;
+// Энергия ионов в газе относительно нейтральных частиц (эВ). Связи в модели рвутся «пополам» (гомолитически), поэтому
+// цена разделения зарядов — энергия ионизации H минус сродство к электрону и сродство к протону — добавляется к ионам
+// отдельно. Из цикла Борна — Габера по газофазным данным (NIST): H3O+ + OH− → 2H2O −9.8 эВ, HCl + H2O → H3O+ + Cl− +7.3 эВ,
+// HCl + NH3 → NH4+ + Cl− +5.6 эВ; у Cl− своей доли нет (она вошла в остальные). В воде эту цену почти целиком
+// возвращает гидратация ионов — её даёт кулоновское притяжение к молекулам воды, поэтому HCl в воде диссоциирует.
+constexpr double E_OXONIUM = 7.63 * cfg::EV;
+constexpr double E_HYDROXIDE = 2.17 * cfg::EV;
+constexpr double E_AMMONIUM = 5.19 * cfg::EV;
 constexpr double Q_LOC = 0.7;         // доля заряда иона на заряженном центре (остальное — по мягкости атомов)
 constexpr int MOL_CAP = 64;           // молекулы крупнее — «сетки»: заряд по ним не перераспределяется
 }
-// теплота/энтальпия реакции (ε, химический масштаб 1 эВ = 4ε) → эВ и кДж/моль (реальные значения таблицы связей;
-// cfg::U_KJMOL переводит тепловые энергии частиц — kT, Eк; химические энергии уменьшены в 1/(4·ε[эВ]) раз)
+// теплота/энтальпия реакции (ε) → эВ и кДж/моль
 static inline double rxEV(double e) { return e / cfg::EV; }
 static inline double rxKJ(double e) { return e / cfg::EV * chem::KJ_PER_EV; }
+// наклон правила Семёнова — Поляни: у экзотермических стадий барьер почти не зависит от теплоты, у эндотермических — растёт с ней
+static inline double epAlpha(double dH) { return dH < 0 ? cfg::EP_ALPHA_EXO : cfg::EP_ALPHA_ENDO; }
 
 // ---- первые энергии ионизации I (эВ) для Z = 1…118 и сродство к электрону A (эВ): жёсткость η = I − A
 static const float IE_Z[119] = {0,
@@ -66,88 +72,95 @@ static double eaOfZ(int z) {
     }
     return 0.3;
 }
+static double waterR0 = 0.96;      // длина связи O–H, Å (меняется только в проверочном режиме --water)
 static double ETA[NEL];            // химическая жёсткость η = I − A (эВ) по типу частицы
 static bool CATMETAL[NEL];         // каталитически активные металлы (Fe, Co, Ni, Cu, Ru, Rh, Pd, Ag, Re, Os, Ir, Pt)
-// Реальные энергии диссоциации (эВ) и длины связей (Å) для распространённых пар — приоритет над общими правилами.
-// Вызывается из initBondTable() после общего правила и повторно при сборке палитры (идемпотентно).
+// Реальные энергии диссоциации (эВ), длины связей (Å) и ширины ям Морзе a = ω_e·√(μ/2D_e) (Å⁻¹; по колебательным
+// постоянным двухатомных молекул и частотам валентных колебаний многоатомных) для распространённых пар —
+// приоритет над общими правилами. Вызывается из initBondTable() после общего правила и повторно при сборке палитры.
 static void initChemTables() {
     auto T = [](int z) { return typeOfZ(z); };
-    auto sb = [](int a, int b, std::initializer_list<double> D, std::initializer_list<double> r) { if (a >= 0 && b >= 0) setBond(a, b, D, r); };
+    auto sb = [](int a, int b, std::initializer_list<double> D, std::initializer_list<double> r, std::initializer_list<double> w = {}) {
+        if (a >= 0 && b >= 0) setBond(a, b, D, r, w); };
     // водород
-    sb(E_H, E_H, {4.52}, {0.74});
-    sb(E_C, E_H, {4.30}, {1.09});                      // C–H (метан 4.3 эВ на связь)
-    sb(E_N, E_H, {4.05}, {1.01});                      // N–H (аммиак, среднее 4.0)
-    sb(E_O, E_H, {4.80}, {0.96});                      // O–H (вода: среднее двух связей 4.8; первая 5.1)
-    sb(T(9), E_H, {5.87}, {0.92});                     // H–F
-    sb(E_CL, E_H, {4.43}, {1.27});                     // H–Cl
-    sb(T(35), E_H, {3.79}, {1.41});                    // H–Br
-    sb(T(53), E_H, {3.09}, {1.61});                    // H–I
-    sb(T(16), E_H, {3.78}, {1.34});                    // S–H
-    sb(T(15), E_H, {3.30}, {1.42});                    // P–H
-    sb(T(14), E_H, {3.30}, {1.48});                    // Si–H
-    sb(T(5), E_H, {3.40}, {1.19});                     // B–H
-    sb(T(11), E_H, {1.97}, {1.89});                    // NaH
-    sb(T(3), E_H, {2.43}, {1.60});                     // LiH
+    sb(E_H, E_H, {4.52}, {0.74}, {1.94});              // H2: ω_e = 4401 см⁻¹
+    sb(E_C, E_H, {4.30}, {1.09}, {1.90});              // C–H (метан 4.3 эВ на связь, 3000 см⁻¹)
+    sb(E_N, E_H, {4.05}, {1.01}, {2.20});              // N–H (аммиак, среднее 4.0)
+    sb(E_O, E_H, {4.80}, {waterR0}, {2.20});           // O–H (вода: среднее двух связей 4.8; первая 5.1; 3700 см⁻¹)
+    sb(T(9), E_H, {5.87}, {0.92}, {2.22});             // H–F
+    sb(E_CL, E_H, {4.43}, {1.27}, {1.87});             // H–Cl
+    sb(T(35), E_H, {3.79}, {1.41}, {1.81});            // H–Br
+    sb(T(53), E_H, {3.09}, {1.61}, {1.75});            // H–I
+    sb(T(16), E_H, {3.78}, {1.34}, {1.87});            // S–H
+    sb(T(15), E_H, {3.30}, {1.42}, {1.71});            // P–H
+    sb(T(14), E_H, {3.30}, {1.48}, {1.62});            // Si–H
+    sb(T(5), E_H, {3.40}, {1.19}, {1.76});             // B–H
+    sb(T(11), E_H, {1.97}, {1.89}, {1.11});            // NaH
+    sb(T(3), E_H, {2.43}, {1.60}, {1.13});             // LiH
     // углерод
-    sb(E_C, E_C, {3.61, 6.36, 8.70}, {1.54, 1.34, 1.20});
-    sb(E_C, E_N, {3.17, 6.30, 9.20}, {1.47, 1.28, 1.16});
+    sb(E_C, E_C, {3.61, 6.36, 8.70}, {1.54, 1.34, 1.20}, {1.70, 2.13, 2.22});
+    sb(E_C, E_N, {3.17, 6.30, 9.20}, {1.47, 1.28, 1.16}, {1.94, 2.27, 2.55});
     // C=O: 8.0 эВ — между карбонилом (7.5) и CO2 (8.3 на связь): одна кривая описывает и альдегиды, и CO2
-    sb(E_C, E_O, {3.71, 8.00, 11.1}, {1.43, 1.20, 1.13});
-    sb(E_C, T(9), {5.03}, {1.35});
-    sb(E_C, E_CL, {3.40}, {1.77});
-    sb(E_C, T(35), {2.90}, {1.94});
-    sb(E_C, T(53), {2.40}, {2.14});
-    sb(E_C, T(16), {2.80, 5.90}, {1.82, 1.56});
-    sb(E_C, T(14), {3.30}, {1.87});
-    sb(E_C, T(15), {2.70}, {1.84});
+    sb(E_C, E_O, {3.71, 8.00, 11.1}, {1.43, 1.20, 1.13}, {1.90, 2.19, 2.30});
+    sb(E_C, T(9), {5.03}, {1.35}, {1.72});
+    sb(E_C, E_CL, {3.40}, {1.77}, {1.61});
+    sb(E_C, T(35), {2.90}, {1.94}, {1.55});
+    sb(E_C, T(53), {2.40}, {2.14}, {1.44});
+    sb(E_C, T(16), {2.80, 5.90}, {1.82, 1.56}, {1.67, 2.0});
+    sb(E_C, T(14), {3.30}, {1.87}, {1.6});
+    sb(E_C, T(15), {2.70}, {1.84}, {1.6});
     // азот, кислород, галогены
-    sb(E_N, E_N, {1.70, 4.30, 9.79}, {1.45, 1.25, 1.10});
-    sb(E_N, E_O, {2.10, 6.50}, {1.40, 1.15});          // N=O (NO: 6.5 эВ)
-    sb(E_N, E_CL, {2.00}, {1.75});
-    sb(E_O, E_O, {1.50, 5.12}, {1.48, 1.21});          // O–O в пероксидах, O=O (O2: 5.12 эВ)
-    sb(E_O, E_CL, {2.40}, {1.70});
-    sb(E_O, T(9), {1.90}, {1.42});
-    sb(E_CL, E_CL, {2.48}, {1.99});
-    sb(T(9), T(9), {1.60}, {1.42});
-    sb(T(35), T(35), {1.99}, {2.28});
-    sb(T(53), T(53), {1.54}, {2.67});
+    sb(E_N, E_N, {1.70, 4.30, 9.79}, {1.45, 1.25, 1.10}, {2.9, 2.59, 2.69});   // N≡N: 2359 см⁻¹
+    sb(E_N, E_O, {2.10, 6.50}, {1.40, 1.15}, {2.3, 2.75});   // N=O (NO: 6.5 эВ)
+    sb(E_N, E_CL, {2.00}, {1.75}, {1.9});
+    sb(E_O, E_O, {1.50, 5.12}, {1.48, 1.21}, {2.75, 2.65});  // O–O в пероксидах, O=O (O2: 5.12 эВ, 1580 см⁻¹)
+    sb(E_O, E_CL, {2.40, 4.70}, {1.70, 1.44}, {2.44, 2.5});   // Cl=O — только у хлора с расширенным октетом (HClO4, ClO4−)
+    sb(E_O, T(9), {1.90}, {1.42}, {2.4});
+    sb(E_CL, E_CL, {2.48}, {1.99}, {2.02});            // Cl2: 560 см⁻¹
+    sb(T(9), T(9), {1.60}, {1.42}, {2.97});
+    sb(T(35), T(35), {1.99}, {2.28}, {1.98});
+    sb(T(53), T(53), {1.54}, {2.67}, {1.86});
     // сера, кремний, фосфор
-    sb(T(16), E_O, {2.80, 5.36}, {1.57, 1.48});        // S=O (SO: 5.36 эВ)
-    sb(T(16), T(16), {2.75, 4.37}, {2.05, 1.89});
-    sb(T(14), E_O, {4.70, 8.26}, {1.63, 1.51});        // Si–O (кремнезём 4.7), Si=O (SiO: 8.26)
-    sb(T(14), T(14), {2.35}, {2.35});
-    sb(T(14), E_CL, {4.00}, {2.02});
-    sb(T(15), E_O, {3.70, 6.20}, {1.63, 1.48});
-    sb(T(15), E_CL, {3.40}, {2.04});
-    sb(T(15), T(9), {5.08}, {1.56});                   // PF3
-    sb(T(16), T(9), {3.39}, {1.56});
-    sb(T(16), E_CL, {2.81}, {2.01});                   // SCl2
-    sb(T(14), T(9), {5.86}, {1.56});                   // SiF4
-    sb(T(34), E_H, {2.86}, {1.46});                    // H2Se
-    sb(T(32), E_H, {2.99}, {1.53});                    // GeH4
-    sb(T(33), E_H, {3.10}, {1.52});                    // AsH3
-    sb(E_N, T(9), {2.93}, {1.37});                     // NF3
+    sb(T(16), E_O, {2.80, 5.36}, {1.57, 1.48}, {2.12, 2.20});   // S=O (SO: 5.36 эВ)
+    sb(T(16), T(16), {2.75, 4.37}, {2.05, 1.89}, {1.63, 1.9});
+    sb(T(14), E_O, {4.70, 8.26}, {1.63, 1.51}, {2.0, 1.87});    // Si–O (кремнезём 4.7), Si=O (SiO: 8.26)
+    sb(T(14), T(14), {2.35}, {2.35}, {1.5});
+    sb(T(14), E_CL, {4.00}, {2.02}, {1.6});
+    sb(T(15), E_O, {3.70, 7.80}, {1.63, 1.48}, {2.0, 2.2});   // P=O: подобрано по теплотам образования H3PO4 и POCl3
+    sb(T(15), E_CL, {3.40}, {2.04}, {1.6});
+    sb(T(15), T(9), {5.08}, {1.56}, {1.8});            // PF3
+    sb(T(16), T(9), {3.39}, {1.56}, {1.9});
+    sb(T(16), E_CL, {2.81}, {2.01}, {1.7});            // SCl2
+    sb(T(14), T(9), {5.86}, {1.56}, {1.7});            // SiF4
+    sb(T(34), E_H, {2.86}, {1.46}, {1.8});             // H2Se
+    sb(T(32), E_H, {2.99}, {1.53}, {1.65});            // GeH4
+    sb(T(33), E_H, {3.10}, {1.52}, {1.7});             // AsH3
+    sb(E_N, T(9), {2.93}, {1.37}, {2.2});              // NF3
     // бор
-    sb(T(5), T(9), {6.35}, {1.31});                    // BF3
-    sb(T(5), E_CL, {4.73}, {1.75});                    // BCl3
-    sb(T(5), E_O, {5.56}, {1.36});
-    sb(T(5), E_C, {3.69}, {1.56});
+    sb(T(5), T(9), {6.35}, {1.31}, {1.9});             // BF3
+    sb(T(5), E_CL, {4.73}, {1.75}, {1.7});             // BCl3
+    sb(T(5), E_O, {5.56}, {1.36}, {2.0});
+    sb(T(5), E_C, {3.69}, {1.56}, {1.8});
     // межгалогенные
-    sb(E_CL, T(9), {2.58}, {1.63});
-    sb(T(35), E_CL, {2.26}, {2.14});
-    sb(T(53), E_CL, {2.16}, {2.32});
-    sb(T(53), T(35), {1.82}, {2.47});
-    // металл–неметалл (двухатомные молекулы)
-    sb(T(11), E_CL, {4.23}, {2.36});                   // NaCl (газ)
-    sb(T(19), E_CL, {4.43}, {2.67});                   // KCl
-    sb(T(11), T(9), {4.95}, {1.93});                   // NaF
-    sb(T(12), E_O, {3.70}, {1.75});                    // MgO
-    sb(T(20), E_O, {4.00}, {1.82});                    // CaO
-    sb(T(13), E_O, {5.30}, {1.62});                    // AlO
-    sb(T(22), E_O, {6.90}, {1.62});                    // TiO
-    sb(T(26), E_O, {4.17}, {1.62});                    // FeO
-    sb(T(29), E_O, {2.90}, {1.72});                    // CuO
-    sb(T(30), E_O, {2.80}, {1.70});                    // ZnO
+    sb(E_CL, T(9), {2.58}, {1.63}, {2.32});
+    sb(T(35), E_CL, {2.26}, {2.14}, {1.99});
+    sb(T(53), E_CL, {2.16}, {2.32}, {1.86});
+    sb(T(53), T(35), {1.82}, {2.47}, {1.89});
+    // благородные газы связываются только с F и O; здесь D — до вычета промотирования (у ксенона 1.3 эВ на связь)
+    sb(T(54), T(9), {2.66}, {1.97}, {2.0});                        // XeF2: Xe–F 1.36 эВ (теплоты образования XeF2, XeF4)
+    sb(T(54), E_O, {1.90, 3.79}, {1.90, 1.76}, {2.0, 2.2});         // XeO3 эндотермичен (+402 кДж/моль) — взрывчат
+    sb(T(36), T(9), {2.49}, {1.89}, {2.0});                        // KrF2 эндотермичен: Kr–F всего 0.5 эВ
+    // металл–неметалл (двухатомные молекулы): ионная связь — яма шире и мягче
+    sb(T(11), E_CL, {4.23}, {2.36}, {0.90});           // NaCl (газ): 366 см⁻¹
+    sb(T(19), E_CL, {4.43}, {2.67}, {0.78});           // KCl
+    sb(T(11), T(9), {4.95}, {1.93}, {1.05});           // NaF
+    sb(T(12), E_O, {3.70}, {1.75}, {1.7});             // MgO
+    sb(T(20), E_O, {4.00}, {1.82}, {1.5});             // CaO
+    sb(T(13), E_O, {5.30}, {1.62}, {1.8});             // AlO
+    sb(T(22), E_O, {6.90}, {1.62}, {1.8});             // TiO
+    sb(T(26), E_O, {4.17}, {1.62}, {1.8});             // FeO
+    sb(T(29), E_O, {2.90}, {1.72}, {1.8});             // CuO
+    sb(T(30), E_O, {2.80}, {1.70}, {1.8});             // ZnO
     for (int t = 0; t < NEL; t++) {
         const int z = EL[t].Z;
         ETA[t] = z >= 1 && z <= 118 ? std::max(2.0, IE_Z[z] - eaOfZ(z)) : 10.0;
@@ -191,7 +204,7 @@ static bool plainMol(int i) {
     static std::vector<int> m; int s[1] = {i};
     if (!gatherMol(s, 1, m, chem::MOL_CAP)) return true;   // большая сетка считается нейтральной
     if (netCharge(m) != 0) return false;
-    for (int a : m) { const Element& e = EL[S.ty[a]]; if (e.val > 0 && usedVal(a) > e.val) return false; }
+    for (int a : m) { const int t = S.ty[a]; if (EL[t].val > 0 && usedVal(a) > valMax(t)) return false; }
     return true;
 }
 // Формальные заряды атомов молекулы m с суммарным зарядом Q (в единицах иона): катионные центры — атомы
@@ -202,7 +215,7 @@ static void siteFc(const std::vector<int>& m, int Q, std::vector<int>& fc) {
     for (size_t k = 0; k < m.size(); k++) {
         int a = m[k], t = S.ty[a], tf = typeFc(t);
         if (tf) { fc[k] = tf; sum += tf; continue; }
-        if (EL[t].val > 0) { int over = usedVal(a) - EL[t].val; if (over > 0) { fc[k] = over; sum += over; } }
+        if (EL[t].val > 0) { int over = usedVal(a) - valMax(t); if (over > 0) { fc[k] = over; sum += over; } }
     }
     int rem = Q - sum;
     for (int guard = 0; rem < 0 && guard < 8; guard++) {
@@ -236,6 +249,19 @@ static void assignCharges(const std::vector<int>& f, int Q) {
         S.q[a] += fc[k] * chem::ZION * chem::Q_LOC + ex * chem::ZION * (1 - chem::Q_LOC) / ETA[S.ty[a]] / ssum;
     }
 }
+static inline double bondTarget(int i, int j);
+// пересчитать заряды всех молекул: заряд молекулы — Σq в единицах oldUnit (старые файлы), распределение — по правилам модели;
+// сдвиги связей — к «энергии ионов» (теплота прошлых реакций сбрасывается)
+static void rechargeAll(double oldUnit) {
+    std::vector<char> seen(S.n, 0); std::vector<int> m;
+    for (int i = 0; i < S.n; i++) {
+        if (seen[i]) continue;
+        int s[1] = {i}; gatherMol(s, 1, m, 1 << 30);
+        double qs = 0; for (int a : m) { seen[a] = 1; qs += S.q[a]; }
+        assignCharges(m, (int)std::lround(qs / oldUnit));
+        for (int a : m) for (int k = 0; k < S.nbc[a]; k++) S.bc[a][k] = bondTarget(a, S.nb[a][k]);
+    }
+}
 // гидроксид-ион: O–H с суммарным зарядом −1
 static inline bool hydroxideO(int a) {
     if (S.ty[a] != E_O || S.nbc[a] != 1) return false;
@@ -248,18 +274,16 @@ static bool anionO(int a) {
     if (!gatherMol(s, 1, m, 16)) return false;
     return netCharge(m) < 0;
 }
-// энергия иона (ε), приходящаяся на одну связь атома a: сдвиги связей иона релаксируют не к нулю, а к ней
+// энергия «особого состояния» атома a, приходящаяся на одну его связь: ион (H3O+, OH−, NH4+) или расширенный октет
+// (промотирование электронов у SF6, PCl5…); сдвиги связей релаксируют не к нулю, а к ней
 static inline double siteOffset(int a) {
-    const int t = S.ty[a];
-    if (t == E_O) { if (S.nbc[a] == 3) return chem::E_OXONIUM / 3; if (S.nbc[a] == 1 && hydroxideO(a)) return chem::E_HYDROXIDE; }
-    else if (t == E_N && S.nbc[a] == 4) return chem::E_AMMONIUM / 4;
+    const int t = S.ty[a], nb = S.nbc[a];
+    if (t == E_O) { if (nb == 3) return chem::E_OXONIUM / 3; if (nb == 1 && hydroxideO(a)) return chem::E_HYDROXIDE; return 0; }
+    if (t == E_N) return nb == 4 ? chem::E_AMMONIUM / 4 : 0;
+    if (HYPER[t] && nb > 0) { const int o = hyperOver(a); if (o > 0) return EPROM[t] * o / nb; }
     return 0;
 }
-static inline double bondTarget(int i, int j) {
-    const int ti = S.ty[i], tj = S.ty[j];
-    if (ti != E_O && ti != E_N && tj != E_O && tj != E_N) return 0;
-    return siteOffset(i) + siteOffset(j);
-}
+static inline double bondTarget(int i, int j) { return siteOffset(i) + siteOffset(j); }
 // степень окисления: электроны каждой связи отдаются более электроотрицательному атому (+ заряд иона)
 static int oxidationState(int i) {
     const Element& e = EL[S.ty[i]]; int ox = typeFc(S.ty[i]);
@@ -282,7 +306,7 @@ static int formalCharge(int i) {
 // ===================================== ЭНЕРГИЯ СОБЫТИЯ ===================================
 static std::vector<int> lsMark; static int lsStamp = 0;
 // Энергия, зависящая от топологии и зарядов атомов множества Pset (пары через список Верле, связи со сдвигами),
-// углы и водородные связи центров, трёхчастичный член воды, металлическая связь
+// углы центров, металлическая связь
 static double localEnergy(const std::vector<int>& Pset, const std::vector<int>& centers) {
     if ((int)lsMark.size() < S.n) lsMark.resize(S.n, 0);
     if (++lsStamp > 2000000000) { std::fill(lsMark.begin(), lsMark.end(), 0); lsStamp = 1; }
@@ -297,24 +321,12 @@ static double localEnergy(const std::vector<int>& Pset, const std::vector<int>& 
         }
         for (int k = 0; k < S.nbc[a]; k++) {
             int b = S.nb[a][k]; if (lsMark[b] == st && b < a) continue;
-            const BondT& bt = BT[S.ty[a]][S.ty[b]]; int o = S.bo[a][k];
-            E += morseU(bt.D[o], bt.r0[o], std::sqrt(dist2(a, b))) + S.bc[a][k];
+            E += morseU(BT[S.ty[a]][S.ty[b]], S.bo[a][k], std::sqrt(dist2(a, b))) + S.bc[a][k];
         }
     }
-    // углы центров и водородные связи водородов из множества C = Sa ∪ соседи Sa
-    // (H-связь D–H···A меняется, только если меняются связи D или H — оба тогда лежат в C;
-    //  при смене типа акцептора (Cl ↔ Cl−) в C добавлены водороды-доноры вокруг него)
-    for (int c : centers) { E += angleEnergyAt(c); if (S.ty[c] == E_H) E += hbEnergyOfH(c); }
-    // сетка воды: статус «кислород H2O» меняется только у O из C; затронуты тройки с центрами в них и их соседях
-    if (present[E_O]) {
-        std::vector<int> W;
-        for (int c : centers) if (S.ty[c] == E_O) {
-            W.push_back(c);
-            for (int p = nlStart[c]; p < nlStart[c + 1]; p++) { int j = nlIdx[p]; if (S.ty[j] == E_O && dist2(c, j) < cfg::SW_A * cfg::SW_A) W.push_back(j); }
-        }
-        std::sort(W.begin(), W.end()); W.erase(std::unique(W.begin(), W.end()), W.end());
-        for (int w : W) E += swCentered(w, false, nullptr);
-    }
+    // валентные углы центров из множества C = Sa ∪ соседи Sa и π-члены связей атомов Pset
+    for (int c : centers) E += angleEnergyAt(c);
+    E += piEnergyOf(Pset);
     // металлическая связь: доля металличности меняется у атомов металла, получивших/потерявших связь
     E += metalEmbedLocal(centers);
     return E;
@@ -355,8 +367,29 @@ static bool tryEvent(const int* Sa, int ns, F apply, int absA, int absB, double&
     auto rollback = [&] { for (auto& t : sv) { S.nb[t.a] = t.nb; S.bo[t.a] = t.bo; S.bc[t.a] = t.bc; S.nbc[t.a] = t.nbc; S.gh[t.a] = t.gh; S.ghc[t.a] = t.ghc; S.q[t.a] = t.q; S.ty[t.a] = t.ty; } };
 
     double E0 = localEnergy(Pset, C) + (extE ? (*extE)() : 0.0);
+    // энергия «особых состояний» (расширенный октет) меняется вместе со связями: сдвиги связей центров
+    // сразу переводятся к новым целям, и ΔU события её учитывает (у ионных событий это делает ionicCore)
+    struct TRec { int a, b; double tg; };   // связь (a < b) и её цель
+    auto bondsOfC = [&](std::vector<TRec>& out) {
+        out.clear();
+        for (int a : C) for (int k = 0; k < S.nbc[a]; k++) { const int b = S.nb[a][k]; out.push_back({std::min(a, b), std::max(a, b), 0.0}); }
+        std::sort(out.begin(), out.end(), [](const TRec& p, const TRec& q) { return p.a != q.a ? p.a < q.a : p.b < q.b; });
+        out.erase(std::unique(out.begin(), out.end(), [](const TRec& p, const TRec& q) { return p.a == q.a && p.b == q.b; }), out.end());
+        for (auto& r : out) r.tg = bondTarget(r.a, r.b);
+    };
+    std::vector<TRec> oldT, newT;
+    if (!qset) bondsOfC(oldT);
     apply();
-    if (!qset) for (int s = 0; s < ns; s++) updateCharge(Sa[s]);
+    if (!qset) {
+        for (int s = 0; s < ns; s++) updateCharge(Sa[s]);
+        bondsOfC(newT);
+        for (auto& r : newT) {
+            double old = 0; for (auto& o : oldT) if (o.a == r.a && o.b == r.b) { old = o.tg; break; }
+            if (r.tg == old) continue;
+            const int ka = bondSlot(r.a, r.b), kb = bondSlot(r.b, r.a);
+            if (ka >= 0) S.bc[r.a][ka] += r.tg - old; if (kb >= 0) S.bc[r.b][kb] += r.tg - old;
+        }
+    }
     if (ghosts) for (auto& pr : exb) if (!excluded(pr.first, pr.second)) {
         double s = 1.1225 * 0.5 * (EL[S.ty[pr.first]].sig + EL[S.ty[pr.second]].sig);
         if (dist2(pr.first, pr.second) < s * s) addGhost(pr.first, pr.second);
@@ -410,7 +443,7 @@ static void relaxBondOffsets(double dt) {
     }
 }
 static void addFlash(double x, double y, double z, double dE) {
-    Flash f; f.x = x; f.y = y; f.z = z; f.age = 0; f.str = (float)clampv(std::fabs(dE) / 10.0, 0.25, 1.5);
+    Flash f; f.x = x; f.y = y; f.z = z; f.age = 0; f.str = (float)clampv(std::fabs(dE) / cfg::EV, 0.25, 1.5);
     // выделение энергии — яркое белое пятно, поглощение — тусклое серое (и сжимающееся кольцо, см. drawScene)
     if (dE < 0) { f.r = f.g = f.b = 1.0f; } else { f.r = f.g = f.b = 0.5f; }
     if (flashes.size() < 400) flashes.push_back(f);
@@ -446,9 +479,10 @@ static std::string formulaOf(const int* cnt) {
     else if (s == "HKO") s = "KOH";
     return s;
 }
+// заряд иона в формуле: «+», «-», а двух- и более зарядный — через «^» (SO4^2-): цифра заряда не сливается с индексом
 static std::string chargeSuffix(int Q) {
     if (Q == 0) return ""; if (Q == 1) return "+"; if (Q == -1) return "-";
-    return Q > 0 ? fmt("%d+", Q) : fmt("%d-", -Q);
+    return Q > 0 ? fmt("^%d+", Q) : fmt("^%d-", -Q);
 }
 static std::string withCharge(std::string f, int Q) {
     if (Q == 0 || f.empty() || f.back() == '+' || f.back() == '-') return f;
@@ -666,7 +700,7 @@ static bool tryProton(int D, int h, int A) {
     const double dH = (D >= 0 ? BT[S.ty[D]][E_H].D[1] : 0.0) - bt.D[1];   // ΔH по энергиям связей (без сольватации)
     double mx = S.x[h] + 0.5 * dx, my = S.y[h] + 0.5 * dy, mz = S.z[h] + 0.5 * dz;
     // к сильному основанию (OH−) — почти без барьера: нейтрализация лимитирована диффузией (k ≈ 1.4·10¹¹ л/(моль·с))
-    const double Ea = std::max(std::max(0.0, chem::EA_PT * (bc == 2 ? 0.2 : 1.0) + cfg::EP_ALPHA * dH) * catalystFactor(mx, my, mz) * P.eaScale, dH);
+    const double Ea = std::max(std::max(0.0, chem::EA_PT * (bc == 2 ? 0.2 : 1.0) + epAlpha(dH) * dH) * catalystFactor(mx, my, mz) * P.eaScale, dH);
     if (Eapp < Ea) return false;
     ptGate[3]++;
     if (dc == 2 && bc == 1 && S.ty[A] == E_O && (polarNeighbors(A, 1.3) < 2 || polarNeighbors(D, 1.35) < 2)) return false;   // HCl + H2O — только в растворе
@@ -685,12 +719,12 @@ static bool tryProton(int D, int h, int A) {
     const std::function<double()> ext = [h] { return extEnergyOf(h); };
     if (!ptListFresh) { buildNeighborList(); ptListFresh = true; }   // протон сдвигается до 0.3σ: список соседей — от текущих положений
     double dE = NAN;
-    const bool ok = ionicCore(Sa, ns, topo, fcAdj, A, h, Eapp + 0.5, dE, false, &ext);
+    const bool ok = ionicCore(Sa, ns, topo, fcAdj, A, h, Eapp + 0.05 * cfg::EV, dE, false, &ext);
     if (std::isfinite(dE)) { int c = std::min(3, dc) * 3 + std::min(2, bc); ptDbgN[c]++; ptDbgSum[c] += dE; ptDbgMin[c] = std::min(ptDbgMin[c], dE); if (ok) ptDbgOk[c]++; }
     if (!ok) { S.x[h] = hx; S.y[h] = hy; S.z[h] = hz; S.ux[h] = hux; S.uy[h] = huy; S.uz[h] = huz; return false; }
     chemPT++; CH.exch++;
     const double dHr = ptRefDH(D, A, dc, bc, dH); CH.heat -= dHr;
-    if (std::fabs(dHr) > 1) addFlash(mx, my, mz, dHr);
+    if (std::fabs(dHr) > 0.1 * cfg::EV) addFlash(mx, my, mz, dHr);
     std::vector<std::string> Pr; if (D >= 0) Pr.push_back(molFormula(D)); Pr.push_back(molFormula(A));
     logReaction({rD, rA}, Pr, dHr);
     return true;
@@ -747,6 +781,12 @@ static bool protonStep() {
         }
     }
     return any;
+}
+// изменение энергии промотирования атома i, если сумма порядков его связей изменится на d
+static inline double promDelta(int i, int d) {
+    const int t = S.ty[i]; if (!HYPER[t]) return 0;
+    const int u = usedVal(i), v = EL[t].val;
+    return EPROM[t] * (std::max(0, u + d - v) - std::max(0, u - v));
 }
 // атом на поверхности металла-катализатора (сам металл, связан с ним или касается его)
 static bool onCatSurface(int a) {
@@ -820,21 +860,22 @@ static bool chemistryStep() {
             if (o + 1 > bt.maxOrder) continue;
             if (o == 0 && (S.nbc[i] >= cfg::MAXB || S.nbc[j] >= cfg::MAXB)) continue;
             // металлическая поверхность снижает кинетическую часть барьера (проверяется, только если это что-то решает)
-            auto barrier = [&](double E0, double dH, double c) { return std::max(std::max(0.0, E0 + cfg::EP_ALPHA * dH) * c * P.eaScale, dH); };
+            auto barrier = [&](double E0, double dH, double c) { return std::max(std::max(0.0, E0 + epAlpha(dH) * dH) * c * P.eaScale, dH); };
             auto passes = [&](double E0, double dH) {
                 if (Eapp >= barrier(E0, dH, cat)) return true;
                 return catMetal && Eapp >= barrier(E0, dH, cat * chem::CAT_SURF) && (onCatSurface(i) || onCatSurface(j));
             };
             bool done = false;
-            if (freeVal(j) > 0) {
-                double dH = -(bt.D[o + 1] - bt.D[o]);   // ΔH по энергиям связей
+            if (freeVal(j) > 0 || (o == 0 && canExpand(j, i))) {
+                // ΔH по энергиям связей + промотирование электронов, если атом уходит за обычную валентность
+                double dH = -(bt.D[o + 1] - bt.D[o]) + promDelta(i, +1) + promDelta(j, +1);
                 // Эванс–Поляни; катализатор и множитель барьера снижают только кинетическую часть — не ниже ΔH
                 if (!passes(cfg::EA_ASSOC, dH)) continue;
                 if (!plainMol(i) || !plainMol(j)) continue;   // заряженные частицы реагируют переносом протона
                 int Sa[2] = {i, j}; double dE;
                 bool one = o > 0 || sameMolecule(i, j);
                 std::string ri = molFormula(i), rj = one ? std::string() : molFormula(j);
-                if (tryEvent(Sa, 2, [&] { changeBond(i, j, +1); }, i, j, dE, Eapp + 0.6 * (bt.D[o + 1] - bt.D[o]) + 5.0)) {
+                if (tryEvent(Sa, 2, [&] { changeBond(i, j, +1); }, i, j, dE, Eapp + 0.6 * (bt.D[o + 1] - bt.D[o]) + 0.2 * cfg::EV)) {
                     CH.assoc++; CH.heat -= dH; usedFlag[i] = usedFlag[j] = 1; any = true; done = true; addFlash(mx, my, mz, dH);
                     if (one) logReaction({ri}, {molFormula(i)}, dH); else logReaction({ri, rj}, {molFormula(i)}, dH);
                 }
@@ -843,7 +884,7 @@ static bool chemistryStep() {
                 for (int q = 0; q < S.nbc[j]; q++) {
                     int B = S.nb[j][q]; if (B == i || usedFlag[B]) continue;
                     int oB = S.bo[j][q]; const BondT& b2 = BT[tj][S.ty[B]];
-                    double dH = (b2.D[oB] - b2.D[oB - 1]) - (bt.D[o + 1] - bt.D[o]);
+                    double dH = (b2.D[oB] - b2.D[oB - 1]) - (bt.D[o + 1] - bt.D[o]) + promDelta(i, +1) + promDelta(B, -1);
                     if (dH < bestH) { bestH = dH; best = B; }
                 }
                 if (best < 0) continue;
@@ -852,7 +893,7 @@ static bool chemistryStep() {
                 int B = best; int Sa[3] = {i, j, B}; double dE;
                 bool one = sameMolecule(i, j);
                 std::string ri = molFormula(i), rj = one ? std::string() : molFormula(j);
-                if (tryEvent(Sa, 3, [&] { changeBond(j, B, -1); changeBond(i, j, +1); }, i, j, dE, Eapp + 0.6 * (bt.D[o + 1] - bt.D[o]) + 5.0)) {
+                if (tryEvent(Sa, 3, [&] { changeBond(j, B, -1); changeBond(i, j, +1); }, i, j, dE, Eapp + 0.6 * (bt.D[o + 1] - bt.D[o]) + 0.2 * cfg::EV)) {
                     CH.exch++; CH.heat -= bestH; usedFlag[i] = usedFlag[j] = usedFlag[B] = 1; any = true; done = true; addFlash(mx, my, mz, bestH);
                     std::vector<std::string> R = one ? std::vector<std::string>{ri} : std::vector<std::string>{ri, rj};
                     if (sameMolecule(i, B)) logReaction(R, {molFormula(i)}, bestH); else logReaction(R, {molFormula(i), molFormula(B)}, bestH);
@@ -866,10 +907,10 @@ static bool chemistryStep() {
     return any;
 }
 // «Вспышка света / искра»: каждая связь вблизи луча (d != nullptr) или точки o (d == nullptr)
-// получает энергию D + 3ε вдоль оси связи (фотодиссоциация); энергия учитывается как внешняя работа
-static void photoKick(int i, int k) {   // связь i–(k-й сосед) получает энергию D + 3ε вдоль своей оси
+// получает энергию D + 0.3 эВ вдоль оси связи (фотодиссоциация); энергия учитывается как внешняя работа
+static void photoKick(int i, int k) {   // связь i–(k-й сосед) получает энергию D + 0.3 эВ вдоль своей оси
     const int j = S.nb[i][k];
-    const BondT& bt = BT[S.ty[i]][S.ty[j]]; double Eph = bt.D[S.bo[i][k]] + 3.0;
+    const BondT& bt = BT[S.ty[i]][S.ty[j]]; double Eph = bt.D[S.bo[i][k]] + 0.3 * cfg::EV;
     double dx, dy, dz; dvec(i, j, dx, dy, dz); double r = std::sqrt(dx * dx + dy * dy + dz * dz); if (r < 1e-9) return;
     double nx = dx / r, ny = dy / r, nz = dz / r;
     double mi = EL[S.ty[i]].m, mj = EL[S.ty[j]].m, mu = mi * mj / (mi + mj);
@@ -1045,6 +1086,34 @@ static int fillRandom(const Tmpl& m, int count, double x0, double y0, double z0,
 static int fillBox(const Tmpl& m, int count, double T, double margin = 1.0, double fac = 0.9) {
     return fillRandom(m, count, margin, margin, margin, S.Lx - margin, S.Ly - margin, S.Lz - margin, T, fac);
 }
+// Жидкость настоящей плотности: случайной вставкой до неё не добраться (у воды — одна молекула на 30 Å³),
+// поэтому молекулы ставятся в узлы кубической сетки в случайном порядке и со случайным поворотом;
+// сетка расплывается за доли пикосекунды. Возвращает число поставленных молекул.
+static int fillGrid(const Tmpl& m, int count, double x0, double y0, double z0, double x1, double y1, double z1, double T, double fac = 0.55) {
+    if (count <= 0) return 0;
+    const double Lx = x1 - x0, Ly = y1 - y0, Lz = z1 - z0;
+    double a = std::cbrt(Lx * Ly * Lz / count);
+    int nx, ny, nz;
+    for (;;) {
+        nx = std::max(1, (int)std::floor(Lx / a)); ny = std::max(1, (int)std::floor(Ly / a)); nz = std::max(1, (int)std::floor(Lz / a));
+        if ((long long)nx * ny * nz >= count) break;
+        a *= 0.98;
+    }
+    std::vector<int> sites(nx * ny * nz);
+    for (int k = 0; k < (int)sites.size(); k++) sites[k] = k;
+    std::shuffle(sites.begin(), sites.end(), rng);
+    const double ax = Lx / nx, ay = Ly / ny, az = Lz / nz;
+    int placed = 0;
+    for (int s : sites) {
+        if (placed >= count) break;
+        const int i = s % nx, j = (s / nx) % ny, k = s / (nx * ny);
+        for (int tr = 0; tr < 6; tr++)   // поворот, при котором молекула не задевает соседей
+            if (placeMol(m, x0 + (i + 0.5) * ax, y0 + (j + 0.5) * ay, z0 + (k + 0.5) * az, T, fac)) { placed++; break; }
+    }
+    return placed;
+}
+// число молекул воды в объёме V (σ³) при плотности 1 г/см³: одна молекула на 29.9 Å³
+static int waterMolecules(double V) { return (int)std::lround(V * 39.476 / 29.915); }
 static void thermalVel(int t, double T, double& vx, double& vy, double& vz) {
     double s = std::sqrt(T / EL[t].m); vx = grand() * s; vy = grand() * s; vz = grand() * s;
 }
@@ -1113,12 +1182,14 @@ enum { ML_H2O, ML_H2O2, ML_CO2, ML_CO, ML_NH3, ML_HCL, ML_HF, ML_HBR, ML_HI, ML_
        ML_NO, ML_NO2, ML_HNO2, ML_NH2OH, ML_NH2CL, ML_HOCL, ML_CL2O, ML_OF2, ML_NF3, ML_NCL3, ML_PF3, ML_PCL3, ML_ASH3, ML_H2SE,
        ML_SCL2, ML_CS2, ML_COS, ML_SIF4, ML_SICL4, ML_GEH4, ML_BF3, ML_BCL3,
        ML_N2, ML_O2, ML_H2, ML_F2, ML_CL2, ML_BR2, ML_I2, ML_CLF, ML_ICL,
+       ML_SO2, ML_SO3, ML_H2SO4, ML_H3PO4, ML_HNO3, ML_HCLO4, ML_POCL3, ML_SOCL2, ML_SF4, ML_SF6, ML_PF5, ML_PCL5, ML_CLF3, ML_BRF5,
+       ML_IF5, ML_XEF2, ML_XEF4, ML_XEO3,
        ML_CH4, ML_C2H6, ML_C3H8, ML_C4H10, ML_ISOBUTANE, ML_C5H12, ML_C6H14, ML_C2H4, ML_C3H6, ML_C4H6, ML_C2H2, ML_C3H4,
        ML_CYCLOPENTANE, ML_CYCLOHEXANE, ML_C6H6, ML_PHENOL, ML_TOLUENE, ML_STYRENE, ML_ANILINE, ML_BENZOIC, ML_NAPHTHALENE, ML_PYRIDINE,
        ML_CH3OH, ML_C2H5OH, ML_IPA, ML_GLYCOL, ML_GLYCEROL, ML_DME, ML_DEE, ML_HCHO, ML_CH3CHO, ML_ACETONE, ML_HCOOH, ML_CH3COOH,
        ML_OXALIC, ML_LACTIC, ML_ETOAC, ML_CH3CN, ML_HCONH2, ML_CH3CL, ML_CH2CL2, ML_CHCL3, ML_CCL4, ML_C2H5CL, ML_C2H3CL, ML_CF4,
        ML_CCL2F2, ML_CH3SH, ML_CH3NH2, ML_UREA, ML_GLYCINE, ML_ALANINE,
-       ML_H3O, ML_OH, ML_NH4, ML_CN, ML_HS, ML_CLO, ML_NO2M, ML_HCOO, ML_CH3COO, ML_HCO3, ML_NAOH, ML_NACL,
+       ML_H3O, ML_OH, ML_NH4, ML_CN, ML_HS, ML_CLO, ML_NO2M, ML_HCOO, ML_CH3COO, ML_HCO3, ML_SO4, ML_PO4, ML_NO3, ML_CLO4, ML_NAOH, ML_NACL,
        ML_NACL_CRYST, ML_DIAMOND, ML_GRAPHENE, ML_C60, ML_ICE, ML_SI_CRYST, ML_SIO2,
        ML_PT, ML_AU, ML_FE, ML_NI, ML_CU, ML_AG, ML_AL, ML_PD, ML_RH, ML_PB, ML_N };
 enum { MLG_INORG, MLG_ORG, MLG_ION, MLG_SOLID, MLG_N };
@@ -1129,12 +1200,14 @@ static const char* MOL_LIB_NAMES[] = {
     "NO", "NO2", "HNO2", "NH2OH", "NH2Cl", "HOCl", "Cl2O", "OF2", "NF3", "NCl3", "PF3", "PCl3", "AsH3", "H2Se",
     "SCl2", "CS2", "COS", "SiF4", "SiCl4", "GeH4", "BF3", "BCl3",
     "N2", "O2", "H2", "F2", "Cl2", "Br2", "I2", "ClF", "ICl",
+    "SO2", "SO3", "H2SO4", "H3PO4", "HNO3", "HClO4", "POCl3", "SOCl2", "SF4", "SF6", "PF5", "PCl5", "ClF3", "BrF5",
+    "IF5", "XeF2", "XeF4", "XeO3",
     "CH4", "C2H6", "C3H8", "C4H10", "i-C4H10", "C5H12", "C6H14", "C2H4", "C3H6", "C4H6", "C2H2", "C3H4",
     "C5H10", "C6H12", "C6H6", "C6H5OH", "C6H5CH3", "C8H8", "C6H5NH2", "C6H5COOH", "C10H8", "C5H5N",
     "CH3OH", "C2H5OH", "C3H7OH", "C2H4(OH)2", "C3H5(OH)3", "CH3OCH3", "(C2H5)2O", "HCHO", "CH3CHO", "(CH3)2CO", "HCOOH", "CH3COOH",
     "H2C2O4", "C3H6O3", "C4H8O2", "CH3CN", "HCONH2", "CH3Cl", "CH2Cl2", "CHCl3", "CCl4", "C2H5Cl", "C2H3Cl", "CF4",
     "CCl2F2", "CH3SH", "CH3NH2", "CO(NH2)2", "глицин", "аланин",
-    "H3O+", "OH-", "NH4+", "CN-", "HS-", "ClO-", "NO2-", "HCOO-", "CH3COO-", "HCO3-", "NaOH", "NaCl",
+    "H3O+", "OH-", "NH4+", "CN-", "HS-", "ClO-", "NO2-", "HCOO-", "CH3COO-", "HCO3-", "SO4^2-", "PO4^3-", "NO3-", "ClO4-", "NaOH", "NaCl",
     "кристалл NaCl", "алмаз", "графен", "C60", "лёд", "кремний", "SiO2",
     "Pt", "Au", "Fe", "Ni", "Cu", "Ag", "Al", "Pd", "Rh", "Pb"};
 static const char* MOL_LIB_DESC[] = {
@@ -1161,6 +1234,18 @@ static const char* MOL_LIB_DESC[] = {
     "фтор: F–F 1.42 Å, всего 1.6 эВ — самый активный неметалл", "хлор: Cl–Cl 1.99 Å, 2.48 эВ",
     "бром: Br–Br 2.28 Å, 1.97 эВ; при комнатной температуре — жидкость", "иод: I–I 2.67 Å, 1.54 эВ; возгоняется фиолетовым паром",
     "монофторид хлора: межгалогенное соединение, Cl–F 1.63 Å", "монохлорид иода: межгалогенное соединение, I–Cl 2.32 Å",
+    // переменная валентность: у элементов 3-го периода и ниже октет расширяется
+    "диоксид серы O=S=O: сера четырёхвалентна, неподелённая пара сгибает молекулу (119°)",
+    "триоксид серы SO3: сера шестивалентна, плоский треугольник", "серная кислота H2SO4: тетраэдр S(=O)2(OH)2, сера шестивалентна",
+    "ортофосфорная кислота H3PO4: фосфор пятивалентен, тетраэдр", "азотная кислота HNO3: у азота четыре связи — на нём заряд +, на одном O заряд −",
+    "хлорная кислота HClO4: хлор семивалентен — самая сильная из обычных кислот",
+    "хлорокись фосфора POCl3: тетраэдр, P=O 1.45 Å", "тионилхлорид SOCl2: пирамида, S=O 1.45 Å, реагент для хлорирования",
+    "тетрафторид серы SF4: «качели» — неподелённая пара в экваторе бипирамиды", "гексафторид серы SF6: октаэдр, очень инертный газ-изолятор",
+    "пентафторид фосфора PF5: тригональная бипирамида, связи в экваторе короче осевых", "пентахлорид фосфора PCl5: бипирамида; при нагреве распадается на PCl3 и Cl2",
+    "трифторид хлора ClF3: T-образная молекула, две неподелённые пары в экваторе; поджигает даже стекло",
+    "пентафторид брома BrF5: квадратная пирамида, неподелённая пара снизу", "пентафторид иода IF5: квадратная пирамида",
+    "дифторид ксенона XeF2: благородный газ со связями! Линейная, три пары в экваторе",
+    "тетрафторид ксенона XeF4: квадрат, две неподелённые пары над и под плоскостью", "триоксид ксенона XeO3: пирамида, взрывается от удара",
     // органические
     "метан: тетраэдр, C–H 1.09 Å, 4.3 эВ на связь", "этан: C–C 1.54 Å, 3.6 эВ", "пропан C3H8: бытовой баллонный газ", "н-бутан: цепь из четырёх атомов C (газ для зажигалок)",
     "изобутан (CH3)3CH: разветвлённый изомер бутана", "н-пентан: жидкость, кипит при 36 °C", "н-гексан: неполярный растворитель",
@@ -1188,7 +1273,9 @@ static const char* MOL_LIB_DESC[] = {
     "ион гидроксония H3O+ (кислота): протон переходит к соседней воде", "гидроксид-ион OH− (основание): нейтрализует H3O+", "ион аммония NH4+: тетраэдр",
     "цианид-ион C≡N⁻: сильный лиганд и яд", "гидросульфид-ион HS⁻: основание", "гипохлорит-ион ClO⁻: окислитель в хлорных отбеливателях",
     "нитрит-ион O=N–O⁻: угловой", "формиат-ион HCOO⁻", "ацетат-ион CH3COO⁻: сопряжённое основание уксусной кислоты",
-    "гидрокарбонат-ион HCO3⁻: основа питьевой соды", "гидроксид натрия: Na+ и OH− (щёлочь)", "ионная пара Na+ Cl−",
+    "гидрокарбонат-ион HCO3⁻: основа питьевой соды", "сульфат-ион SO4²⁻: тетраэдр, заряд −1 на двух атомах O",
+    "фосфат-ион PO4³⁻: тетраэдр", "нитрат-ион NO3⁻: плоский треугольник", "перхлорат-ион ClO4⁻: тетраэдр, окислитель ракетного топлива",
+    "гидроксид натрия: Na+ и OH− (щёлочь)", "ионная пара Na+ Cl−",
     // кристаллы и кластеры
     "кристаллик NaCl (решётка каменной соли)", "кластер алмаза, поверхность закрыта водородом (C–C 1.54 Å, sp3)",
     "лист графена: соты sp2, структура Кекуле, край закрыт водородом",
@@ -1220,7 +1307,9 @@ static std::vector<V3> bondDirs(int t, int k, V3 u, int depth) {
         if (th >= 119.9) { d.push_back(at(th, 0)); d.push_back(at(th, 180)); }
         else { double ct = std::cos(th * PI / 180), c2 = clampv((ct - ct * ct) / (1 - ct * ct), -1.0, 1.0), ph = 0.5 * std::acos(c2) * 180 / PI;
                d.push_back(at(th, ph)); d.push_back(at(th, -ph)); }
-    } else if (k >= 4) { d.push_back(at(109.47, 0)); d.push_back(at(109.47, 120)); d.push_back(at(109.47, 240)); }
+    } else if (k == 4) { d.push_back(at(109.47, 0)); d.push_back(at(109.47, 120)); d.push_back(at(109.47, 240)); }
+    else if (k == 5) { d.push_back(u * -1.0); d.push_back(at(90, 0)); d.push_back(at(90, 120)); d.push_back(at(90, 240)); }   // тригональная бипирамида
+    else if (k >= 6) { d.push_back(u * -1.0); for (int q = 0; q < 4; q++) d.push_back(at(90, 90.0 * q)); }                    // октаэдр
     return d;
 }
 // Координаты атомов по графу связей, обход в ширину. Атомы с fixedN первых номеров уже стоят (кольцо),
@@ -1249,8 +1338,26 @@ static void vseprPlace(Tmpl& m, int fixedN = 0) {
             }
         } else {
             V3 u = par[a] >= 0 ? vunit(Pp[par[a]] - Pp[a]) : V3{1, 0, 0};
-            std::vector<V3> dirs = bondDirs(m.a[a].t, k, u, dep[a]);
-            cd.assign(dirs.begin() + (par[a] >= 0 ? 1 : 0), dirs.end());
+            const int t = m.a[a].t; int used = 0; for (auto& nb : adj[a]) used += nb.second;
+            if (HYPER[t] && used > EL[t].val && k >= 2 && k <= cfg::MAXB) {
+                // расширенный октет: связи — по идеальной фигуре облаков VSEPR (с неподелёнными парами), первая — к родителю
+                double w[cfg::MAXB], wl[4], dd[cfg::MAXB + 4][3]; int q = 0;
+                if (par[a] >= 0) for (auto& nb : adj[a]) if (nb.first == par[a]) w[q++] = vsBondW(nb.second);
+                for (auto& nb : adj[a]) if (nb.first != par[a]) w[q++] = vsBondW(nb.second);
+                const int nbE = std::max(0, VE[t] - used), nl = std::min(3, nbE / 2), nd = nl + (nbE & 1);
+                for (int p = 0; p < nd; p++) wl[p] = p < nl ? vs::W_LP : vs::W_ONE;
+                vsIdeal(k, w, nd, wl, dd, vsTransPair(k, nl));
+                // поворот, переводящий первую идеальную связь в u (формула Родрига)
+                const V3 p0 = vunit(V3{dd[0][0], dd[0][1], dd[0][2]}); V3 ax = vcross(p0, u); const double s = std::sqrt(vdot(ax, ax)), c = vdot(p0, u);
+                auto rot = [&](V3 v) {
+                    if (s < 1e-9) return c > 0 ? v : v * -1.0;
+                    const V3 e = ax * (1 / s); return v * c + vcross(e, v) * s + e * (vdot(e, v) * (1 - c));
+                };
+                for (int p = par[a] >= 0 ? 1 : 0; p < k; p++) cd.push_back(vunit(rot(V3{dd[p][0], dd[p][1], dd[p][2]})));
+            } else {
+                std::vector<V3> dirs = bondDirs(t, k, u, dep[a]);
+                cd.assign(dirs.begin() + (par[a] >= 0 ? 1 : 0), dirs.end());
+            }
         }
         if (par[a] >= 0 && !cd.empty()) {   // поворот заместителей вокруг связи с родителем: подальше от уже поставленных атомов
             const V3 u = vunit(Pp[par[a]] - Pp[a]);
@@ -1274,7 +1381,7 @@ static void vseprPlace(Tmpl& m, int fixedN = 0) {
 }
 // Релаксация шаблона (наискорейший спуск): связи Морзе, валентные углы модели, отталкивание несвязанных атомов
 // (WCA по параметрам LJ, пары 1-2 и 1-3 исключены) — вставленная структура сразу в минимуме энергии, без «нагрева»
-static void relaxTmpl(Tmpl& m, int iters = 400) {
+static void relaxTmpl(Tmpl& m, int iters = 3000) {
     const int n = (int)m.a.size(); if (n < 2 || m.b.empty()) return;
     std::vector<std::vector<std::pair<int, int>>> adj(n);
     for (auto& b : m.b) { adj[b[0]].push_back({b[1], b[2]}); adj[b[1]].push_back({b[0], b[2]}); }
@@ -1290,17 +1397,34 @@ static void relaxTmpl(Tmpl& m, int iters = 400) {
     for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) if (comp[i] != comp[j]) ex[(size_t)i * n + j] = 1;
     std::vector<double> X(3 * n), F(3 * n);
     for (int i = 0; i < n; i++) { X[3 * i] = m.a[i].x + 0.01 * (urand() - 0.5); X[3 * i + 1] = m.a[i].y + 0.01 * (urand() - 0.5); X[3 * i + 2] = m.a[i].z + 0.01 * (urand() - 0.5); }
+    // гипервалентные центры шаблона (связей больше обычной валентности): их геометрия — облака VSEPR с неподелёнными парами
+    std::vector<char> hyperT(n, 0), tlpInit(n, 0); std::vector<std::array<double, 12>> tlp(n);
+    for (int i = 0; i < n; i++) { int used = 0; for (auto& p : adj[i]) used += p.second; const int t = m.a[i].t; hyperT[i] = HYPER[t] && used > EL[t].val; }
     auto forces = [&]() {
         std::fill(F.begin(), F.end(), 0.0);
         for (auto& b : m.b) {   // связи
             int i = b[0], j = b[1]; const BondT& bt = BT[m.a[i].t][m.a[j].t]; int o = std::min(b[2], std::max(1, bt.maxOrder));
             double d[3] = {X[3 * j] - X[3 * i], X[3 * j + 1] - X[3 * i + 1], X[3 * j + 2] - X[3 * i + 2]}, r = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
             if (r < 1e-9 || bt.D[o] <= 0) continue;
-            double dU; bondPot(bt.D[o], bt.r0[o], r, dU);
+            double dU; bondPotT(bt, o, r, dU);
             for (int c = 0; c < 3; c++) { F[3 * i + c] += dU * d[c] / r; F[3 * j + c] -= dU * d[c] / r; }
         }
-        for (int c0 = 0; c0 < n; c0++) {   // углы: U = K(cosθ − cosθ0)²
-            int k = (int)adj[c0].size(); double th = tmplTheta(m.a[c0].t, k); if (th <= 0) continue;
+        for (int c0 = 0; c0 < n; c0++) {   // углы: U = K(cosθ − cosθ0)², у гипервалентных центров — облака VSEPR
+            int k = (int)adj[c0].size();
+            if (k >= 2 && k <= cfg::MAXB && hyperT[c0]) {
+                const int t = m.a[c0].t; int used = 0; double r[cfg::MAXB][3], w[cfg::MAXB], wl[4], g[cfg::MAXB][3];
+                for (int p = 0; p < k; p++) { const int b = adj[c0][p].first; used += adj[c0][p].second; w[p] = vsBondW(adj[c0][p].second);
+                                              for (int c = 0; c < 3; c++) r[p][c] = X[3 * b + c] - X[3 * c0 + c]; }
+                const int nbE = std::max(0, VE[t] - used), nl = std::min(3, nbE / 2), unp = nbE & 1, nd = nl + unp;
+                for (int q = 0; q < nd; q++) wl[q] = q < nl ? vs::W_LP : vs::W_ONE;
+                double (*L)[3] = reinterpret_cast<double (*)[3]>(tlp[c0].data());
+                const bool trans = vsTransPair(k, nl);
+                if (!tlpInit[c0]) { if (nd) vsInitLP(k, r, w, nd, wl, L, trans); tlpInit[c0] = 1; }
+                vsEnergy(k, r, w, nd, wl, L, 2, g, trans);
+                for (int p = 0; p < k; p++) { const int b = adj[c0][p].first; for (int c = 0; c < 3; c++) { F[3 * b + c] -= g[p][c]; F[3 * c0 + c] += g[p][c]; } }
+                continue;
+            }
+            double th = tmplTheta(m.a[c0].t, k); if (th <= 0) continue;
             double cs0 = std::cos(th * PI / 180);
             for (int p = 0; p < k; p++) for (int q = p + 1; q < k; q++) {
                 int a = adj[c0][p].first, b = adj[c0][q].first; double A[3], B[3];
@@ -1325,8 +1449,9 @@ static void relaxTmpl(Tmpl& m, int iters = 400) {
     for (int it = 0; it < iters; it++) {
         forces();
         double fm = 0; for (double f : F) fm = std::max(fm, std::fabs(f));
-        if (fm < 0.05) break;
-        const double alpha = std::min(1e-3, 0.01 / fm);   // смещение ≤ 0.01σ за итерацию; 1e-3 < 2/k жёсткой связи
+        if (fm < 0.5) break;
+        // смещение ≤ 0.01σ за итерацию; шаг 2·10⁻⁵ < 2/k самой жёсткой связи (O–H: k = 2Da² ≈ 4.5·10⁴ ε/σ²)
+        const double alpha = std::min(2e-5, 0.01 / fm);
         for (int k = 0; k < 3 * n; k++) X[k] += alpha * F[k];
     }
     for (int i = 0; i < n; i++) { m.a[i].x = X[3 * i]; m.a[i].y = X[3 * i + 1]; m.a[i].z = X[3 * i + 2]; }
@@ -1458,6 +1583,25 @@ static bool buildLibTmpl(int idx, Tmpl& m) {
     case ML_I2: di(tI, tI, 1); break;
     case ML_CLF: di(E_CL, tF, 1); break;
     case ML_ICL: di(tI, E_CL, 1); break;
+    // переменная валентность (облака VSEPR задают форму сами)
+    case ML_SO2: { int s = tA(m, tS); tB(m, s, tA(m, E_O), 2); tB(m, s, tA(m, E_O), 2); break; }
+    case ML_SO3: { int s = tA(m, tS); for (int k = 0; k < 3; k++) tB(m, s, tA(m, E_O), 2); break; }
+    case ML_H2SO4: { int s = tA(m, tS); tB(m, s, tA(m, E_O), 2); tB(m, s, tA(m, E_O), 2); OH(s); OH(s); break; }
+    case ML_H3PO4: { int p = tA(m, tP); tB(m, p, tA(m, E_O), 2); OH(p); OH(p); OH(p); break; }
+    case ML_HNO3: { int n = tA(m, E_N, {0, 0, 0}, 1); tB(m, n, tA(m, E_O), 2); tB(m, n, tA(m, E_O, {0, 0, 0}, -1)); OH(n); break; }
+    case ML_HCLO4: { int c = tA(m, E_CL); for (int k = 0; k < 3; k++) tB(m, c, tA(m, E_O), 2); OH(c); break; }
+    case ML_POCL3: { int p = tA(m, tP); tB(m, p, tA(m, E_O), 2); CX(p, E_CL, 3); break; }
+    case ML_SOCL2: { int s = tA(m, tS); tB(m, s, tA(m, E_O), 2); CX(s, E_CL, 2); break; }
+    case ML_SF4: { int s = tA(m, tS); CX(s, tF, 4); break; }
+    case ML_SF6: { int s = tA(m, tS); CX(s, tF, 6); break; }
+    case ML_PF5: { int p = tA(m, tP); CX(p, tF, 5); break; }
+    case ML_PCL5: { int p = tA(m, tP); CX(p, E_CL, 5); break; }
+    case ML_CLF3: { int c = tA(m, E_CL); CX(c, tF, 3); break; }
+    case ML_BRF5: { int b = tA(m, tBr); CX(b, tF, 5); break; }
+    case ML_IF5: { int i5 = tA(m, tI); CX(i5, tF, 5); break; }
+    case ML_XEF2: { int x = tA(m, typeOfZ(54)); CX(x, tF, 2); break; }
+    case ML_XEF4: { int x = tA(m, typeOfZ(54)); CX(x, tF, 4); break; }
+    case ML_XEO3: { int x = tA(m, typeOfZ(54)); for (int k = 0; k < 3; k++) tB(m, x, tA(m, E_O), 2); break; }
     // углеводороды
     case ML_CH4: { int c = tA(m, E_C); CH(c, 4); break; }
     case ML_C2H6: chain(2); break;
@@ -1547,6 +1691,10 @@ static bool buildLibTmpl(int idx, Tmpl& m) {
         if (idx == ML_HCOO) CH(c, 1); else { int r = tA(m, E_C); tB(m, c, r); CH(r, 3); }
         break; }
     case ML_HCO3: { int c = tA(m, E_C); tB(m, c, tA(m, E_O), 2); tB(m, c, tA(m, E_O, {0, 0, 0}, -1)); OH(c); break; }
+    case ML_SO4: { int s = tA(m, tS); tB(m, s, tA(m, E_O), 2); tB(m, s, tA(m, E_O), 2); tB(m, s, tA(m, E_O, {0, 0, 0}, -1)); tB(m, s, tA(m, E_O, {0, 0, 0}, -1)); break; }
+    case ML_PO4: { int p = tA(m, tP); tB(m, p, tA(m, E_O), 2); for (int k = 0; k < 3; k++) tB(m, p, tA(m, E_O, {0, 0, 0}, -1)); break; }
+    case ML_NO3: { int n = tA(m, E_N, {0, 0, 0}, 1); tB(m, n, tA(m, E_O), 2); tB(m, n, tA(m, E_O, {0, 0, 0}, -1)); tB(m, n, tA(m, E_O, {0, 0, 0}, -1)); break; }
+    case ML_CLO4: { int c = tA(m, E_CL); for (int k = 0; k < 3; k++) tB(m, c, tA(m, E_O), 2); tB(m, c, tA(m, E_O, {0, 0, 0}, -1)); break; }
     default: tree = false; break;
     }
     if (tree) { vseprPlace(m, fixedN); relaxTmpl(m); centerTmpl(m); return true; }
