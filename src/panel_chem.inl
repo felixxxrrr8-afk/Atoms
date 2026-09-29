@@ -1,4 +1,4 @@
-// ===================================== ПАНЕЛЬ «ХИМИЯ» (владелец — химия) =====================
+// ===================================== ПАНЕЛЬ «ХИМИЯ» =====================
 // Рисуется внутри вкладки боковой панели; элементы — из ui.inl, цвета — палитра C_* (render.inl).
 // id элементов: 1200–1399, кнопки библиотеки — 1400 + номер структуры. Прокручиваемая область № 4.
 static std::string chemSelEq;          // выбранная реакция журнала (для кинетики); пусто — самая частая
@@ -7,12 +7,12 @@ static bool chemLibAll = false;        // показать всю библиот
 // выбрать структуру библиотеки: она становится первой ячейкой палитры, инструмент — «добавить»
 static void selectLibMolecule(int idx) {
     Tmpl m;
-    if (!buildLibTmpl(idx, m)) { showToast(fmt("%s — только в 3D (клавиша D)", T(MOL_LIB_NAMES[idx]))); return; }
+    if (!buildLibTmpl(idx, m)) return;
     chemStampMol = idx; palette[0] = m; selPal = 0;
     if (lmbTool != TOOL_ADD) lmbTool = TOOL_ADD;
     showToast(fmt("%s: %s. ЛКМ в сцене — вставить", T(MOL_LIB_NAMES[idx]), T(MOL_LIB_DESC[idx])));
 }
-// скорость реакции → константа скорости: k = r / (V·Π c_i), c — число частиц на σ³ (в 2D — слой толщиной σ)
+// скорость реакции → константа скорости: k = r / (V·Π c_i), c — число частиц на σ³
 //   real: n = 1 — 1/с; n = 2 — л/(моль·с); n = 3 — л²/(моль²·с)
 static bool rxRateConst(const RxStat& s, double rate, double& kSim, double& kReal, int& order) {
     order = (int)s.R.size(); if (order < 1) return false;
@@ -38,7 +38,6 @@ static bool rxKc(const RxStat& s, double& K, int& dn) {
 static void drawChemPanel(float x, float y, float w, float h) {
     float yy = scrollBegin(4, x, y, w - uiPx(8), h);
     const float W = w - uiPx(8), sh = uiPx(34), bh = uiPx(24), g = uiPx(4), rh = fontS.h + uiPx(3);
-    const bool d3 = DIM == 3;
     static int tick = 0;
     if (tick++ % 10 == 0 || chemComp.t < 0 || chemComp.t > S.t) chemComposition(chemComp);
     auto kv = [&](const std::string& k, const std::string& v, const std::string& u = "", RGBA vc = C_TEXT_HI) {
@@ -63,7 +62,7 @@ static void drawChemPanel(float x, float y, float w, float h) {
         float w1 = std::floor((W - g) / 2);
         if (uiButton(1203, x, yy, w1, bh, P.catalyst ? "зона катализа: вкл" : "зона катализа", P.catalyst, false,
                      "Зона-катализатор в центре ящика: барьеры ×0.25 внутри круга\n(K — поставить под курсор)")) {
-            P.catalyst = !P.catalyst; P.catX = S.Lx / 2; P.catY = S.Ly / 2; P.catZ = d3 ? S.Lz / 2 : 0; }
+            P.catalyst = !P.catalyst; P.catX = S.Lx / 2; P.catY = S.Ly / 2; P.catZ = S.Lz / 2; }
         if (uiButton(1204, x + w1 + g, yy, W - w1 - g, bh, "сбросить журнал", false, false, "Очистить журнал реакций и счётчики скоростей")) {
             rxStats.clear(); rxRecent.clear(); rxT0 = S.t; }
         yy += bh + g;
@@ -135,10 +134,10 @@ static void drawChemPanel(float x, float y, float w, float h) {
         if (chemStampActive()) {
             yy += drawWrapped(fontXS, x, yy, W, fmt("Выбрано: %s — %s. ЛКМ в сцене (инструмент «добавить») вставляет со случайной ориентацией.", T(MOL_LIB_NAMES[chemStampMol]), T(MOL_LIB_DESC[chemStampMol])), C_TEXT) + g;
             if (uiButton(1260, x, yy, w1, bh, "в центр ящика", false, false, "Вставить выбранную структуру в центр ящика")) {
-                pushUndo(); if (!insertMolecule(chemStampMol, S.Lx / 2, S.Ly / 2, d3 ? S.Lz / 2 : 0)) { undoStack.pop_back(); showToast("Нет места в центре — освободите место или вставьте ЛКМ"); } }
+                pushUndo(); if (!insertMolecule(chemStampMol, S.Lx / 2, S.Ly / 2, S.Lz / 2)) { undoStack.pop_back(); showToast("Нет места в центре — освободите место или вставьте ЛКМ"); } }
             if (uiButton(1261, x + w1 + g, yy, W - w1 - g, bh, "5 шт. в случайные места", false, false, "Вставить пять копий в случайные свободные места")) {
                 pushUndo(); int c = 0;
-                for (int t = 0; t < 60 && c < 5; t++) if (insertMolecule(chemStampMol, S.Lx * urand(), S.Ly * urand(), d3 ? S.Lz * urand() : 0)) c++;
+                for (int t = 0; t < 60 && c < 5; t++) if (insertMolecule(chemStampMol, S.Lx * urand(), S.Ly * urand(), S.Lz * urand())) c++;
                 if (!c) undoStack.pop_back();
                 showToast(fmt("Вставлено: %d", c)); }
             yy += bh + g;
@@ -237,9 +236,9 @@ static void drawChemPanel(float x, float y, float w, float h) {
 }
 
 // ===================================== ПРОВЕРКИ ХИМИИ БЕЗ ОКНА (--chemtest) ===================
-// atoms.exe --chemtest K D N [var] — прогон сцены K (размерность D, N шагов): состав с зарядами, pH, реакции
-// со средними ΔH, баланс энергии каждого события (как --evcheck); отчёт chem_K_Dd.log.
-// atoms.exe --chemtest lib D — вставка каждой структуры библиотеки в пустой ящик и 400 шагов (устойчивость, дрейф).
+// atoms.exe --chemtest K N [var] — прогон сцены K (N шагов): состав с зарядами, pH, реакции со средними ΔH,
+// баланс энергии каждого события (как --evcheck); отчёт chem_K_vV.log.
+// atoms.exe --chemtest lib — вставка каждой структуры библиотеки в пустой ящик и 400 шагов (устойчивость, дрейф).
 static int chemTestMain() {
     const wchar_t* cmd = GetCommandLineW();
     const wchar_t* p0 = cmd ? wcsstr(cmd, L"--chemtest") : nullptr;
@@ -247,9 +246,8 @@ static int chemTestMain() {
     wchar_t* p = (wchar_t*)p0 + 10;
     while (*p == L' ') p++;
     if (wcsncmp(p, L"lib", 3) == 0) {
-        p += 3; int D = (int)wcstol(p, &p, 10);
-        initBondTable(); initKlm(); DIM = D == 3 ? 3 : 2; onDimChanged();
-        FILE* f = fopen(fmt("chem_lib_%dd.log", DIM).c_str(), "w"); if (!f) ExitProcess(1);
+        initBondTable(); initKlm(); initPalette();
+        FILE* f = fopen("chem_lib.log", "w"); if (!f) ExitProcess(1);
         for (int k = 0; k < ML_N; k++) {
             worldReset(30, 30, 30, B_PERIODIC); P.thermostat = TH_NVE; P.Tset = 0.3; updatePresence();
             Tmpl m; bool built = buildLibTmpl(k, m);
@@ -267,9 +265,9 @@ static int chemTestMain() {
         }
         fclose(f); ExitProcess(0);
     }
-    int K = (int)wcstol(p, &p, 10), D = (int)wcstol(p, &p, 10), N = (int)wcstol(p, &p, 10), var = (int)wcstol(p, &p, 10);
-    initBondTable(); initKlm(); DIM = D == 3 ? 3 : 2; onDimChanged(); loadPreset(K, var);
-    FILE* f = fopen(fmt("chem_%d_%dd_v%d.log", K, DIM, var).c_str(), "w"); if (!f) ExitProcess(1);
+    int K = (int)wcstol(p, &p, 10), N = (int)wcstol(p, &p, 10), var = (int)wcstol(p, &p, 10);
+    initBondTable(); initKlm(); initPalette(); loadPreset(K, var);
+    FILE* f = fopen(fmt("chem_%d_v%d.log", K, var).c_str(), "w"); if (!f) ExitProcess(1);
     fprintf(f, "%s  N=%d\n", presetTitle.c_str(), S.n);
     gEvLog = f; gEvCheck = true; gEvSum = 0;
     auto t0 = std::chrono::high_resolution_clock::now();

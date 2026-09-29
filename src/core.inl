@@ -5,8 +5,7 @@ constexpr double DT_CHEM = 0.002;     // шаг при наличии химич
 constexpr double F_CAP = 30000.0;     // аварийное ограничение модуля силы (защита от «взрыва»)
 constexpr double K_COUL = 12.0;       // константа Кулона в ε·σ/e²
 constexpr double L_DEBYE = 1.2;       // длина экранирования (потенциал Юкавы)
-constexpr double RC_COUL_2D = 3.2;    // обрезка Кулона (shifted-force) в 2D
-constexpr double RC_COUL_3D = 2.6;    // и в 3D (соседей в 3D намного больше)
+constexpr double RC_COUL = 2.6;       // обрезка Кулона (shifted-force)
 constexpr double SKIN = 0.4;          // «кожа» списка Верле: список пересобирается, когда атом сместился на SKIN/2
 constexpr double KAPPA_Q = 0.35;      // частичный заряд на связь: δq = κ·(χ_j − χ_i); вода: O −0.87, H +0.43 (как SPC/E)
 constexpr double EV = 4.0;            // 1 эВ = 4 ε (химический масштаб)
@@ -23,7 +22,7 @@ constexpr double TAU_HEAT = 0.1;      // время перехода тепло�
 // водородная связь D–H···A (DREIDING): U = D_hb·[5(R0/R)^12 − 6(R0/R)^10]·cos⁴θ_DHA, R — расстояние донор–акцептор
 constexpr double HB_D = 1.5, HB_R0 = 0.90, HB_RON = 1.05, HB_ROFF = 1.30;
 // тетраэдричность сетки воды (трёхчастичный член Стиллинджера–Вебера, как в модели mW):
-// U3 = λ·Σ φ(r_ij)φ(r_ik)(cosθ_jik − cosθ0)²,  φ(r) = exp(γ/(r − a)),  θ0 = 109.47° (3D) / 120° (2D)
+// U3 = λ·Σ φ(r_ij)φ(r_ik)(cosθ_jik − cosθ0)²,  φ(r) = exp(γ/(r − a)),  θ0 = 109.47°
 constexpr double SW_LAMBDA = 60.0, SW_GAMMA = 0.6, SW_A = 1.25;
 // пересчёт в реальные единицы (аргон). Модель — LJ с обрезкой 2.5σ и сдвигом (LJTS): её критическая точка
 // T*c = 1.078, ρ*c = 0.319 (Vrabec и др., 2006), а не 1.31 как у полного LJ. Поэтому ε/k откалиброван так, чтобы
@@ -351,39 +350,11 @@ static void genericBonds() {
         BT[a][b] = t; BT[b][a] = t;
     }
 }
+static void initChemTables();   // chemistry.inl: справочные энергии и длины связей для конкретных пар
 static void initBondTable() {
     initElements();
-    genericBonds();   // сначала общее правило, затем уточнённые значения для важных пар
-    setBond(E_H, E_H, {4.52}, {0.74});
-    setBond(E_C, E_H, {4.28}, {1.09});
-    setBond(E_N, E_H, {4.05}, {1.01});
-    setBond(E_O, E_H, {4.80}, {0.96});
-    setBond(E_CL, E_H, {4.47}, {1.27});
-    setBond(E_C, E_C, {3.61, 6.36, 8.70}, {1.54, 1.34, 1.20});
-    setBond(E_C, E_N, {3.05, 6.15, 9.20}, {1.47, 1.28, 1.16});
-    setBond(E_C, E_O, {3.71, 7.50, 11.1}, {1.43, 1.20, 1.13});
-    setBond(E_C, E_CL, {3.40}, {1.77});
-    setBond(E_N, E_N, {1.70, 4.30, 9.79}, {1.45, 1.25, 1.10});
-    setBond(E_N, E_O, {2.10, 6.30}, {1.40, 1.21});
-    setBond(E_N, E_CL, {2.00}, {1.75});
-    setBond(E_O, E_O, {1.50, 5.15}, {1.48, 1.21});
-    setBond(E_O, E_CL, {2.10}, {1.70});
-    setBond(E_CL, E_CL, {2.48}, {1.99});
-    // галогены, S, P, Si — справочные энергии и длины (для молекул библиотеки: HF, H2S, PH3, SiH4, CCl4…)
-    const int tF = TZ[9], tSi = TZ[14], tP = TZ[15], tS = TZ[16], tBr = TZ[35], tI = TZ[53];
-    setBond(E_H, tF, {5.87}, {0.92});
-    setBond(E_H, tBr, {3.76}, {1.41});
-    setBond(E_H, tI, {3.06}, {1.61});
-    setBond(E_H, tS, {3.78}, {1.34});
-    setBond(E_H, tP, {3.34}, {1.42});
-    setBond(E_H, tSi, {3.92}, {1.48});
-    setBond(tSi, tSi, {2.34}, {2.35});
-    setBond(tF, tF, {1.60}, {1.42});
-    setBond(tBr, tBr, {1.97}, {2.28});
-    setBond(tI, tI, {1.54}, {2.67});
-    setBond(E_C, tF, {5.03}, {1.35});
-    setBond(E_C, tBr, {2.95}, {1.94});
-    setBond(E_C, tI, {2.21}, {2.14});
+    genericBonds();     // сначала общее правило для любой пары,
+    initChemTables();   // затем реальные значения там, где они известны
 }
 
 // ===================================== RNG / utils =====================================
@@ -398,7 +369,7 @@ static std::string fmt(const char* f, ...) {
 }
 
 // ===================================== STATE ==========================================
-static int DIM = 2;   // размерность пространства: 2 или 3
+constexpr int DIM = 3;
 enum { B_PERIODIC, B_WALLS, B_PISTON };
 enum { TH_NVE, TH_BERENDSEN, TH_NOSE, TH_POWER, TH_BUSSI, TH_LANGEVIN, TH_N };
 static const char* TH_NAMES[] = {"NVE", "Берендсен", "Нозе–Гувер", "нагрев P", "Бусси", "Ланжевен"};
@@ -417,13 +388,11 @@ struct Sim {
     std::vector<std::array<double, cfg::MAXB>> bc;         // энергетический сдвиг связи (теплота реакции, релаксирует в Eк)
     std::vector<std::array<int, 6>> gh;                    // «призрачные» исключения: бывшие партнёры до разлёта
     std::vector<unsigned char> ghc;
-    double Lx = 40, Ly = 30, Lz = 1;                       // ящик; в режиме поршня Ly = положение поршня
+    double Lx = 30, Ly = 30, Lz = 30;                      // ящик; в режиме поршня Ly = положение поршня
     double pistonV = 0, pistonM = 40;
     double xi = 0, eta = 0;                                // Нозе–Гувер
     double t = 0; long long step = 0;
-    int dim = 2;
     std::vector<unsigned char> pin;                        // 1 = атом закреплён (интегратор его не двигает)
-    // [PHYS-STATE] / [CHEM-STATE] — новые поатомные массивы добавлять здесь и в resize()
     void resize(int m) {
         for (auto* v : {&x, &y, &z, &vx, &vy, &vz, &fx, &fy, &fz, &ux, &uy, &uz, &q, &ep}) v->resize(m);
         ty.resize(m); nb.resize(m); bo.resize(m); nbc.resize(m); bc.resize(m); gh.resize(m); ghc.resize(m);
@@ -446,8 +415,6 @@ struct Params {
     bool paused = false;
     double efield = 0;            // внешнее электрическое поле вдоль x (ε/(σ·e))
     double eaScale = 1.0;         // множитель кинетических барьеров реакций
-    // [PHYS-PARAMS] — новые физические параметры добавлять здесь
-    // [CHEM-PARAMS] — новые химические параметры добавлять здесь
     bool acidBase = true;         // кислотно-основные реакции: перенос протона (H3O+, OH−, NH4+, HCl → Cl−)
     bool surfCat = true;          // металлическая поверхность (Pt, Pd, Ni, Fe…) снижает барьеры адсорбированных молекул
 } P;
@@ -476,7 +443,7 @@ static std::vector<FieldObj> fieldObjs;
 static int selFieldObj = -1;          // выбранный объект (UI)
 
 static inline bool isPer() { return P.boundary == B_PERIODIC; }
-static double boxVolume() { return DIM == 3 ? S.Lx * S.Ly * S.Lz : S.Lx * S.Ly; }
-static double wallArea() { return DIM == 3 ? 2 * (S.Lx * S.Ly + S.Ly * S.Lz + S.Lx * S.Lz) : 2 * (S.Lx + S.Ly); }
-static double pistonArea() { return DIM == 3 ? S.Lx * S.Lz : S.Lx; }
+static double boxVolume() { return S.Lx * S.Ly * S.Lz; }
+static double wallArea() { return 2 * (S.Lx * S.Ly + S.Ly * S.Lz + S.Lx * S.Lz); }
+static double pistonArea() { return S.Lx * S.Lz; }
 

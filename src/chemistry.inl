@@ -69,7 +69,7 @@ static double eaOfZ(int z) {
 static double ETA[NEL];            // химическая жёсткость η = I − A (эВ) по типу частицы
 static bool CATMETAL[NEL];         // каталитически активные металлы (Fe, Co, Ni, Cu, Ru, Rh, Pd, Ag, Re, Os, Ir, Pt)
 // Реальные энергии диссоциации (эВ) и длины связей (Å) для распространённых пар — приоритет над общими правилами.
-// Вызывается при каждой сборке палитры (идемпотентно), т. е. после initBondTable() во всех точках входа.
+// Вызывается из initBondTable() после общего правила и повторно при сборке палитры (идемпотентно).
 static void initChemTables() {
     auto T = [](int z) { return typeOfZ(z); };
     auto sb = [](int a, int b, std::initializer_list<double> D, std::initializer_list<double> r) { if (a >= 0 && b >= 0) setBond(a, b, D, r); };
@@ -119,6 +119,24 @@ static void initChemTables() {
     sb(T(14), E_CL, {4.00}, {2.02});
     sb(T(15), E_O, {3.70, 6.20}, {1.63, 1.48});
     sb(T(15), E_CL, {3.40}, {2.04});
+    sb(T(15), T(9), {5.08}, {1.56});                   // PF3
+    sb(T(16), T(9), {3.39}, {1.56});
+    sb(T(16), E_CL, {2.81}, {2.01});                   // SCl2
+    sb(T(14), T(9), {5.86}, {1.56});                   // SiF4
+    sb(T(34), E_H, {2.86}, {1.46});                    // H2Se
+    sb(T(32), E_H, {2.99}, {1.53});                    // GeH4
+    sb(T(33), E_H, {3.10}, {1.52});                    // AsH3
+    sb(E_N, T(9), {2.93}, {1.37});                     // NF3
+    // бор
+    sb(T(5), T(9), {6.35}, {1.31});                    // BF3
+    sb(T(5), E_CL, {4.73}, {1.75});                    // BCl3
+    sb(T(5), E_O, {5.56}, {1.36});
+    sb(T(5), E_C, {3.69}, {1.56});
+    // межгалогенные
+    sb(E_CL, T(9), {2.58}, {1.63});
+    sb(T(35), E_CL, {2.26}, {2.14});
+    sb(T(53), E_CL, {2.16}, {2.32});
+    sb(T(53), T(35), {1.82}, {2.47});
     // металл–неметалл (двухатомные молекулы)
     sb(T(11), E_CL, {4.23}, {2.36});                   // NaCl (газ)
     sb(T(19), E_CL, {4.43}, {2.67});                   // KCl
@@ -140,7 +158,7 @@ static void initChemTables() {
 
 static double catalystFactor(double x, double y, double z) {
     if (!P.catalyst) return 1.0;
-    double dx = x - P.catX, dy = y - P.catY, dz = DIM == 3 ? z - P.catZ : 0;
+    double dx = x - P.catX, dy = y - P.catY, dz = z - P.catZ;
     return (dx * dx + dy * dy + dz * dz < P.catR * P.catR) ? cfg::CAT_FACTOR : 1.0;
 }
 static inline bool inSet(const int* a, int n, int v) { for (int k = 0; k < n; k++) if (a[k] == v) return true; return false; }
@@ -599,7 +617,7 @@ static double extEnergyOf(int i) {
         double U, F, s = e.sig;
         wallTerm(S.x[i], s, U, F); E += U; wallTerm(S.Lx - S.x[i], s, U, F); E += U;
         wallTerm(S.y[i], s, U, F); E += U; wallTerm(S.Ly - S.y[i], s, U, F); E += U;
-        if (DIM == 3) { wallTerm(S.z[i], s, U, F); E += U; wallTerm(S.Lz - S.z[i], s, U, F); E += U; }
+        wallTerm(S.z[i], s, U, F); E += U; wallTerm(S.Lz - S.z[i], s, U, F); E += U;
         if (P.gravity != 0) E += e.m * P.gravity * S.y[i];
     }
     for (auto& o : fieldObjs) if (o.on && foConservative(o.kind)) E += foConsAtom(o, i, nullptr);
@@ -866,7 +884,7 @@ static void lightFlash(const double* o, const double* d, double R) {
     for (int i = 0; i < S.n; i++) for (int k = 0; k < S.nbc[i]; k++) {
         int j = S.nb[i][k]; if (j < i) continue;
         double mx, my, mz; midpoint(i, j, mx, my, mz);
-        double r2 = d ? rayDist2(mx, my, mz, o, d) : (mx - o[0]) * (mx - o[0]) + (my - o[1]) * (my - o[1]) + (DIM == 3 ? (mz - o[2]) * (mz - o[2]) : 0);
+        double r2 = d ? rayDist2(mx, my, mz, o, d) : (mx - o[0]) * (mx - o[0]) + (my - o[1]) * (my - o[1]) + (mz - o[2]) * (mz - o[2]);
         if (r2 > R * R) continue;
         photoKick(i, k);
     }
@@ -907,7 +925,7 @@ static void chemComposition(ChemComp& out) {
     auto get = [&](const char* s) { auto it = cnt.find(s); return it == cnt.end() ? 0 : it->second; };
     out.nH3O = get("H3O+") + get("H+"); out.nOH = get("OH-"); out.nWater = get("H2O");
 }
-// объём ящика в литрах (σ = 0.3405 нм; в 2D — слой толщиной σ)
+// объём ящика в литрах (σ = 0.3405 нм)
 static double boxLiters() { return boxVolume() * std::pow(cfg::U_L_NM, 3) * 1e-24; }
 static inline double molPerL(double N) { return N / (6.02214076e23 * std::max(1e-40, boxLiters())); }
 // pH по числу ионов H3O+ и OH− в объёме ящика (избыток — остальное нейтрализуется); без ионов — 7
@@ -927,7 +945,7 @@ static int customType = -1;            // элемент, выбранный в 
 static int chemStampMol = -1;          // выбранная молекула библиотеки (≥ 0: первая ячейка палитры — она)
 static bool buildLibTmpl(int idx, Tmpl& m);
 static double r0of(int a, int b, int o) { return BT[a][b].r0[o]; }
-static void initPalette() {   // шаблоны зависят от размерности (CH4: тетраэдр в 3D)
+static void initPalette() {
     initChemTables();
     palette.clear();
     auto atom = [](const char* l, int t) { Tmpl m; m.label = l; m.a = {{t, 0, 0, 0}}; return m; };
@@ -942,20 +960,16 @@ static void initPalette() {   // шаблоны зависят от размер
     { Tmpl m; m.label = "H2O"; double r = r0of(E_O, E_H, 1), h = 104.5 / 2 * PI / 180;
       m.a = {{E_O, 0, 0, 0}, {E_H, r * std::cos(h), r * std::sin(h), 0}, {E_H, r * std::cos(h), -r * std::sin(h), 0}}; m.b = {{0, 1, 1}, {0, 2, 1}}; palette.push_back(m); }
     { Tmpl m; m.label = "CO2"; double r = r0of(E_C, E_O, 2); m.a = {{E_C, 0, 0, 0}, {E_O, -r, 0, 0}, {E_O, r, 0, 0}}; m.b = {{0, 1, 2}, {0, 2, 2}}; palette.push_back(m); }
-    { Tmpl m; m.label = "CH4"; double r = r0of(E_C, E_H, 1);
-      if (DIM == 3) { double s = r / std::sqrt(3.0);   // тетраэдр
-          m.a = {{E_C, 0, 0, 0}, {E_H, s, s, s}, {E_H, s, -s, -s}, {E_H, -s, s, -s}, {E_H, -s, -s, s}}; }
-      else m.a = {{E_C, 0, 0, 0}, {E_H, r, 0, 0}, {E_H, -r, 0, 0}, {E_H, 0, r, 0}, {E_H, 0, -r, 0}};
+    { Tmpl m; m.label = "CH4"; double s = r0of(E_C, E_H, 1) / std::sqrt(3.0);   // тетраэдр
+      m.a = {{E_C, 0, 0, 0}, {E_H, s, s, s}, {E_H, s, -s, -s}, {E_H, -s, s, -s}, {E_H, -s, -s, s}};
       m.b = {{0, 1, 1}, {0, 2, 1}, {0, 3, 1}, {0, 4, 1}}; palette.push_back(m); }
-    { Tmpl m; m.label = "NH3"; double r = r0of(E_N, E_H, 1);
-      if (DIM == 3) { double h = r * 0.37, q = std::sqrt(r * r - h * h);   // пирамида
-          m.a = {{E_N, 0, 0, 0}, {E_H, q, -h, 0}, {E_H, -q / 2, -h, q * 0.866}, {E_H, -q / 2, -h, -q * 0.866}}; }
-      else m.a = {{E_N, 0, 0, 0}, {E_H, r, 0, 0}, {E_H, -r / 2, r * 0.866, 0}, {E_H, -r / 2, -r * 0.866, 0}};
+    { Tmpl m; m.label = "NH3"; double r = r0of(E_N, E_H, 1), h = r * 0.37, q = std::sqrt(r * r - h * h);   // пирамида
+      m.a = {{E_N, 0, 0, 0}, {E_H, q, -h, 0}, {E_H, -q / 2, -h, q * 0.866}, {E_H, -q / 2, -h, -q * 0.866}};
       m.b = {{0, 1, 1}, {0, 2, 1}, {0, 3, 1}}; palette.push_back(m); }
     { Tmpl m; m.label = "NaCl"; m.a = {{E_NA, -0.46, 0, 0}, {E_CLM, 0.46, 0, 0}}; palette.push_back(m); }
     palette.push_back(atom("Big", E_BIG));
     { Tmpl m; m.label = "Стена"; m.a = {{E_WALL, 0, 0, 0}}; m.tool = 1; palette.push_back(m); }
-    // выбранная молекула библиотеки занимает первую ячейку (геометрия зависит от размерности)
+    // выбранная молекула библиотеки занимает первую ячейку
     if (chemStampMol >= 0) { Tmpl m; if (buildLibTmpl(chemStampMol, m)) palette[0] = m; else chemStampMol = -1; }
 }
 static int findPal(const char* l) { for (size_t k = 1; k < palette.size(); k++) if (palette[k].label == l) return (int)k; return 1; }
@@ -965,12 +979,8 @@ static void setCustomElement(int t) {
     palette[0].label = EL[t].sym; palette[0].a = {{t, 0, 0, 0}}; palette[0].b.clear(); palette[0].tool = 0;
 }
 
-// случайный поворот: в 2D — вокруг z, в 3D — равномерный по сфере (кватернион Шумейка)
+// случайный поворот, равномерный по сфере (кватернион Шумейка)
 static void randomRotation(double R[9]) {
-    if (DIM == 2) {
-        double a = urand() * 2 * PI, c = std::cos(a), s = std::sin(a);
-        double M[9] = {c, -s, 0, s, c, 0, 0, 0, 1}; memcpy(R, M, sizeof(M)); return;
-    }
     double u1 = urand(), u2 = urand(), u3 = urand();
     double qx = std::sqrt(1 - u1) * std::sin(2 * PI * u2), qy = std::sqrt(1 - u1) * std::cos(2 * PI * u2);
     double qz = std::sqrt(u1) * std::sin(2 * PI * u3), qw = std::sqrt(u1) * std::cos(2 * PI * u3);
@@ -982,8 +992,8 @@ static void randomRotation(double R[9]) {
 static bool overlaps(int t, double x, double y, double z, double fac) {
     const bool per = isPer();
     for (int j = 0; j < S.n; j++) {
-        double dx = S.x[j] - x, dy = S.y[j] - y, dz = DIM == 3 ? S.z[j] - z : 0;
-        if (per) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); if (DIM == 3) dz -= S.Lz * std::nearbyint(dz / S.Lz); }
+        double dx = S.x[j] - x, dy = S.y[j] - y, dz = S.z[j] - z;
+        if (per) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz); }
         double s2 = PT[t][S.ty[j]].sig2 * fac * fac;   // σ_ij с учётом NBFIX
         if (dx * dx + dy * dy + dz * dz < s2) return true;
     }
@@ -993,26 +1003,23 @@ static bool overlaps(int t, double x, double y, double z, double fac) {
 // Заряды: инкременты связей + заряд иона (формальные заряды шаблона) по мягкости атомов; сдвиги связей ионов — их энергия.
 static bool placeMol(const Tmpl& m, double cx, double cy, double cz, double T, double fac = 0.8) {
     double R[9]; randomRotation(R);
-    if (DIM == 2) cz = 0;
     std::vector<std::array<double, 3>> pos;
     for (auto& a : m.a) {
         double x = cx + R[0] * a.x + R[1] * a.y + R[2] * a.z, y = cy + R[3] * a.x + R[4] * a.y + R[5] * a.z, z = cz + R[6] * a.x + R[7] * a.y + R[8] * a.z;
-        if (DIM == 2) z = 0;
-        if (isPer()) { x -= S.Lx * std::floor(x / S.Lx); y -= S.Ly * std::floor(y / S.Ly); if (DIM == 3) z -= S.Lz * std::floor(z / S.Lz); }
+        if (isPer()) { x -= S.Lx * std::floor(x / S.Lx); y -= S.Ly * std::floor(y / S.Ly); z -= S.Lz * std::floor(z / S.Lz); }
         else {
             double mg = 0.6 * EL[a.t].sig;
-            if (x < mg || y < mg || x > S.Lx - mg || y > S.Ly - mg) return false;
-            if (DIM == 3 && (z < mg || z > S.Lz - mg)) return false;
+            if (x < mg || y < mg || z < mg || x > S.Lx - mg || y > S.Ly - mg || z > S.Lz - mg) return false;
         }
         if (overlaps(a.t, x, y, z, fac)) return false;
         pos.push_back({x, y, z});
     }
     double M = 0; for (auto& a : m.a) M += EL[a.t].m;
-    double sv = std::sqrt(T / M), vc[3] = {grand() * sv, grand() * sv, DIM == 3 ? grand() * sv : 0};
+    double sv = std::sqrt(T / M), vc[3] = {grand() * sv, grand() * sv, grand() * sv};
     int base = S.n;
     for (size_t k = 0; k < m.a.size(); k++) {
         double sm = std::sqrt(T / EL[m.a[k].t].m) * 0.3;
-        addAtom(m.a[k].t, pos[k][0], pos[k][1], pos[k][2], vc[0] + grand() * sm, vc[1] + grand() * sm, vc[2] + (DIM == 3 ? grand() * sm : 0));
+        addAtom(m.a[k].t, pos[k][0], pos[k][1], pos[k][2], vc[0] + grand() * sm, vc[1] + grand() * sm, vc[2] + grand() * sm);
     }
     for (auto& b : m.b) for (int o = 0; o < b[2]; o++) changeBond(base + b[0], base + b[1], +1);
     bool ionic = false; for (auto& a : m.a) if (a.fc) ionic = true;
@@ -1030,7 +1037,7 @@ static int fillRandom(const Tmpl& m, int count, double x0, double y0, double z0,
     int placed = 0, tries = 0;
     while (placed < count && tries < count * 60) {
         tries++;
-        double z = DIM == 3 ? z0 + urand() * (z1 - z0) : 0;
+        double z = z0 + urand() * (z1 - z0);
         if (placeMol(m, x0 + urand() * (x1 - x0), y0 + urand() * (y1 - y0), z, T, fac)) placed++;
     }
     return placed;
@@ -1039,24 +1046,9 @@ static int fillBox(const Tmpl& m, int count, double T, double margin = 1.0, doub
     return fillRandom(m, count, margin, margin, margin, S.Lx - margin, S.Ly - margin, S.Lz - margin, T, fac);
 }
 static void thermalVel(int t, double T, double& vx, double& vy, double& vz) {
-    double s = std::sqrt(T / EL[t].m); vx = grand() * s; vy = grand() * s; vz = DIM == 3 ? grand() * s : 0;
+    double s = std::sqrt(T / EL[t].m); vx = grand() * s; vy = grand() * s; vz = grand() * s;
 }
-// 2D гексагональная (треугольная) решётка с постоянной a
-static void hexLattice2D(int t, double x0, double y0, int nx, int ny, double a, double T, int t2 = -1, double frac2 = 0) {
-    for (int j = 0; j < ny; j++) for (int i = 0; i < nx; i++) {
-        double x = x0 + (i + 0.5 * (j & 1) + 0.25) * a, y = y0 + (j + 0.5) * a * std::sqrt(3.0) / 2;
-        int tt = (t2 >= 0 && urand() < frac2) ? t2 : t; double vx, vy, vz; thermalVel(tt, T, vx, vy, vz);
-        addAtom(tt, x, y, 0, vx, vy, 0);
-    }
-}
-// 2D квадратная решётка; при t2 ≥ 0 — шахматное чередование (NaCl)
-static void squareLattice2D(int t, int t2, double x0, double y0, int nx, int ny, double a, double T) {
-    for (int j = 0; j < ny; j++) for (int i = 0; i < nx; i++) {
-        int tt = (t2 >= 0 && ((i + j) & 1)) ? t2 : t; double vx, vy, vz; thermalVel(tt, T, vx, vy, vz);
-        addAtom(tt, x0 + (i + 0.5) * a, y0 + (j + 0.5) * a, 0, vx, vy, 0);
-    }
-}
-// 3D решётки Браве и ГПУ: элементарная ячейка + базис (дробные координаты)
+// решётки Браве и ГПУ: элементарная ячейка + базис (дробные координаты)
 enum { L_FCC, L_HCP, L_BCC, L_SC, L_NACL, L_ICE };
 static const char* LAT_NAMES[] = {"ГЦК", "ГПУ", "ОЦК", "ПК", "NaCl", "лёд"};
 static void lattice3D(int kind, int t, int t2, double frac2, double x0, double y0, double z0, int nx, int ny, int nz, double a, double T) {
@@ -1102,8 +1094,7 @@ static void iceLattice3D(double x0, double y0, double z0, int nx, int ny, int nz
 static void wrapAll() {
     if (!isPer()) return;
     for (int i = 0; i < S.n; i++) {
-        S.x[i] -= S.Lx * std::floor(S.x[i] / S.Lx); S.y[i] -= S.Ly * std::floor(S.y[i] / S.Ly);
-        if (DIM == 3) S.z[i] -= S.Lz * std::floor(S.z[i] / S.Lz);
+        S.x[i] -= S.Lx * std::floor(S.x[i] / S.Lx); S.y[i] -= S.Ly * std::floor(S.y[i] / S.Ly); S.z[i] -= S.Lz * std::floor(S.z[i] / S.Lz);
         S.ux[i] = S.x[i]; S.uy[i] = S.y[i]; S.uz[i] = S.z[i];
     }
 }
@@ -1119,21 +1110,34 @@ static void zeroMomentum() {
 // поэтому вставленная молекула сразу находится в минимуме энергии. Кольца и кристаллы строятся явно.
 // Порядок — по разделам (ML_GROUP_START): неорганические молекулы, органические, ионы, кристаллы и кластеры.
 enum { ML_H2O, ML_H2O2, ML_CO2, ML_CO, ML_NH3, ML_HCL, ML_HF, ML_HBR, ML_HI, ML_H2S, ML_PH3, ML_SIH4, ML_HCN, ML_N2H4, ML_O3,
-       ML_N2, ML_O2, ML_H2, ML_F2, ML_CL2, ML_BR2, ML_I2,
-       ML_CH4, ML_C2H6, ML_C3H8, ML_C4H10, ML_C2H4, ML_C2H2, ML_C6H6, ML_PHENOL, ML_TOLUENE, ML_CH3OH, ML_C2H5OH, ML_DME,
-       ML_HCHO, ML_CH3CHO, ML_ACETONE, ML_HCOOH, ML_CH3COOH, ML_CH3CL, ML_CH2CL2, ML_CHCL3, ML_CCL4, ML_CH3NH2, ML_UREA, ML_GLYCINE,
-       ML_H3O, ML_OH, ML_NH4, ML_NAOH, ML_NACL,
-       ML_NACL_CRYST, ML_DIAMOND, ML_GRAPHENE, ML_ICE, ML_SI_CRYST, ML_SIO2, ML_PT, ML_AU, ML_FE, ML_NI, ML_CU, ML_AG, ML_AL, ML_PD, ML_N };
+       ML_NO, ML_NO2, ML_HNO2, ML_NH2OH, ML_NH2CL, ML_HOCL, ML_CL2O, ML_OF2, ML_NF3, ML_NCL3, ML_PF3, ML_PCL3, ML_ASH3, ML_H2SE,
+       ML_SCL2, ML_CS2, ML_COS, ML_SIF4, ML_SICL4, ML_GEH4, ML_BF3, ML_BCL3,
+       ML_N2, ML_O2, ML_H2, ML_F2, ML_CL2, ML_BR2, ML_I2, ML_CLF, ML_ICL,
+       ML_CH4, ML_C2H6, ML_C3H8, ML_C4H10, ML_ISOBUTANE, ML_C5H12, ML_C6H14, ML_C2H4, ML_C3H6, ML_C4H6, ML_C2H2, ML_C3H4,
+       ML_CYCLOPENTANE, ML_CYCLOHEXANE, ML_C6H6, ML_PHENOL, ML_TOLUENE, ML_STYRENE, ML_ANILINE, ML_BENZOIC, ML_NAPHTHALENE, ML_PYRIDINE,
+       ML_CH3OH, ML_C2H5OH, ML_IPA, ML_GLYCOL, ML_GLYCEROL, ML_DME, ML_DEE, ML_HCHO, ML_CH3CHO, ML_ACETONE, ML_HCOOH, ML_CH3COOH,
+       ML_OXALIC, ML_LACTIC, ML_ETOAC, ML_CH3CN, ML_HCONH2, ML_CH3CL, ML_CH2CL2, ML_CHCL3, ML_CCL4, ML_C2H5CL, ML_C2H3CL, ML_CF4,
+       ML_CCL2F2, ML_CH3SH, ML_CH3NH2, ML_UREA, ML_GLYCINE, ML_ALANINE,
+       ML_H3O, ML_OH, ML_NH4, ML_CN, ML_HS, ML_CLO, ML_NO2M, ML_HCOO, ML_CH3COO, ML_HCO3, ML_NAOH, ML_NACL,
+       ML_NACL_CRYST, ML_DIAMOND, ML_GRAPHENE, ML_C60, ML_ICE, ML_SI_CRYST, ML_SIO2,
+       ML_PT, ML_AU, ML_FE, ML_NI, ML_CU, ML_AG, ML_AL, ML_PD, ML_RH, ML_PB, ML_N };
 enum { MLG_INORG, MLG_ORG, MLG_ION, MLG_SOLID, MLG_N };
 static const int ML_GROUP_START[MLG_N + 1] = {ML_H2O, ML_CH4, ML_H3O, ML_NACL_CRYST, ML_N};
 static const char* MLG_NAMES[MLG_N] = {"неорганические молекулы", "органические молекулы", "ионы", "кристаллы и кластеры металлов"};
-static const char* MOL_LIB_NAMES[ML_N] = {"H2O", "H2O2", "CO2", "CO", "NH3", "HCl", "HF", "HBr", "HI", "H2S", "PH3", "SiH4", "HCN", "N2H4", "O3",
-                                          "N2", "O2", "H2", "F2", "Cl2", "Br2", "I2",
-                                          "CH4", "C2H6", "C3H8", "C4H10", "C2H4", "C2H2", "C6H6", "C6H5OH", "C6H5CH3", "CH3OH", "C2H5OH", "CH3OCH3",
-                                          "HCHO", "CH3CHO", "(CH3)2CO", "HCOOH", "CH3COOH", "CH3Cl", "CH2Cl2", "CHCl3", "CCl4", "CH3NH2", "CO(NH2)2", "глицин",
-                                          "H3O+", "OH-", "NH4+", "NaOH", "NaCl",
-                                          "кристалл NaCl", "алмаз", "графен", "лёд", "кремний", "SiO2", "Pt", "Au", "Fe", "Ni", "Cu", "Ag", "Al", "Pd"};
-static const char* MOL_LIB_DESC[ML_N] = {
+static const char* MOL_LIB_NAMES[] = {
+    "H2O", "H2O2", "CO2", "CO", "NH3", "HCl", "HF", "HBr", "HI", "H2S", "PH3", "SiH4", "HCN", "N2H4", "O3",
+    "NO", "NO2", "HNO2", "NH2OH", "NH2Cl", "HOCl", "Cl2O", "OF2", "NF3", "NCl3", "PF3", "PCl3", "AsH3", "H2Se",
+    "SCl2", "CS2", "COS", "SiF4", "SiCl4", "GeH4", "BF3", "BCl3",
+    "N2", "O2", "H2", "F2", "Cl2", "Br2", "I2", "ClF", "ICl",
+    "CH4", "C2H6", "C3H8", "C4H10", "i-C4H10", "C5H12", "C6H14", "C2H4", "C3H6", "C4H6", "C2H2", "C3H4",
+    "C5H10", "C6H12", "C6H6", "C6H5OH", "C6H5CH3", "C8H8", "C6H5NH2", "C6H5COOH", "C10H8", "C5H5N",
+    "CH3OH", "C2H5OH", "C3H7OH", "C2H4(OH)2", "C3H5(OH)3", "CH3OCH3", "(C2H5)2O", "HCHO", "CH3CHO", "(CH3)2CO", "HCOOH", "CH3COOH",
+    "H2C2O4", "C3H6O3", "C4H8O2", "CH3CN", "HCONH2", "CH3Cl", "CH2Cl2", "CHCl3", "CCl4", "C2H5Cl", "C2H3Cl", "CF4",
+    "CCl2F2", "CH3SH", "CH3NH2", "CO(NH2)2", "глицин", "аланин",
+    "H3O+", "OH-", "NH4+", "CN-", "HS-", "ClO-", "NO2-", "HCOO-", "CH3COO-", "HCO3-", "NaOH", "NaCl",
+    "кристалл NaCl", "алмаз", "графен", "C60", "лёд", "кремний", "SiO2",
+    "Pt", "Au", "Fe", "Ni", "Cu", "Ag", "Al", "Pd", "Rh", "Pb"};
+static const char* MOL_LIB_DESC[] = {
     // неорганические
     "вода: угол H–O–H 104.5°, O–H 0.96 Å, заряды как SPC/E", "пероксид водорода: O–O 1.48 Å, двугранный угол 111°", "углекислый газ: линейная, C=O 1.20 Å",
     "угарный газ (в модели C=O; в природе тройная связь C≡O)", "аммиак: пирамида, угол 107°", "хлороводород: H–Cl 1.27 Å, 4.43 эВ; в воде — сильная кислота",
@@ -1142,29 +1146,59 @@ static const char* MOL_LIB_DESC[ML_N] = {
     "фосфин: пирамида, P–H 1.42 Å, угол ≈ 94° (в модели 98°)", "силан: тетраэдр, Si–H 1.48 Å; на воздухе самовоспламеняется",
     "циановодород: линейная H–C≡N, C≡N 1.16 Å", "гидразин N2H4: N–N 1.45 Å, ракетное топливо",
     "озон O=O⁺–O⁻ (биполярный ион): неустойчив, распадается при нагреве",
+    "оксид азота(II): радикал с неспаренным электроном, N=O 1.15 Å", "диоксид азота: бурый газ-радикал, при охлаждении димеризуется в N2O4",
+    "азотистая кислота H–O–N=O: слабая и неустойчивая", "гидроксиламин NH2OH: производное аммиака, восстановитель",
+    "хлорамин NH2Cl: образуется при хлорировании воды, где есть аммиак", "хлорноватистая кислота H–O–Cl: действующее начало отбеливателей",
+    "оксид хлора(I) Cl2O: угловая молекула, ангидрид HOCl", "дифторид кислорода OF2: угловая молекула, сильный окислитель",
+    "трифторид азота NF3: пирамида, газ для травления микросхем", "трихлорид азота NCl3: маслянистая взрывчатая жидкость",
+    "трифторид фосфора PF3: пирамида, P–F 1.56 Å", "трихлорид фосфора PCl3: пирамида, дымит на воздухе",
+    "арсин AsH3: пирамида, очень ядовит", "селеноводород H2Se: угол 91°, тяжёлый аналог H2S",
+    "дихлорид серы SCl2: угловая молекула, вишнёво-красная жидкость", "сероуглерод S=C=S: линейный, легко воспламеняется",
+    "карбонилсульфид O=C=S: самый распространённый серосодержащий газ атмосферы",
+    "тетрафторид кремния: тетраэдр, Si–F 1.56 Å — одна из самых прочных одинарных связей", "тетрахлорид кремния: тетраэдр, сырьё для чистого кремния",
+    "герман GeH4: тетраэдр, аналог силана", "трифторид бора: плоский треугольник, кислота Льюиса", "трихлорид бора: плоский треугольник",
     "азот: N≡N 1.10 Å, 9.79 эВ — самая прочная связь", "кислород: O=O 1.21 Å, 5.12 эВ", "водород: H–H 0.74 Å, 4.52 эВ",
     "фтор: F–F 1.42 Å, всего 1.6 эВ — самый активный неметалл", "хлор: Cl–Cl 1.99 Å, 2.48 эВ",
     "бром: Br–Br 2.28 Å, 1.97 эВ; при комнатной температуре — жидкость", "иод: I–I 2.67 Å, 1.54 эВ; возгоняется фиолетовым паром",
+    "монофторид хлора: межгалогенное соединение, Cl–F 1.63 Å", "монохлорид иода: межгалогенное соединение, I–Cl 2.32 Å",
     // органические
     "метан: тетраэдр, C–H 1.09 Å, 4.3 эВ на связь", "этан: C–C 1.54 Å, 3.6 эВ", "пропан C3H8: бытовой баллонный газ", "н-бутан: цепь из четырёх атомов C (газ для зажигалок)",
-    "этилен: плоская, C=C 1.34 Å, 6.4 эВ", "ацетилен: линейная, C≡C 1.20 Å, 8.7 эВ", "бензол: кольцо Кекуле (чередование C–C и C=C)",
-    "фенол: бензольное кольцо с группой OH (слабая кислота, антисептик)", "толуол: бензольное кольцо с группой CH3 (растворитель)",
-    "метанол CH3OH", "этанол C2H5OH (горит: C2H5OH + 3O2 → 2CO2 + 3H2O)", "диметиловый эфир CH3–O–CH3: изомер этанола",
-    "формальдегид HCHO: плоская, C=O 1.20 Å", "ацетальдегид CH3CHO: продукт окисления этанола", "ацетон: группа C=O между двумя CH3 (растворитель)",
+    "изобутан (CH3)3CH: разветвлённый изомер бутана", "н-пентан: жидкость, кипит при 36 °C", "н-гексан: неполярный растворитель",
+    "этилен: плоская, C=C 1.34 Å, 6.4 эВ", "пропилен CH2=CH–CH3: сырьё для полипропилена",
+    "бутадиен-1,3 CH2=CH–CH=CH2: сопряжённые двойные связи, сырьё для каучука", "ацетилен: линейная, C≡C 1.20 Å, 8.7 эВ", "пропин CH≡C–CH3: гомолог ацетилена",
+    "циклопентан: пятичленное кольцо, сложенное «конвертом»", "циклогексан: кольцо в форме «кресла», все углы близки к 109.5°",
+    "бензол: кольцо Кекуле (чередование C–C и C=C)", "фенол: бензольное кольцо с группой OH (слабая кислота, антисептик)",
+    "толуол: бензольное кольцо с группой CH3 (растворитель)", "стирол C6H5–CH=CH2: мономер полистирола", "анилин C6H5NH2: ароматический амин, основа красителей",
+    "бензойная кислота C6H5COOH: консервант E210", "нафталин: два сконденсированных бензольных кольца", "пиридин: бензольное кольцо, где один CH заменён на N; основание",
+    "метанол CH3OH", "этанол C2H5OH (горит: C2H5OH + 3O2 → 2CO2 + 3H2O)", "изопропанол (CH3)2CHOH: антисептик и растворитель",
+    "этиленгликоль HO–CH2–CH2–OH: основа антифриза", "глицерин: трёхатомный спирт, основа жиров", "диметиловый эфир CH3–O–CH3: изомер этанола",
+    "диэтиловый эфир C2H5–O–C2H5: летучий растворитель, первый наркоз", "формальдегид HCHO: плоская, C=O 1.20 Å",
+    "ацетальдегид CH3CHO: продукт окисления этанола", "ацетон: группа C=O между двумя CH3 (растворитель)",
     "муравьиная кислота HCOOH: простейшая карбоновая кислота", "уксусная кислота CH3COOH: группа COOH (уксус)",
+    "щавелевая кислота HOOC–COOH: простейшая двухосновная кислота", "молочная кислота CH3–CH(OH)–COOH: накапливается в работающих мышцах",
+    "этилацетат CH3COOC2H5: сложный эфир с запахом груши", "ацетонитрил CH3–C≡N: полярный растворитель",
+    "формамид HCONH2: простейший амид — пептидная связь в миниатюре",
     "хлорметан CH3Cl: первый продукт хлорирования метана, C–Cl 1.77 Å", "дихлорметан CH2Cl2: растворитель", "хлороформ CHCl3: трихлорметан",
-    "тетрахлорметан CCl4: тетраэдр из четырёх связей C–Cl", "метиламин CH3NH2: простейший амин, основание",
+    "тетрахлорметан CCl4: тетраэдр из четырёх связей C–Cl", "хлорэтан C2H5Cl: местная «заморозка» в спорте", "винилхлорид CH2=CHCl: мономер ПВХ",
+    "тетрафторметан CF4: очень инертный газ", "фреон-12 CCl2F2: хладагент, разрушает озоновый слой",
+    "метантиол CH3SH: запах, который добавляют в бытовой газ", "метиламин CH3NH2: простейший амин, основание",
     "мочевина CO(NH2)2: первое органическое вещество, полученное из неорганического (Вёлер, 1828)", "глицин NH2–CH2–COOH: простейшая аминокислота",
+    "аланин CH3–CH(NH2)–COOH: одна из аминокислот белков",
     // ионы
-    "ион гидроксония H3O+ (кислота): протон переходит к соседней воде", "гидроксид-ион OH− (основание): нейтрализует H3O+", "ион аммония NH4+",
-    "гидроксид натрия: Na+ и OH− (щёлочь)", "ионная пара Na+ Cl−",
+    "ион гидроксония H3O+ (кислота): протон переходит к соседней воде", "гидроксид-ион OH− (основание): нейтрализует H3O+", "ион аммония NH4+: тетраэдр",
+    "цианид-ион C≡N⁻: сильный лиганд и яд", "гидросульфид-ион HS⁻: основание", "гипохлорит-ион ClO⁻: окислитель в хлорных отбеливателях",
+    "нитрит-ион O=N–O⁻: угловой", "формиат-ион HCOO⁻", "ацетат-ион CH3COO⁻: сопряжённое основание уксусной кислоты",
+    "гидрокарбонат-ион HCO3⁻: основа питьевой соды", "гидроксид натрия: Na+ и OH− (щёлочь)", "ионная пара Na+ Cl−",
     // кристаллы и кластеры
     "кристаллик NaCl (решётка каменной соли)", "кластер алмаза, поверхность закрыта водородом (C–C 1.54 Å, sp3)",
-    "лист графена: соты sp2, структура Кекуле, край закрыт водородом", "кубический лёд Ic: 64 молекулы, правила Бернала–Фаулера (только 3D)",
+    "лист графена: соты sp2, структура Кекуле, край закрыт водородом",
+    "фуллерен C60: «футбольный мяч» из 12 пятиугольников и 20 шестиугольников", "кубический лёд Ic: 64 молекулы, правила Бернала–Фаулера",
     "кристалл кремния: решётка алмаза, Si–Si 2.35 Å, поверхность закрыта водородом",
     "кремнезём: сетка SiO4 (кристобалит), поверхность — группы Si–OH", "кластер платины (ГЦК): катализатор окисления водорода",
     "кластер золота (ГЦК)", "кластер железа: катализатор, ржавеет в O2", "кластер никеля: катализатор гидрирования",
-    "кластер меди (ГЦК)", "кластер серебра (ГЦК)", "кластер алюминия (ГЦК): лёгкий металл", "кластер палладия (ГЦК): поглощает водород, катализатор"};
+    "кластер меди (ГЦК)", "кластер серебра (ГЦК)", "кластер алюминия (ГЦК): лёгкий металл", "кластер палладия (ГЦК): поглощает водород, катализатор",
+    "кластер родия (ГЦК): катализатор дожига выхлопных газов", "кластер свинца (ГЦК): тяжёлый мягкий металл"};
+static_assert(sizeof(MOL_LIB_NAMES) / sizeof(*MOL_LIB_NAMES) == ML_N && sizeof(MOL_LIB_DESC) / sizeof(*MOL_LIB_DESC) == ML_N, "MOL_LIB_NAMES / MOL_LIB_DESC: size must match ML_N");
 struct V3 { double x, y, z; };
 static inline V3 operator+(V3 a, V3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
 static inline V3 operator-(V3 a, V3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
@@ -1172,57 +1206,55 @@ static inline V3 operator*(V3 a, double s) { return {a.x * s, a.y * s, a.z * s};
 static inline double vdot(V3 a, V3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 static inline V3 vcross(V3 a, V3 b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
 static inline V3 vunit(V3 a) { double l = std::sqrt(vdot(a, a)); return l > 1e-12 ? a * (1 / l) : V3{1, 0, 0}; }
-// равновесный угол модели для атома типа t с k связями (как theta0Of в physics.inl); 0 — угол не задан
-static double tmplTheta(int t, int k) {
-    if (k < 2) return 0;
-    if (t == E_O) return k == 2 ? 104.5 : 0;
-    if (t == E_N) return k == 2 ? 115.0 : (k == 3 ? (DIM == 3 ? 107.0 : 120.0) : 0);
-    if (t == E_C) { if (k == 2) return 180.0; if (k == 3) return 120.0; if (k == 4) return DIM == 3 ? 109.47 : 0; }
-    switch (EL[t].Z) {
-    case 14: case 32: case 50: if (k == 2) return 180.0; if (k == 3) return 120.0; if (k == 4) return DIM == 3 ? 109.47 : 0; break;
-    case 15: case 33: case 51: if (k == 2) return 110.0; if (k == 3) return DIM == 3 ? 98.0 : 120.0; break;
-    case 16: return k == 2 ? 92.0 : 0;
-    case 34: case 52: return k == 2 ? 91.0 : 0;
-    case 5: case 13: case 31: return 120.0;
-    case 4: case 12: case 30: case 48: case 80: return k == 2 ? 180.0 : 0;
-    }
-    return 0;
-}
+static inline double tmplTheta(int t, int k) { return vseprAngle(t, k); }
 // направления k связей атома: первое — u (к родителю), остальные по VSEPR (плоские молекулы — в одной плоскости)
 static std::vector<V3> bondDirs(int t, int k, V3 u, int depth) {
     std::vector<V3> d{u};
-    const bool d3 = DIM == 3;
-    V3 w, v{0, 0, 0};
-    if (d3) { V3 g{0, 1, 0}; if (std::fabs(vdot(g, u)) > 0.9) g = {0, 0, 1}; w = vunit(g - u * vdot(g, u)); v = vcross(u, w); }
-    else w = {-u.y, u.x, 0};
+    V3 g{0, 1, 0}; if (std::fabs(vdot(g, u)) > 0.9) g = {0, 0, 1};
+    const V3 w = vunit(g - u * vdot(g, u)), v = vcross(u, w);
     auto at = [&](double th, double ph) { double a = th * PI / 180, p = ph * PI / 180; return u * std::cos(a) + (w * std::cos(p) + v * std::sin(p)) * std::sin(a); };
     double th = tmplTheta(t, k);
     if (k == 2) { if (th <= 0) th = 180; d.push_back(at(th, (depth & 1) ? 180 : 0)); }
     else if (k == 3) {
-        if (th <= 0) th = d3 ? 109.47 : 120;
-        if (!d3 || th >= 119.9) { d.push_back(at(th, 0)); d.push_back(at(th, 180)); }
+        if (th <= 0) th = 109.47;
+        if (th >= 119.9) { d.push_back(at(th, 0)); d.push_back(at(th, 180)); }
         else { double ct = std::cos(th * PI / 180), c2 = clampv((ct - ct * ct) / (1 - ct * ct), -1.0, 1.0), ph = 0.5 * std::acos(c2) * 180 / PI;
                d.push_back(at(th, ph)); d.push_back(at(th, -ph)); }
-    } else if (k >= 4) {
-        if (d3) { d.push_back(at(109.47, 0)); d.push_back(at(109.47, 120)); d.push_back(at(109.47, 240)); }
-        else { d.push_back(at(90, 0)); d.push_back(u * -1.0); d.push_back(at(90, 180)); }
-    }
+    } else if (k >= 4) { d.push_back(at(109.47, 0)); d.push_back(at(109.47, 120)); d.push_back(at(109.47, 240)); }
     return d;
 }
-// координаты молекулы-дерева по графу связей (обход от атома 0)
-static void vseprPlace(Tmpl& m) {
+// Координаты атомов по графу связей, обход в ширину. Атомы с fixedN первых номеров уже стоят (кольцо),
+// остальные растут от них по VSEPR; без готовых атомов обход начинается с атома 0.
+static void vseprPlace(Tmpl& m, int fixedN = 0) {
     const int n = (int)m.a.size(); if (!n) return;
     std::vector<std::vector<std::pair<int, int>>> adj(n);
     for (auto& b : m.b) { adj[b[0]].push_back({b[1], b[2]}); adj[b[1]].push_back({b[0], b[2]}); }
     std::vector<char> placed(n, 0); std::vector<int> par(n, -1), dep(n, 0); std::vector<V3> Pp(n, V3{0, 0, 0});
-    std::vector<int> q{0}; placed[0] = 1;
+    std::vector<int> q;
+    for (int i = 0; i < fixedN && i < n; i++) { placed[i] = 1; Pp[i] = {m.a[i].x, m.a[i].y, m.a[i].z}; q.push_back(i); }
+    if (q.empty()) { q.push_back(0); placed[0] = 1; }
     for (size_t qi = 0; qi < q.size(); qi++) {
         int a = q[qi], k = (int)adj[a].size(); if (!k) continue;
-        V3 u = par[a] >= 0 ? vunit(Pp[par[a]] - Pp[a]) : V3{1, 0, 0};
-        std::vector<V3> dirs = bondDirs(m.a[a].t, k, u, dep[a]);
-        std::vector<V3> cd(dirs.begin() + (par[a] >= 0 ? 1 : 0), dirs.end());
+        std::vector<V3> cd;
+        int nPlaced = 0; V3 sum{0, 0, 0}, u1{0, 0, 0}, u2{0, 0, 0};
+        for (auto& nb : adj[a]) if (placed[nb.first] && nb.first != par[a] && a < fixedN) {
+            V3 e = vunit(Pp[nb.first] - Pp[a]); sum = sum + e; (nPlaced ? u2 : u1) = e; nPlaced++;
+        }
+        if (nPlaced >= 2) {   // атом кольца: заместители — наружу, по биссектрисе (sp2) или парой над и под плоскостью (sp3)
+            const V3 b = vunit(sum * -1.0); const int nNew = k - nPlaced;
+            if (nNew == 1) cd = {b};
+            else if (nNew >= 2) {
+                const V3 nn = vunit(vcross(u1, u2)); const double h = 0.5 * std::acos(-1.0 / 3.0);
+                cd = {b * std::cos(h) + nn * std::sin(h), b * std::cos(h) - nn * std::sin(h)};
+            }
+        } else {
+            V3 u = par[a] >= 0 ? vunit(Pp[par[a]] - Pp[a]) : V3{1, 0, 0};
+            std::vector<V3> dirs = bondDirs(m.a[a].t, k, u, dep[a]);
+            cd.assign(dirs.begin() + (par[a] >= 0 ? 1 : 0), dirs.end());
+        }
         if (par[a] >= 0 && !cd.empty()) {   // поворот заместителей вокруг связи с родителем: подальше от уже поставленных атомов
-            double bestS = -1; std::vector<V3> best = cd; const int nr = DIM == 3 ? 12 : 2;
+            const V3 u = vunit(Pp[par[a]] - Pp[a]);
+            double bestS = -1; std::vector<V3> best = cd; const int nr = 12;
             for (int rr = 0; rr < nr; rr++) {
                 double ps = rr * 2 * PI / nr, c = std::cos(ps), s = std::sin(ps), sc = 1e9;
                 std::vector<V3> rd; for (auto& d : cd) rd.push_back(d * c + vcross(u, d) * s + u * (vdot(u, d) * (1 - c)));
@@ -1257,7 +1289,7 @@ static void relaxTmpl(Tmpl& m, int iters = 400) {
     }
     for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) if (comp[i] != comp[j]) ex[(size_t)i * n + j] = 1;
     std::vector<double> X(3 * n), F(3 * n);
-    for (int i = 0; i < n; i++) { X[3 * i] = m.a[i].x + 0.01 * (urand() - 0.5); X[3 * i + 1] = m.a[i].y + 0.01 * (urand() - 0.5); X[3 * i + 2] = DIM == 3 ? m.a[i].z + 0.01 * (urand() - 0.5) : 0; }
+    for (int i = 0; i < n; i++) { X[3 * i] = m.a[i].x + 0.01 * (urand() - 0.5); X[3 * i + 1] = m.a[i].y + 0.01 * (urand() - 0.5); X[3 * i + 2] = m.a[i].z + 0.01 * (urand() - 0.5); }
     auto forces = [&]() {
         std::fill(F.begin(), F.end(), 0.0);
         for (auto& b : m.b) {   // связи
@@ -1296,14 +1328,13 @@ static void relaxTmpl(Tmpl& m, int iters = 400) {
         if (fm < 0.05) break;
         const double alpha = std::min(1e-3, 0.01 / fm);   // смещение ≤ 0.01σ за итерацию; 1e-3 < 2/k жёсткой связи
         for (int k = 0; k < 3 * n; k++) X[k] += alpha * F[k];
-        if (DIM == 2) for (int i = 0; i < n; i++) X[3 * i + 2] = 0;
     }
     for (int i = 0; i < n; i++) { m.a[i].x = X[3 * i]; m.a[i].y = X[3 * i + 1]; m.a[i].z = X[3 * i + 2]; }
 }
 static void centerTmpl(Tmpl& m) {
     double cx = 0, cy = 0, cz = 0; for (auto& a : m.a) { cx += a.x; cy += a.y; cz += a.z; }
     const double k = m.a.empty() ? 0 : 1.0 / m.a.size();
-    for (auto& a : m.a) { a.x -= cx * k; a.y -= cy * k; a.z -= cz * k; if (DIM == 2) a.z = 0; }
+    for (auto& a : m.a) { a.x -= cx * k; a.y -= cy * k; a.z -= cz * k; }
 }
 static int tA(Tmpl& m, int t, V3 p = {0, 0, 0}, int fc = 0) { m.a.push_back({t, p.x, p.y, p.z, fc}); return (int)m.a.size() - 1; }
 static void tB(Tmpl& m, int a, int b, int o = 1) { m.b.push_back({a, b, o}); }
@@ -1323,121 +1354,218 @@ static void capWithH(Tmpl& m, int a, const std::vector<V3>& dirs, int Hto = E_H)
         int h = tA(m, Hto, ph); tB(m, a, h, 1);
     }
 }
-// кластер металла типа t: ГЦК (3D) или треугольная решётка (2D) в шаре/круге
+// кластер металла типа t: ГЦК в шаре радиусом Rn межатомных расстояний
 static void metalCluster(Tmpl& m, int t, double Rn) {
-    const double d = 2 * EL[t].rmet / 3.405;
-    if (DIM == 3) {
-        const double a = d * std::sqrt(2.0), R = Rn * d; int k = (int)(R / a) + 2;
-        const double bs[4][3] = {{0, 0, 0}, {0.5, 0.5, 0}, {0.5, 0, 0.5}, {0, 0.5, 0.5}};
-        for (int z = -k; z <= k; z++) for (int y = -k; y <= k; y++) for (int x = -k; x <= k; x++) for (auto& b : bs) {
-            V3 p{(x + b[0]) * a, (y + b[1]) * a, (z + b[2]) * a}; if (vdot(p, p) <= R * R + 1e-9) tA(m, t, p); }
-    } else {
-        const double R = (Rn + 1.0) * d; int k = (int)(R / d) + 2;
-        for (int j = -k; j <= k; j++) for (int i = -k; i <= k; i++) {
-            V3 p{(i + 0.5 * (j & 1)) * d, j * d * std::sqrt(3.0) / 2, 0}; if (vdot(p, p) <= R * R + 1e-9) tA(m, t, p); }
+    const double d = 2 * EL[t].rmet / 3.405, a = d * std::sqrt(2.0), R = Rn * d; int k = (int)(R / a) + 2;
+    const double bs[4][3] = {{0, 0, 0}, {0.5, 0.5, 0}, {0.5, 0, 0.5}, {0, 0.5, 0.5}};
+    for (int z = -k; z <= k; z++) for (int y = -k; y <= k; y++) for (int x = -k; x <= k; x++) for (auto& b : bs) {
+        V3 p{(x + b[0]) * a, (y + b[1]) * a, (z + b[2]) * a}; if (vdot(p, p) <= R * R + 1e-9) tA(m, t, p); }
+}
+// правильный многоугольник из атомов types (в плоскости xy), связь k–(k+1) имеет порядок orders[k].
+// Кольцо должно быть первым в шаблоне: заместители потом растит vseprPlace(m, n)
+static void ringTmpl(Tmpl& m, const std::vector<int>& types, const std::vector<int>& orders) {
+    const int n = (int)types.size(); double L = 0;
+    for (int k = 0; k < n; k++) L += r0of(types[k], types[(k + 1) % n], orders[k]);
+    const double R = L / n / (2 * std::sin(PI / n));
+    for (int k = 0; k < n; k++) tA(m, types[k], V3{std::cos(2 * PI * k / n), std::sin(2 * PI * k / n), 0} * R);
+    for (int k = 0; k < n; k++) tB(m, k, (k + 1) % n, orders[k]);
+}
+// фуллерен C60: вершины усечённого икосаэдра — чётные перестановки (0, ±1, ±3φ), (±1, ±(2+φ), ±2φ), (±φ, ±2, ±(2φ+1)),
+// длина ребра 2. Рёбра пятиугольников — одинарные связи, рёбра между шестиугольниками — двойные (структура Кекуле)
+static void fullereneTmpl(Tmpl& m) {
+    const double f = (1 + std::sqrt(5.0)) / 2, sc = 1.44 / 3.405 / 2;
+    const double base[3][3] = {{0, 1, 3 * f}, {1, 2 + f, 2 * f}, {f, 2, 2 * f + 1}};
+    std::vector<V3> P;
+    for (auto& b : base) for (int s = 0; s < 8; s++) {
+        double v[3] = {b[0] * (s & 1 ? -1 : 1), b[1] * (s & 2 ? -1 : 1), b[2] * (s & 4 ? -1 : 1)};
+        for (int c = 0; c < 3; c++) {
+            V3 p{v[c], v[(c + 1) % 3], v[(c + 2) % 3]}; bool dup = false;
+            for (auto& q : P) { V3 d = q - p; if (vdot(d, d) < 1e-6) { dup = true; break; } }
+            if (!dup) P.push_back(p);
+        }
     }
+    const int n = (int)P.size();
+    std::vector<std::vector<int>> adj(n);
+    for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) { V3 d = P[i] - P[j]; if (std::fabs(vdot(d, d) - 4) < 0.01) { adj[i].push_back(j); adj[j].push_back(i); } }
+    auto linked = [&](int a, int b) { return std::find(adj[a].begin(), adj[a].end(), b) != adj[a].end(); };
+    auto inPentagon = [&](int i, int j) {   // есть путь i–a–b–c–j из четырёх рёбер без повторов
+        for (int a : adj[i]) if (a != j) for (int b : adj[a]) if (b != i && b != j) for (int c : adj[b]) if (c != a && c != i && linked(c, j)) return true;
+        return false;
+    };
+    for (auto& p : P) tA(m, E_C, p * sc);
+    for (int i = 0; i < n; i++) for (int j : adj[i]) if (j > i) tB(m, i, j, inPentagon(i, j) ? 1 : 2);
 }
 static bool buildLibTmpl(int idx, Tmpl& m) {
     m = Tmpl(); if (idx < 0 || idx >= ML_N) return false;
     m.label = MOL_LIB_NAMES[idx];
-    const bool d3 = DIM == 3;
     auto CH = [&](int c, int nH) { for (int k = 0; k < nH; k++) tB(m, c, tA(m, E_H)); };
     auto CX = [&](int c, int t, int n) { for (int k = 0; k < n; k++) tB(m, c, tA(m, t)); };   // n заместителей типа t
     auto di = [&](int t1, int t2, int o) { tB(m, tA(m, t1), tA(m, t2), o); };
-    const int tF = typeOfZ(9), tSi = typeOfZ(14), tP = typeOfZ(15), tS = typeOfZ(16), tBr = typeOfZ(35), tI = typeOfZ(53);
-    bool tree = true;   // молекула-дерево: координаты по VSEPR (vseprPlace)
+    auto chain = [&](int n) {   // н-алкан CnH2n+2
+        int prev = -1;
+        for (int k = 0; k < n; k++) { int c = tA(m, E_C); if (prev >= 0) tB(m, prev, c); CH(c, (k == 0 || k == n - 1) ? 3 : 2); prev = c; }
+    };
+    auto OH = [&](int c) { int o = tA(m, E_O); tB(m, c, o); CH(o, 1); return o; };
+    auto COOH = [&](int c) { int o = tA(m, E_O); tB(m, c, o, 2); OH(c); };   // c — углерод карбоксила
+    const int tF = typeOfZ(9), tB5 = typeOfZ(5), tSi = typeOfZ(14), tP = typeOfZ(15), tS = typeOfZ(16), tGe = typeOfZ(32), tAs = typeOfZ(33),
+              tSe = typeOfZ(34), tBr = typeOfZ(35), tI = typeOfZ(53);
+    int fixedN = 0;   // > 0: первые fixedN атомов (кольцо) уже расставлены
+    bool tree = true;
     switch (idx) {
     case ML_H2O: { int o = tA(m, E_O); CH(o, 2); break; }
     case ML_H2O2: { int o1 = tA(m, E_O), o2 = tA(m, E_O); tB(m, o1, o2); CH(o1, 1); CH(o2, 1); break; }
-    case ML_CO2: { int c = tA(m, E_C), o1 = tA(m, E_O), o2 = tA(m, E_O); tB(m, c, o1, 2); tB(m, c, o2, 2); break; }
-    case ML_CO: { int c = tA(m, E_C), o = tA(m, E_O); tB(m, c, o, 2); break; }
-    case ML_CH4: { int c = tA(m, E_C); CH(c, 4); break; }
-    case ML_C2H6: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2); CH(c1, 3); CH(c2, 3); break; }
-    case ML_C2H4: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2, 2); CH(c1, 2); CH(c2, 2); break; }
-    case ML_C2H2: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2, 3); CH(c1, 1); CH(c2, 1); break; }
-    case ML_CH3OH: { int c = tA(m, E_C), o = tA(m, E_O); tB(m, c, o); CH(c, 3); CH(o, 1); break; }
-    case ML_C2H5OH: { int c1 = tA(m, E_C), c2 = tA(m, E_C), o = tA(m, E_O); tB(m, c1, c2); tB(m, c2, o); CH(c1, 3); CH(c2, 2); CH(o, 1); break; }
+    case ML_CO2: { int c = tA(m, E_C); tB(m, c, tA(m, E_O), 2); tB(m, c, tA(m, E_O), 2); break; }
+    case ML_CO: di(E_C, E_O, 2); break;
     case ML_NH3: { int n = tA(m, E_N); CH(n, 3); break; }
-    case ML_HCL: { int h = tA(m, E_H), c = tA(m, E_CL); tB(m, h, c); break; }
-    case ML_N2: { int a = tA(m, E_N), b = tA(m, E_N); tB(m, a, b, 3); break; }
-    case ML_O2: { int a = tA(m, E_O), b = tA(m, E_O); tB(m, a, b, 2); break; }
-    case ML_H2: { int a = tA(m, E_H), b = tA(m, E_H); tB(m, a, b, 1); break; }
-    case ML_CL2: { int a = tA(m, E_CL), b = tA(m, E_CL); tB(m, a, b, 1); break; }
-    case ML_O3: { int a = tA(m, E_O), b = tA(m, E_O), c = tA(m, E_O, {0, 0, 0}, -1); tB(m, b, a, 2); tB(m, b, c, 1); m.a[b].fc = 1; break; }   // O=O⁺–O⁻
-    case ML_H3O: { int o = tA(m, E_O, {0, 0, 0}, 1); CH(o, 3); break; }
-    case ML_OH: { int o = tA(m, E_O, {0, 0, 0}, -1); CH(o, 1); break; }
-    case ML_NH4: { int n = tA(m, E_N, {0, 0, 0}, 1); CH(n, 4); break; }
+    case ML_HCL: di(E_H, E_CL, 1); break;
     case ML_HF: di(E_H, tF, 1); break;
     case ML_HBR: di(E_H, tBr, 1); break;
     case ML_HI: di(E_H, tI, 1); break;
-    case ML_F2: di(tF, tF, 1); break;
-    case ML_BR2: di(tBr, tBr, 1); break;
-    case ML_I2: di(tI, tI, 1); break;
     case ML_H2S: { int s = tA(m, tS); CH(s, 2); break; }
     case ML_PH3: { int p = tA(m, tP); CH(p, 3); break; }
     case ML_SIH4: { int s = tA(m, tSi); CH(s, 4); break; }
     case ML_HCN: { int c = tA(m, E_C), n = tA(m, E_N); tB(m, c, n, 3); CH(c, 1); break; }
     case ML_N2H4: { int n1 = tA(m, E_N), n2 = tA(m, E_N); tB(m, n1, n2); CH(n1, 2); CH(n2, 2); break; }
-    case ML_C3H8: { int c1 = tA(m, E_C), c2 = tA(m, E_C), c3 = tA(m, E_C); tB(m, c1, c2); tB(m, c2, c3); CH(c1, 3); CH(c2, 2); CH(c3, 3); break; }
-    case ML_C4H10: { int c[4]; for (int& ci : c) ci = tA(m, E_C);
-        for (int k = 0; k < 3; k++) tB(m, c[k], c[k + 1]);
-        CH(c[0], 3); CH(c[1], 2); CH(c[2], 2); CH(c[3], 3); break; }
+    case ML_O3: { int a = tA(m, E_O), b = tA(m, E_O), c = tA(m, E_O, {0, 0, 0}, -1); tB(m, b, a, 2); tB(m, b, c, 1); m.a[b].fc = 1; break; }   // O=O⁺–O⁻
+    case ML_NO: di(E_N, E_O, 2); break;
+    case ML_NO2: { int n = tA(m, E_N); tB(m, n, tA(m, E_O), 2); tB(m, n, tA(m, E_O), 1); break; }
+    case ML_HNO2: { int n = tA(m, E_N); tB(m, n, tA(m, E_O), 2); OH(n); break; }
+    case ML_NH2OH: { int n = tA(m, E_N); OH(n); CH(n, 2); break; }
+    case ML_NH2CL: { int n = tA(m, E_N); CX(n, E_CL, 1); CH(n, 2); break; }
+    case ML_HOCL: { int o = tA(m, E_O); CX(o, E_CL, 1); CH(o, 1); break; }
+    case ML_CL2O: { int o = tA(m, E_O); CX(o, E_CL, 2); break; }
+    case ML_OF2: { int o = tA(m, E_O); CX(o, tF, 2); break; }
+    case ML_NF3: { int n = tA(m, E_N); CX(n, tF, 3); break; }
+    case ML_NCL3: { int n = tA(m, E_N); CX(n, E_CL, 3); break; }
+    case ML_PF3: { int p = tA(m, tP); CX(p, tF, 3); break; }
+    case ML_PCL3: { int p = tA(m, tP); CX(p, E_CL, 3); break; }
+    case ML_ASH3: { int a = tA(m, tAs); CH(a, 3); break; }
+    case ML_H2SE: { int s = tA(m, tSe); CH(s, 2); break; }
+    case ML_SCL2: { int s = tA(m, tS); CX(s, E_CL, 2); break; }
+    case ML_CS2: { int c = tA(m, E_C); tB(m, c, tA(m, tS), 2); tB(m, c, tA(m, tS), 2); break; }
+    case ML_COS: { int c = tA(m, E_C); tB(m, c, tA(m, E_O), 2); tB(m, c, tA(m, tS), 2); break; }
+    case ML_SIF4: { int s = tA(m, tSi); CX(s, tF, 4); break; }
+    case ML_SICL4: { int s = tA(m, tSi); CX(s, E_CL, 4); break; }
+    case ML_GEH4: { int g = tA(m, tGe); CH(g, 4); break; }
+    case ML_BF3: { int b = tA(m, tB5); CX(b, tF, 3); break; }
+    case ML_BCL3: { int b = tA(m, tB5); CX(b, E_CL, 3); break; }
+    case ML_N2: di(E_N, E_N, 3); break;
+    case ML_O2: di(E_O, E_O, 2); break;
+    case ML_H2: di(E_H, E_H, 1); break;
+    case ML_F2: di(tF, tF, 1); break;
+    case ML_CL2: di(E_CL, E_CL, 1); break;
+    case ML_BR2: di(tBr, tBr, 1); break;
+    case ML_I2: di(tI, tI, 1); break;
+    case ML_CLF: di(E_CL, tF, 1); break;
+    case ML_ICL: di(tI, E_CL, 1); break;
+    // углеводороды
+    case ML_CH4: { int c = tA(m, E_C); CH(c, 4); break; }
+    case ML_C2H6: chain(2); break;
+    case ML_C3H8: chain(3); break;
+    case ML_C4H10: chain(4); break;
+    case ML_C5H12: chain(5); break;
+    case ML_C6H14: chain(6); break;
+    case ML_ISOBUTANE: { int c = tA(m, E_C); for (int k = 0; k < 3; k++) { int r = tA(m, E_C); tB(m, c, r); CH(r, 3); } CH(c, 1); break; }
+    case ML_C2H4: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2, 2); CH(c1, 2); CH(c2, 2); break; }
+    case ML_C3H6: { int c1 = tA(m, E_C), c2 = tA(m, E_C), c3 = tA(m, E_C); tB(m, c1, c2, 2); tB(m, c2, c3); CH(c1, 2); CH(c2, 1); CH(c3, 3); break; }
+    case ML_C4H6: { int c[4]; for (int& ci : c) ci = tA(m, E_C);
+        tB(m, c[0], c[1], 2); tB(m, c[1], c[2]); tB(m, c[2], c[3], 2); CH(c[0], 2); CH(c[1], 1); CH(c[2], 1); CH(c[3], 2); break; }
+    case ML_C2H2: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2, 3); CH(c1, 1); CH(c2, 1); break; }
+    case ML_C3H4: { int c1 = tA(m, E_C), c2 = tA(m, E_C), c3 = tA(m, E_C); tB(m, c1, c2, 3); tB(m, c2, c3); CH(c1, 1); CH(c3, 3); break; }
+    case ML_CYCLOPENTANE: case ML_CYCLOHEXANE: {
+        const int n = idx == ML_CYCLOPENTANE ? 5 : 6;
+        ringTmpl(m, std::vector<int>(n, E_C), std::vector<int>(n, 1)); for (int k = 0; k < n; k++) CH(k, 2);
+        fixedN = n; break; }
+    case ML_C6H6: case ML_PHENOL: case ML_TOLUENE: case ML_STYRENE: case ML_ANILINE: case ML_BENZOIC: case ML_PYRIDINE: {
+        // шестиугольник Кекуле; у пиридина атом 0 — азот (без водорода), у остальных на нём заместитель
+        std::vector<int> ty(6, E_C); if (idx == ML_PYRIDINE) ty[0] = E_N;
+        ringTmpl(m, ty, {2, 1, 2, 1, 2, 1});
+        switch (idx) {
+        case ML_C6H6: CH(0, 1); break;
+        case ML_PHENOL: OH(0); break;
+        case ML_TOLUENE: { int c = tA(m, E_C); tB(m, 0, c); CH(c, 3); break; }
+        case ML_STYRENE: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, 0, c1); tB(m, c1, c2, 2); CH(c1, 1); CH(c2, 2); break; }
+        case ML_ANILINE: { int n = tA(m, E_N); tB(m, 0, n); CH(n, 2); break; }
+        case ML_BENZOIC: { int c = tA(m, E_C); tB(m, 0, c); COOH(c); break; }
+        }
+        for (int k = 1; k < 6; k++) CH(k, 1);
+        fixedN = 6; break; }
+    case ML_NAPHTHALENE: {   // два шестиугольника с общим ребром 0–5
+        const double L = r0of(E_C, E_C, 1) * 0.935, h = L * std::sqrt(3.0) / 2;
+        const V3 p[10] = {{0, L / 2, 0}, {-h, L, 0}, {-2 * h, L / 2, 0}, {-2 * h, -L / 2, 0}, {-h, -L, 0}, {0, -L / 2, 0},
+                          {h, -L, 0}, {2 * h, -L / 2, 0}, {2 * h, L / 2, 0}, {h, L, 0}};
+        for (auto& q : p) tA(m, E_C, q);
+        const int bonds[11][3] = {{0, 1, 1}, {1, 2, 2}, {2, 3, 1}, {3, 4, 2}, {4, 5, 1}, {5, 0, 1}, {5, 6, 2}, {6, 7, 1}, {7, 8, 2}, {8, 9, 1}, {9, 0, 2}};
+        for (auto& b : bonds) tB(m, b[0], b[1], b[2]);
+        for (int k : {1, 2, 3, 4, 6, 7, 8, 9}) CH(k, 1);
+        fixedN = 10; break; }
+    // кислородные, азотные и галогенпроизводные
+    case ML_CH3OH: { int c = tA(m, E_C); OH(c); CH(c, 3); break; }
+    case ML_C2H5OH: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2); OH(c2); CH(c1, 3); CH(c2, 2); break; }
+    case ML_IPA: { int c = tA(m, E_C); for (int k = 0; k < 2; k++) { int r = tA(m, E_C); tB(m, c, r); CH(r, 3); } OH(c); CH(c, 1); break; }
+    case ML_GLYCOL: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2); OH(c1); OH(c2); CH(c1, 2); CH(c2, 2); break; }
+    case ML_GLYCEROL: { int c1 = tA(m, E_C), c2 = tA(m, E_C), c3 = tA(m, E_C); tB(m, c1, c2); tB(m, c2, c3);
+        OH(c1); OH(c2); OH(c3); CH(c1, 2); CH(c2, 1); CH(c3, 2); break; }
     case ML_DME: { int c1 = tA(m, E_C), o = tA(m, E_O), c2 = tA(m, E_C); tB(m, c1, o); tB(m, o, c2); CH(c1, 3); CH(c2, 3); break; }
-    case ML_HCHO: { int c = tA(m, E_C), o = tA(m, E_O); tB(m, c, o, 2); CH(c, 2); break; }
-    case ML_CH3CHO: { int c1 = tA(m, E_C), c2 = tA(m, E_C), o = tA(m, E_O); tB(m, c1, c2); tB(m, c2, o, 2); CH(c1, 3); CH(c2, 1); break; }
-    case ML_ACETONE: { int c = tA(m, E_C), o = tA(m, E_O), c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c, o, 2); tB(m, c, c1); tB(m, c, c2); CH(c1, 3); CH(c2, 3); break; }
-    case ML_HCOOH: { int c = tA(m, E_C), o1 = tA(m, E_O), o2 = tA(m, E_O); tB(m, c, o1, 2); tB(m, c, o2); CH(c, 1); CH(o2, 1); break; }
-    case ML_CH3COOH: { int c1 = tA(m, E_C), c2 = tA(m, E_C), o1 = tA(m, E_O), o2 = tA(m, E_O); tB(m, c1, c2); tB(m, c2, o1, 2); tB(m, c2, o2); CH(c1, 3); CH(o2, 1); break; }
+    case ML_DEE: { int o = tA(m, E_O);
+        for (int k = 0; k < 2; k++) { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, o, c1); tB(m, c1, c2); CH(c1, 2); CH(c2, 3); }
+        break; }
+    case ML_HCHO: { int c = tA(m, E_C); tB(m, c, tA(m, E_O), 2); CH(c, 2); break; }
+    case ML_CH3CHO: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2); tB(m, c2, tA(m, E_O), 2); CH(c1, 3); CH(c2, 1); break; }
+    case ML_ACETONE: { int c = tA(m, E_C); tB(m, c, tA(m, E_O), 2); for (int k = 0; k < 2; k++) { int r = tA(m, E_C); tB(m, c, r); CH(r, 3); } break; }
+    case ML_HCOOH: { int c = tA(m, E_C); COOH(c); CH(c, 1); break; }
+    case ML_CH3COOH: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2); COOH(c2); CH(c1, 3); break; }
+    case ML_OXALIC: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2); COOH(c1); COOH(c2); break; }
+    case ML_LACTIC: { int c1 = tA(m, E_C), c2 = tA(m, E_C), c3 = tA(m, E_C); tB(m, c1, c2); tB(m, c2, c3); CH(c1, 3); OH(c2); CH(c2, 1); COOH(c3); break; }
+    case ML_ETOAC: { int c1 = tA(m, E_C), c2 = tA(m, E_C), o = tA(m, E_O), c3 = tA(m, E_C), c4 = tA(m, E_C);
+        tB(m, c1, c2); tB(m, c2, tA(m, E_O), 2); tB(m, c2, o); tB(m, o, c3); tB(m, c3, c4); CH(c1, 3); CH(c3, 2); CH(c4, 3); break; }
+    case ML_CH3CN: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2); tB(m, c2, tA(m, E_N), 3); CH(c1, 3); break; }
+    case ML_HCONH2: { int c = tA(m, E_C), n = tA(m, E_N); tB(m, c, tA(m, E_O), 2); tB(m, c, n); CH(c, 1); CH(n, 2); break; }
     case ML_CH3CL: { int c = tA(m, E_C); CX(c, E_CL, 1); CH(c, 3); break; }
     case ML_CH2CL2: { int c = tA(m, E_C); CX(c, E_CL, 2); CH(c, 2); break; }
     case ML_CHCL3: { int c = tA(m, E_C); CX(c, E_CL, 3); CH(c, 1); break; }
     case ML_CCL4: { int c = tA(m, E_C); CX(c, E_CL, 4); break; }
+    case ML_C2H5CL: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2); CX(c2, E_CL, 1); CH(c1, 3); CH(c2, 2); break; }
+    case ML_C2H3CL: { int c1 = tA(m, E_C), c2 = tA(m, E_C); tB(m, c1, c2, 2); CX(c2, E_CL, 1); CH(c1, 2); CH(c2, 1); break; }
+    case ML_CF4: { int c = tA(m, E_C); CX(c, tF, 4); break; }
+    case ML_CCL2F2: { int c = tA(m, E_C); CX(c, E_CL, 2); CX(c, tF, 2); break; }
+    case ML_CH3SH: { int c = tA(m, E_C), s = tA(m, tS); tB(m, c, s); CH(c, 3); CH(s, 1); break; }
     case ML_CH3NH2: { int c = tA(m, E_C), n = tA(m, E_N); tB(m, c, n); CH(c, 3); CH(n, 2); break; }
-    case ML_UREA: { int c = tA(m, E_C), o = tA(m, E_O), n1 = tA(m, E_N), n2 = tA(m, E_N); tB(m, c, o, 2); tB(m, c, n1); tB(m, c, n2); CH(n1, 2); CH(n2, 2); break; }
-    case ML_GLYCINE: { int n = tA(m, E_N), c1 = tA(m, E_C), c2 = tA(m, E_C), o1 = tA(m, E_O), o2 = tA(m, E_O);
-        tB(m, n, c1); tB(m, c1, c2); tB(m, c2, o1, 2); tB(m, c2, o2); CH(n, 2); CH(c1, 2); CH(o2, 1); break; }
+    case ML_UREA: { int c = tA(m, E_C); tB(m, c, tA(m, E_O), 2); for (int k = 0; k < 2; k++) { int n = tA(m, E_N); tB(m, c, n); CH(n, 2); } break; }
+    case ML_GLYCINE: case ML_ALANINE: { int n = tA(m, E_N), ca = tA(m, E_C), c = tA(m, E_C); tB(m, n, ca); tB(m, ca, c); CH(n, 2); COOH(c);
+        if (idx == ML_ALANINE) { int r = tA(m, E_C); tB(m, ca, r); CH(r, 3); CH(ca, 1); } else CH(ca, 2);
+        break; }
+    // ионы (формальный заряд — в fc атома шаблона)
+    case ML_H3O: { int o = tA(m, E_O, {0, 0, 0}, 1); CH(o, 3); break; }
+    case ML_OH: { int o = tA(m, E_O, {0, 0, 0}, -1); CH(o, 1); break; }
+    case ML_NH4: { int n = tA(m, E_N, {0, 0, 0}, 1); CH(n, 4); break; }
+    case ML_CN: { int c = tA(m, E_C, {0, 0, 0}, -1); tB(m, c, tA(m, E_N), 3); break; }
+    case ML_HS: { int s = tA(m, tS, {0, 0, 0}, -1); CH(s, 1); break; }
+    case ML_CLO: { int o = tA(m, E_O, {0, 0, 0}, -1); CX(o, E_CL, 1); break; }
+    case ML_NO2M: { int n = tA(m, E_N); tB(m, n, tA(m, E_O), 2); tB(m, n, tA(m, E_O, {0, 0, 0}, -1)); break; }
+    case ML_HCOO: case ML_CH3COO: { int c = tA(m, E_C); tB(m, c, tA(m, E_O), 2); tB(m, c, tA(m, E_O, {0, 0, 0}, -1));
+        if (idx == ML_HCOO) CH(c, 1); else { int r = tA(m, E_C); tB(m, c, r); CH(r, 3); }
+        break; }
+    case ML_HCO3: { int c = tA(m, E_C); tB(m, c, tA(m, E_O), 2); tB(m, c, tA(m, E_O, {0, 0, 0}, -1)); OH(c); break; }
     default: tree = false; break;
     }
-    if (tree) { vseprPlace(m); relaxTmpl(m); centerTmpl(m); return true; }
+    if (tree) { vseprPlace(m, fixedN); relaxTmpl(m); centerTmpl(m); return true; }
     switch (idx) {
-    case ML_C6H6: case ML_PHENOL: case ML_TOLUENE: {   // равноугольный шестиугольник с чередующимися сторонами C–C / C=C (углы 120°)
-        const double r1 = r0of(E_C, E_C, 1), r2 = r0of(E_C, E_C, 2), rH = r0of(E_C, E_H, 1);
-        V3 p{0, 0, 0}; int c[6];
-        for (int k = 0; k < 6; k++) { c[k] = tA(m, E_C, p); double a = k * PI / 3, L = (k & 1) ? r1 : r2; p = p + V3{std::cos(a), std::sin(a), 0} * L; }
-        for (int k = 0; k < 6; k++) tB(m, c[k], c[(k + 1) % 6], (k & 1) ? 1 : 2);
-        V3 cen{0, 0, 0}; for (int k = 0; k < 6; k++) cen = cen + V3{m.a[c[k]].x, m.a[c[k]].y, 0} * (1.0 / 6);
-        for (int k = 0; k < 6; k++) {
-            V3 pc{m.a[c[k]].x, m.a[c[k]].y, 0}, u = vunit(pc - cen);
-            if (k > 0 || idx == ML_C6H6) { int h = tA(m, E_H, pc + u * rH); tB(m, c[k], h); continue; }
-            // заместитель у c[0]: OH (фенол) или CH3 (толуол), его водороды — по направлениям VSEPR
-            const int ts = idx == ML_PHENOL ? E_O : E_C;
-            V3 ps = pc + u * r0of(E_C, ts, 1); int s = tA(m, ts, ps); tB(m, c[k], s);
-            std::vector<V3> dirs = bondDirs(ts, idx == ML_PHENOL ? 2 : 4, u * -1.0, 1);
-            for (size_t q = 1; q < dirs.size(); q++) { int h = tA(m, E_H, ps + dirs[q] * r0of(ts, E_H, 1)); tB(m, s, h); }
-        }
-        break; }
     case ML_NAOH: { const double r = r0of(E_O, E_H, 1); tA(m, E_NA, {-0.88, 0, 0}); int o = tA(m, E_O, {0, 0, 0}, -1); int h = tA(m, E_H, {r, 0, 0}); tB(m, o, h); break; }
     case ML_NACL: { tA(m, E_NA, {-0.46, 0, 0}); tA(m, E_CLM, {0.46, 0, 0}); break; }
     case ML_NACL_CRYST: {
-        const double a = 0.92; const int nk = d3 ? 4 : 6;
-        for (int k = 0; k < (d3 ? nk : 1); k++) for (int j = 0; j < nk; j++) for (int i = 0; i < nk; i++)
-            tA(m, ((i + j + k) & 1) ? E_CLM : E_NA, {i * a, j * a, d3 ? k * a : 0});
+        const double a = 0.92;
+        for (int k = 0; k < 4; k++) for (int j = 0; j < 4; j++) for (int i = 0; i < 4; i++) tA(m, ((i + j + k) & 1) ? E_CLM : E_NA, {i * a, j * a, k * a});
         break; }
-    case ML_DIAMOND: case ML_SI_CRYST: {   // алмаз / кремний (3D) или квадратная sp3-сетка (2D), поверхность — X–H
+    case ML_DIAMOND: case ML_SI_CRYST: {   // решётка алмаза в шаре, поверхность закрыта водородом
         const int tc = idx == ML_DIAMOND ? E_C : tSi;
-        const double r = r0of(tc, tc, 1);
+        const double r = r0of(tc, tc, 1), a = 4 * r / std::sqrt(3.0), R = 2.43 * r;   // у алмаза R ≈ 1.1σ
+        const double fcc[4][3] = {{0, 0, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}, {0.5, 0.5, 0}};
         std::vector<int> isB;
-        if (d3) {
-            const double a = 4 * r / std::sqrt(3.0), R = 2.43 * r;   // у алмаза R ≈ 1.1σ
-            const double fcc[4][3] = {{0, 0, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}, {0.5, 0.5, 0}};
-            for (int z = -2; z <= 2; z++) for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) for (int f = 0; f < 4; f++) for (int s = 0; s < 2; s++) {
-                V3 p{(x + fcc[f][0] + 0.25 * s) * a, (y + fcc[f][1] + 0.25 * s) * a, (z + fcc[f][2] + 0.25 * s) * a};
-                p = p - V3{0.125 * a, 0.125 * a, 0.125 * a};
-                if (vdot(p, p) <= R * R) { tA(m, tc, p); isB.push_back(s); }
-            }
-        } else {
-            const double R = 2.87 * r; int k = (int)(R / r) + 1;   // у алмаза R ≈ 1.3σ
-            for (int j = -k; j <= k; j++) for (int i = -k; i <= k; i++) { V3 p{(i + 0.5) * r, (j + 0.5) * r, 0}; if (vdot(p, p) <= R * R) { tA(m, tc, p); isB.push_back(0); } }
+        for (int z = -2; z <= 2; z++) for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) for (int f = 0; f < 4; f++) for (int s = 0; s < 2; s++) {
+            V3 p{(x + fcc[f][0] + 0.25 * s) * a, (y + fcc[f][1] + 0.25 * s) * a, (z + fcc[f][2] + 0.25 * s) * a};
+            p = p - V3{0.125 * a, 0.125 * a, 0.125 * a};
+            if (vdot(p, p) <= R * R) { tA(m, tc, p); isB.push_back(s); }
         }
         // связи между соседями; атомы с одной связью убираются (повторять, пока есть)
         for (int it = 0; it < 4; it++) {
@@ -1453,10 +1581,8 @@ static bool buildLibTmpl(int idx, Tmpl& m) {
         const int nC = (int)m.a.size();
         const double s3 = 1 / std::sqrt(3.0);
         for (int i = 0; i < nC; i++) {
-            std::vector<V3> dirs;
-            if (d3) { double sg = isB[i] ? -1 : 1; dirs = {V3{s3, s3, s3} * sg, V3{s3, -s3, -s3} * sg, V3{-s3, s3, -s3} * sg, V3{-s3, -s3, s3} * sg}; }
-            else dirs = {V3{1, 0, 0}, V3{-1, 0, 0}, V3{0, 1, 0}, V3{0, -1, 0}};
-            capWithH(m, i, dirs);
+            const double sg = isB[i] ? -1 : 1;
+            capWithH(m, i, {V3{s3, s3, s3} * sg, V3{s3, -s3, -s3} * sg, V3{-s3, s3, -s3} * sg, V3{-s3, -s3, s3} * sg});
         }
         break; }
     case ML_GRAPHENE: {   // соты sp2: двойные связи по паросочетанию (структура Кекуле), край — C–H
@@ -1493,8 +1619,8 @@ static bool buildLibTmpl(int idx, Tmpl& m) {
             V3 d = vunit((pi - a1) + (pi - a2)); capWithH(m, i, {d});
         }
         break; }
+    case ML_C60: fullereneTmpl(m); break;
     case ML_ICE: {
-        if (!d3) return false;
         const double a = 2.08, rOH = r0of(E_O, E_H, 1), s3 = 1.0 / std::sqrt(3.0);
         const double fcc[4][3] = {{0, 0, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}, {0.5, 0.5, 0}};
         const double dd[4][3] = {{1, 1, 1}, {1, -1, -1}, {-1, 1, -1}, {-1, -1, 1}};
@@ -1505,28 +1631,20 @@ static bool buildLibTmpl(int idx, Tmpl& m) {
         }
         break; }
     case ML_SIO2: {   // кристобалит: Si в узлах алмаза, O посередине связей Si–Si; свободные O — группы OH
-        const double rSO = r0of(tSi, E_O, 1), rOH = r0of(E_O, E_H, 1);
+        const double rSO = r0of(tSi, E_O, 1), rOH = r0of(E_O, E_H, 1), a = 8 * rSO / std::sqrt(3.0), R = 1.8;
+        const double fcc[4][3] = {{0, 0, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}, {0.5, 0.5, 0}};
         std::vector<V3> si; std::vector<int> sb2;
-        if (d3) {
-            const double a = 8 * rSO / std::sqrt(3.0), R = 1.8;
-            const double fcc[4][3] = {{0, 0, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}, {0.5, 0.5, 0}};
-            for (int z = -2; z <= 2; z++) for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) for (int f = 0; f < 4; f++) for (int s = 0; s < 2; s++) {
-                V3 p{(x + fcc[f][0] + 0.25 * s - 0.125) * a, (y + fcc[f][1] + 0.25 * s - 0.125) * a, (z + fcc[f][2] + 0.25 * s - 0.125) * a};
-                if (vdot(p, p) <= R * R) { si.push_back(p); sb2.push_back(s); }
-            }
-        } else {
-            const double a = 2 * rSO, R = 2.0; int k = (int)(R / a) + 1;
-            for (int j = -k; j <= k; j++) for (int i = -k; i <= k; i++) { V3 p{i * a, j * a, 0}; if (vdot(p, p) <= R * R) { si.push_back(p); sb2.push_back(0); } }
+        for (int z = -2; z <= 2; z++) for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) for (int f = 0; f < 4; f++) for (int s = 0; s < 2; s++) {
+            V3 p{(x + fcc[f][0] + 0.25 * s - 0.125) * a, (y + fcc[f][1] + 0.25 * s - 0.125) * a, (z + fcc[f][2] + 0.25 * s - 0.125) * a};
+            if (vdot(p, p) <= R * R) { si.push_back(p); sb2.push_back(s); }
         }
         std::vector<int> siIdx; for (auto& p : si) siIdx.push_back(tA(m, tSi, p));
         const double s3 = 1 / std::sqrt(3.0);
         std::vector<std::pair<V3, int>> oxy;   // позиции O и индекс
         for (size_t k = 0; k < si.size(); k++) {
-            std::vector<V3> dirs;
-            if (d3) { double sg = sb2[k] ? -1 : 1; dirs = {V3{s3, s3, s3} * sg, V3{s3, -s3, -s3} * sg, V3{-s3, s3, -s3} * sg, V3{-s3, -s3, s3} * sg}; }
-            else dirs = {V3{1, 0, 0}, V3{-1, 0, 0}, V3{0, 1, 0}, V3{0, -1, 0}};
-            for (auto& d : dirs) {
-                V3 po = si[k] + d * rSO; int oi = -1;
+            const double sg = sb2[k] ? -1 : 1;
+            for (V3 d : {V3{s3, s3, s3}, V3{s3, -s3, -s3}, V3{-s3, s3, -s3}, V3{-s3, -s3, s3}}) {
+                V3 po = si[k] + d * (sg * rSO); int oi = -1;
                 for (auto& q : oxy) { V3 dd = q.first - po; if (vdot(dd, dd) < 1e-4) { oi = q.second; break; } }
                 if (oi < 0) { oi = tA(m, E_O, po); oxy.push_back({po, oi}); }
                 tB(m, siIdx[k], oi);
@@ -1535,7 +1653,7 @@ static bool buildLibTmpl(int idx, Tmpl& m) {
         for (auto& q : oxy) if (bondCount(m, q.second) == 1) {   // O–H на поверхности (угол Si–O–H ≈ 104.5°)
             int s = -1; for (auto& b : m.b) { if (b[1] == q.second) s = b[0]; }
             V3 u = vunit(V3{m.a[s].x, m.a[s].y, m.a[s].z} - q.first);
-            V3 g = std::fabs(u.z) < 0.9 ? V3{0, 0, 1} : V3{0, 1, 0}; if (!d3) g = V3{-u.y, u.x, 0};
+            V3 g = std::fabs(u.z) < 0.9 ? V3{0, 0, 1} : V3{0, 1, 0};
             V3 w = vunit(g - u * vdot(g, u)); double th = 104.5 * PI / 180;
             int h = tA(m, E_H, q.first + (u * std::cos(th) + w * std::sin(th)) * rOH); tB(m, q.second, h);
         }
@@ -1548,6 +1666,8 @@ static bool buildLibTmpl(int idx, Tmpl& m) {
     case ML_AG: metalCluster(m, typeOfZ(47), 2.05); break;
     case ML_AL: metalCluster(m, typeOfZ(13), 2.05); break;
     case ML_PD: metalCluster(m, typeOfZ(46), 2.05); break;
+    case ML_RH: metalCluster(m, typeOfZ(45), 2.05); break;
+    case ML_PB: metalCluster(m, typeOfZ(82), 2.05); break;
     default: return false;
     }
     relaxTmpl(m);
@@ -1556,14 +1676,14 @@ static bool buildLibTmpl(int idx, Tmpl& m) {
 }
 static Tmpl libTmpl(int idx) { Tmpl m; buildLibTmpl(idx, m); return m; }
 // Вставить молекулу/структуру библиотеки в точку (x, y, z) со случайной ориентацией и тепловой скоростью P.Tset.
-// Сама пересчитывает присутствие типов, силы и опорную энергию. false — не поместилась (перекрытие, стенки) или
-// недоступна в этой размерности (лёд — только 3D). Отмену (pushUndo) делает вызывающий.
+// Сама пересчитывает присутствие типов, силы и опорную энергию. false — не поместилась (перекрытие, стенки).
+// Отмену (pushUndo) делает вызывающий.
 static bool insertMolecule(int idx, double x, double y, double z) {
     Tmpl m; if (!buildLibTmpl(idx, m)) return false;
     bool ok = false;
     for (int tr = 0; tr < 16 && !ok; tr++) {
         double j = 0.35 * tr;
-        ok = placeMol(m, x + j * (urand() - 0.5), y + j * (urand() - 0.5), DIM == 3 ? z + j * (urand() - 0.5) : 0, P.Tset, 0.8);
+        ok = placeMol(m, x + j * (urand() - 0.5), y + j * (urand() - 0.5), z + j * (urand() - 0.5), P.Tset, 0.8);
     }
     if (ok) { updatePresence(); computeForces(); resetEnergyRef(); }
     return ok;

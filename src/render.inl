@@ -102,7 +102,7 @@ static inline double realK(double T) { return T * cfg::U_T_K; }
 static inline double realBar(double P) { return P * cfg::U_P_ATM * 1.01325; }
 static inline double realNm(double L) { return L * cfg::U_L_NM; }
 static inline double realPs(double t) { return t * cfg::U_T_PS; }
-// плотность массы, г/см³: 10 а.е.м./σ³ = 0.4206 г/см³ (в 2D — слой толщиной σ)
+// плотность массы, г/см³: 10 а.е.м./σ³ = 0.4206 г/см³
 static inline double massDensity(double mass10, double vol) { return vol > 0 ? 0.42063 * mass10 / vol : 0; }
 
 struct Glyph { float u0, v0, u1, v1, w, h, adv; };
@@ -453,11 +453,10 @@ static void drawIcon(int ic, float cx, float cy, float s, RGBA c) {
 }
 
 // ===================================== КАМЕРА ==========================================
-// 2D: ортографическая (центр + масштаб). 3D: перспективная камера на сфере вокруг цели (yaw, pitch, dist).
+// Перспективная камера на сфере вокруг цели (yaw, pitch, dist).
 // Любой ввод меняет «цель» camGoal, а сама камера cam3 плавно догоняет её (экспоненциальное сглаживание) —
 // повороты, наезды, готовые ракурсы и слежение за атомом выглядят плавно.
 static float sceneX = 0, sceneY = 46, sceneW = 1000, sceneH = 760;
-static double camCX = 20, camCY = 15, camZoom = 20;   // 2D: центр и пикселей на σ
 struct Cam3 { double yaw = 0.65, pitch = 0.42, dist = 50, tx = 0, ty = 0, tz = 0, fov = 38; bool autoRot = false; } cam3, camGoal;
 static int camMode = 0;                 // 0 — орбита вокруг цели, 1 — полёт (WASD/QE)
 static bool sliceOn = false; static double sliceOff = 0;   // разрез: скрыть всё ближе плоскости (dist + sliceOff)
@@ -474,7 +473,6 @@ static inline void camOffset(const Cam3& c, double* off) {   // вектор о�
 }
 static void camSetup() {
     scx = sceneX + sceneW / 2; scy = sceneY + sceneH / 2;
-    if (DIM == 2) return;
     double off[3]; camOffset(cam3, off);
     eyeP[0] = cam3.tx + off[0]; eyeP[1] = cam3.ty + off[1]; eyeP[2] = cam3.tz + off[2];
     for (int k = 0; k < 3; k++) camF[k] = -off[k] / cam3.dist;
@@ -489,7 +487,6 @@ static void camSetup() {
 static inline double sliceDepth() { return cam3.dist + sliceOff; }
 // мировые координаты → экран; depth — расстояние вдоль взгляда, scale — пикселей на σ в этой точке
 static inline bool project(double x, double y, double z, float& sx, float& sy, float& depth, float& scale) {
-    if (DIM == 2) { sx = (float)(scx + (x - camCX) * camZoom); sy = (float)(scy - (y - camCY) * camZoom); depth = 0; scale = (float)camZoom; return true; }
     double dx = x - eyeP[0], dy = y - eyeP[1], dz = z - eyeP[2];
     double zv = dx * camF[0] + dy * camF[1] + dz * camF[2];
     if (zv < 0.3) return false;
@@ -499,57 +496,42 @@ static inline bool project(double x, double y, double z, float& sx, float& sy, f
     return true;
 }
 static inline double viewDepth(double x, double y, double z) { return (x - eyeP[0]) * camF[0] + (y - eyeP[1]) * camF[1] + (z - eyeP[2]) * camF[2]; }
-static void screenToWorld2D(double sx, double sy, double& wx, double& wy) {
-    wx = camCX + (sx - scx) / camZoom; wy = camCY - (sy - scy) / camZoom;
-}
 // луч взгляда через точку экрана
 static void mouseRay(double mx, double my, double* o, double* d) {
-    if (DIM == 2) { screenToWorld2D(mx, my, o[0], o[1]); o[2] = -1; d[0] = 0; d[1] = 0; d[2] = 1; return; }
     double a = (mx - scx) / focal, b = -(my - scy) / focal;
     for (int k = 0; k < 3; k++) { o[k] = eyeP[k]; d[k] = camR[k] * a + camU[k] * b + camF[k]; }
     double l = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]); for (int k = 0; k < 3; k++) d[k] /= l;
 }
 // точка на луче на заданной глубине (вдоль направления взгляда)
 static void unprojectAtDepth(double mx, double my, double depth, double& x, double& y, double& z) {
-    if (DIM == 2) { screenToWorld2D(mx, my, x, y); z = 0; return; }
     double a = (mx - scx) / focal * depth, b = -(my - scy) / focal * depth;
     x = eyeP[0] + camR[0] * a + camU[0] * b + camF[0] * depth;
     y = eyeP[1] + camR[1] * a + camU[1] * b + camF[1] * depth;
     z = eyeP[2] + camR[2] * a + camU[2] * b + camF[2] * depth;
 }
-// точка под курсором на плоскости через центр ящика, перпендикулярной взгляду (для объектов поля в 3D)
+// точка под курсором на плоскости через центр ящика, перпендикулярной взгляду (для объектов поля)
 static void cursorOnMidPlane(double mx, double my, double& x, double& y, double& z) {
-    if (DIM == 2) { screenToWorld2D(mx, my, x, y); z = 0; return; }
     unprojectAtDepth(mx, my, viewDepth(S.Lx / 2, S.Ly / 2, S.Lz / 2), x, y, z);
 }
 // пересечение луча с ящиком (метод пластин): отрезок [t0, t1]
 static bool rayBox(const double* o, const double* d, double& t0, double& t1) {
-    double L[3] = {S.Lx, S.Ly, DIM == 3 ? S.Lz : 1e9};
+    double L[3] = {S.Lx, S.Ly, S.Lz};
     t0 = -1e30; t1 = 1e30;
     for (int k = 0; k < 3; k++) {
-        if (DIM == 2 && k == 2) continue;
         if (std::fabs(d[k]) < 1e-12) { if (o[k] < 0 || o[k] > L[k]) return false; continue; }
         double a = (0 - o[k]) / d[k], b = (L[k] - o[k]) / d[k]; if (a > b) std::swap(a, b);
         t0 = std::max(t0, a); t1 = std::min(t1, b);
     }
-    if (DIM == 2) { t0 = 1; t1 = 1; return o[0] >= 0 && o[0] <= S.Lx && o[1] >= 0 && o[1] <= S.Ly; }
     return t1 > std::max(t0, 0.0);
 }
 // вписать ящик в окно; snap — мгновенно (при смене пресета), иначе плавный наезд
 static void fitView(bool snap = true) {
     camSetup();
-    if (DIM == 2) {
-        // сверху место под заголовок пресета
-        float top = uiPx(40);
-        camZoom = std::min((sceneW - uiPx(24)) / (S.Lx + 1.0), (sceneH - top - uiPx(40)) / (S.Ly + 1.0));
-        camCX = S.Lx / 2; camCY = S.Ly / 2 + (top - uiPx(40)) * 0.5 / camZoom;
-    } else {
-        camGoal.tx = S.Lx / 2; camGoal.ty = S.Ly / 2; camGoal.tz = S.Lz / 2; camGoal.fov = cam3.fov;
-        double r = 0.5 * std::sqrt(S.Lx * S.Lx + S.Ly * S.Ly + S.Lz * S.Lz);
-        double fh = cam3.fov * PI / 360, fw = std::atan(std::tan(fh) * sceneW / sceneH);
-        camGoal.dist = r / std::sin(std::min(fh, fw)) * 1.02;
-        if (snap) { camGoal.autoRot = cam3.autoRot; cam3 = camGoal; }
-    }
+    camGoal.tx = S.Lx / 2; camGoal.ty = S.Ly / 2; camGoal.tz = S.Lz / 2; camGoal.fov = cam3.fov;
+    double r = 0.5 * std::sqrt(S.Lx * S.Lx + S.Ly * S.Ly + S.Lz * S.Lz);
+    double fh = cam3.fov * PI / 360, fw = std::atan(std::tan(fh) * sceneW / sceneH);
+    camGoal.dist = r / std::sin(std::min(fh, fw)) * 1.02;
+    if (snap) { camGoal.autoRot = cam3.autoRot; cam3 = camGoal; }
     camSetup();
 }
 // готовый ракурс: поворот по кратчайшему пути
@@ -568,17 +550,6 @@ static void camRotate(double dyaw, double dpitch) {
 static void camTranslate(double dx, double dy, double dz) { camGoal.tx += dx; camGoal.ty += dy; camGoal.tz += dz; }
 // шаг камеры за кадр: автоповорот, полёт, слежение, сглаживание
 static void camUpdate(double dt, bool focused) {
-    if (DIM == 2) {
-        if (followAtom >= 0 && followAtom < S.n) {
-            double k = 1 - std::exp(-dt / 0.15), dx = S.x[followAtom] - camCX, dy = S.y[followAtom] - camCY;
-            if (isPer()) {   // переход через периодическую границу — перенос вида вместе с атомом
-                if (std::fabs(dx) > S.Lx / 2) { double sh = S.Lx * std::nearbyint(dx / S.Lx); camCX += sh; dx -= sh; }
-                if (std::fabs(dy) > S.Ly / 2) { double sh = S.Ly * std::nearbyint(dy / S.Ly); camCY += sh; dy -= sh; }
-            }
-            camCX += dx * k; camCY += dy * k;
-        }
-        return;
-    }
     if (cam3.autoRot) camGoal.yaw += 0.25 * dt;
     if (camMode == 1 && focused) {   // полёт: W/S — вперёд/назад, A/D — влево/вправо, Q/E — вниз/вверх, Shift — быстрее
         double L = std::max({S.Lx, S.Ly, S.Lz}), v = 0.45 * L * dt * (isDown(VK_SHIFT) ? 3.0 : 1.0);
@@ -607,7 +578,7 @@ static void camUpdate(double dt, bool focused) {
 }
 static bool inScene(int x, int y) { return x >= sceneX && x < sceneX + sceneW && y >= sceneY && y < sceneY + sceneH; }
 // пикселей на σ в плоскости цели камеры (для линейки масштаба и кистей)
-static inline double pxPerSigma() { return DIM == 3 ? focal / cam3.dist : camZoom; }
+static inline double pxPerSigma() { return focal / cam3.dist; }
 
 // ===================================== СОСТОЯНИЕ ИНСТРУМЕНТОВ (для отрисовки) =================
 // Инструменты левой кнопки мыши (lmbTool). Порядок значений сохраняется в файлах — новые только в конец.
@@ -654,7 +625,7 @@ static inline void quadUV(float x, float y, float R, float r, float g, float b, 
 // шар атома и его блик (левая и правая половины атласа texCore)
 static inline void quadAtom(float x, float y, float R, float r, float g, float b, float a) { quadUV(x, y, R, r, g, b, a, 0.0f, 0.5f); }
 static inline void quadSpec(float x, float y, float R, float a) { quadUV(x, y, R, 1, 1, 1, a, 0.5f, 1.0f); }
-// толстая линия как четырёхугольник (для связей в 3D): поперёк связи — полоса шара, получается объёмный «цилиндр»
+// толстая линия как четырёхугольник (для связей): поперёк связи — полоса шара, получается объёмный «цилиндр»
 static inline void segQuad(float x1, float y1, float x2, float y2, float w, float r, float g, float b, float a) {
     monoFix(r, g, b, "segQuad (цвет вершин)");
     float dx = x2 - x1, dy = y2 - y1, l = std::sqrt(dx * dx + dy * dy); if (l < 0.5f) return;
@@ -684,26 +655,22 @@ static void atomColor(int i, float& r, float& g, float& b, double emin, double e
     r = e.r; g = e.g; b = e.b;
     if (e.fixed) return;
     if (colorMode == 1) {   // по скорости
-        double vT = std::sqrt(DIM * std::max(EN.T, 0.02) / e.m), v = std::sqrt(S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]);
+        double vT = std::sqrt(3 * std::max(EN.T, 0.02) / e.m), v = std::sqrt(S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]);
         velMap((float)clampv(v / vT / 2.0, 0.0, 1.0), r, g, b);
     } else if (colorMode == 2) {   // по потенциальной энергии
         float u = (float)clampv((S.ep[i] - emin) / std::max(1e-6, emax - emin), 0.0, 1.0);
         hsv(0.66f - 0.66f * u, 0.62f, 0.92f, r, g, b);
-    } else if (colorMode == 3 && i < (int)A::stype.size()) {
-        if (DIM == 2) {   // ориентация ψ6 (зёрна) и |ψ6|
-            hsv((float)((A::ordHue[i] + PI) / (2 * PI)), 0.62f, 0.25f + 0.7f * A::ordMag[i], r, g, b);
-        } else {          // тип локальной структуры (как в OVITO): ГЦК зелёный, ГПУ красный, ОЦК синий, ПК жёлтый
-            switch (A::stype[i]) {
-            case ST_FCC: r = 0.40f; g = 0.82f; b = 0.45f; break;
-            case ST_HCP: r = 0.92f; g = 0.40f; b = 0.34f; break;
-            case ST_BCC: r = 0.38f; g = 0.56f; b = 0.95f; break;
-            case ST_SC: r = 0.92f; g = 0.80f; b = 0.34f; break;
-            case ST_ICE: r = 0.65f; g = 0.88f; b = 0.98f; break;
-            default: r = g = b = 0.35f + 0.45f * std::min(1.0f, A::ordMag[i] * 2.0f); b += 0.04f;
-            }
+    } else if (colorMode == 3 && i < (int)A::stype.size()) {   // тип локальной структуры (как в OVITO): ГЦК зелёный, ГПУ красный, ОЦК синий, ПК жёлтый
+        switch (A::stype[i]) {
+        case ST_FCC: r = 0.40f; g = 0.82f; b = 0.45f; break;
+        case ST_HCP: r = 0.92f; g = 0.40f; b = 0.34f; break;
+        case ST_BCC: r = 0.38f; g = 0.56f; b = 0.95f; break;
+        case ST_SC: r = 0.92f; g = 0.80f; b = 0.34f; break;
+        case ST_ICE: r = 0.65f; g = 0.88f; b = 0.98f; break;
+        default: r = g = b = 0.35f + 0.45f * std::min(1.0f, A::ordMag[i] * 2.0f); b += 0.04f;
         }
-    } else if (colorMode == 4 && i < (int)A::coord.size()) {   // координационное число: норма — 6 (2D) / 12 (3D)
-        int c = A::coord[i], n0 = DIM == 3 ? 12 : 6;
+    } else if (colorMode == 4 && i < (int)A::coord.size()) {   // координационное число: норма — 12
+        int c = A::coord[i], n0 = 12;
         if (c == n0) { r = 0.55f; g = 0.72f; b = 0.86f; } else if (c == n0 - 1) { r = 0.92f; g = 0.40f; b = 0.34f; }
         else if (c == n0 + 1) { r = 0.35f; g = 0.52f; b = 0.95f; } else if (c < n0 - 1 && c > n0 / 2) { r = 0.92f; g = 0.76f; b = 0.34f; }
         else if (c <= n0 / 2) { r = 0.42f; g = 0.44f; b = 0.48f; } else { r = 0.76f; g = 0.45f; b = 0.92f; }
@@ -715,7 +682,7 @@ static void atomColor(int i, float& r, float& g, float& b, double emin, double e
 static std::vector<float> psx, psy, pdep, pscl; static std::vector<char> pvis;
 static void projectAll() {
     int n = S.n; psx.resize(n); psy.resize(n); pdep.resize(n); pscl.resize(n); pvis.resize(n);
-    const bool cut = sliceOn && DIM == 3; const float cd = (float)sliceDepth();   // разрез: ближе плоскости — не видно
+    const bool cut = sliceOn; const float cd = (float)sliceDepth();   // разрез: ближе плоскости — не видно
 #pragma omp parallel for
     for (int i = 0; i < n; i++) pvis[i] = project(S.x[i], S.y[i], S.z[i], psx[i], psy[i], pdep[i], pscl[i]) && !(cut && pdep[i] < cd) ? 1 : 0;
 }
@@ -746,10 +713,9 @@ static RGBA foColor(const FieldObj& o, int idx) {
     if (!o.on) c.a *= 0.45f;
     return c;
 }
-// контур барьера: в 2D — отрезок; в 3D — «стадион» (все точки пластины на расстоянии ≤ R от отрезка)
+// контур барьера — «стадион»: все точки пластины на расстоянии ≤ R от отрезка
 static void barrierOutline(const FieldObj& o, std::vector<std::array<float, 2>>& pts) {
     pts.clear();
-    if (DIM == 2) { float a, b, c, d, dd, s; if (project(o.x, o.y, 0, a, b, dd, s) && project(o.x2, o.y2, 0, c, d, dd, s)) { pts.push_back({a, b}); pts.push_back({c, d}); } return; }
     double n[3] = {o.dx, o.dy, o.dz}, nl = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]); if (nl < 1e-9) { n[0] = 1; n[1] = n[2] = 0; nl = 1; }
     for (double& v : n) v /= nl;
     double u[3] = {o.x2 - o.x, o.y2 - o.y, o.z2 - o.z}, ul = std::sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
@@ -780,10 +746,8 @@ static void drawFieldObjs(bool over) {
         if (o.kind == FO_BARRIER) {
             barrierOutline(o, pts); if (pts.size() < 2) continue;
             if (!over) {
-                if (DIM == 3) { glColor4f(c.r, c.g, c.b, 0.07f * c.a); glBegin(GL_POLYGON); for (auto& p : pts) glVertex2f(p[0], p[1]); glEnd();
+                { glColor4f(c.r, c.g, c.b, 0.07f * c.a); glBegin(GL_POLYGON); for (auto& p : pts) glVertex2f(p[0], p[1]); glEnd();
                                 col(withA(c, 0.55f * c.a)); glEnable(GL_LINE_SMOOTH); glBegin(GL_LINE_LOOP); for (auto& p : pts) glVertex2f(p[0], p[1]); glEnd(); glDisable(GL_LINE_SMOOTH); }
-                else { glEnable(GL_LINE_SMOOTH); glLineWidth(std::max(2.0f, (float)(0.35 * camZoom))); col(withA(c, 0.5f * c.a)); glBegin(GL_LINES); segPx(pts[0][0], pts[0][1], pts[1][0], pts[1][1]); glEnd();
-                       glLineWidth(1); glDisable(GL_LINE_SMOOTH); }
             } else {
                 float ax, ay, bx, by;
                 if (!project(o.x, o.y, o.z, ax, ay, dd, sc) || !project(o.x2, o.y2, o.z2, bx, by, dd, sc)) continue;
@@ -798,8 +762,8 @@ static void drawFieldObjs(bool over) {
         if (!over) {   // зона действия: едва заметная заливка + тонкий пунктир
             if (R > 3) { glColor4f(c.r, c.g, c.b, (o.kind == FO_HEATER || o.kind == FO_COOLER ? 0.07f : 0.035f) * c.a); discPx(cx, cy, R, 64);
                          col(withA(c, (hot ? 0.75f : 0.4f) * c.a)); glEnable(GL_LINE_SMOOTH); if (o.on) circlePx(cx, cy, R, 96); else dashedCircle(cx, cy, R); glDisable(GL_LINE_SMOOTH); }
-            // направление (ветер / источник / ось вихря в 3D)
-            if (o.kind == FO_WIND || o.kind == FO_EMITTER || (o.kind == FO_VORTEX && DIM == 3)) {
+            // направление (ветер / источник / ось вихря)
+            if (o.kind == FO_WIND || o.kind == FO_EMITTER || o.kind == FO_VORTEX) {
                 float ex, ey, d2, s2; double L = std::max(o.R, 1.5);
                 if (project(o.x + o.dx * L, o.y + o.dy * L, o.z + o.dz * L, ex, ey, d2, s2)) {
                     float dx = ex - cx, dy = ey - cy, l = std::sqrt(dx * dx + dy * dy);
@@ -853,7 +817,7 @@ static bool measResult(double& d12, double& ang, double& dih) {
     for (int k = 0; k + 1 < measN; k++) dvec(measIdx[k], measIdx[k + 1], v[k][0], v[k][1], v[k][2]);
     d12 = std::sqrt(v[0][0] * v[0][0] + v[0][1] * v[0][1] + v[0][2] * v[0][2]);
     if (measN >= 3) { double a[3] = {-v[0][0], -v[0][1], -v[0][2]}; ang = angleDeg(a, v[1]); }
-    if (measN >= 4 && DIM == 3) {   // двугранный угол 1-2-3-4
+    if (measN >= 4) {   // двугранный угол 1-2-3-4
         const double *b1 = v[0], *b2 = v[1], *b3 = v[2];
         double n1[3] = {b1[1] * b2[2] - b1[2] * b2[1], b1[2] * b2[0] - b1[0] * b2[2], b1[0] * b2[1] - b1[1] * b2[0]};
         double n2[3] = {b2[1] * b3[2] - b2[2] * b3[1], b2[2] * b3[0] - b2[0] * b3[2], b2[0] * b3[1] - b2[1] * b3[0]};
@@ -886,7 +850,7 @@ static void drawMeasure() {
     auto dist = [&](int a, int b) { double dx, dy, dz; dvec(measIdx[a], measIdx[b], dx, dy, dz); return std::sqrt(dx * dx + dy * dy + dz * dz); };
     for (int k = 0; k + 1 < measN; k++) L.push_back(fmt("%d–%d  %.3f Å", k + 1, k + 2, dist(k, k + 1) * 3.405));
     if (measN >= 3) L.push_back(fmt("угол  %.1f°", ang));
-    if (measN >= 4 && DIM == 3) L.push_back(fmt("двугр.  %.1f°", dih));
+    if (measN >= 4) L.push_back(fmt("двугр.  %.1f°", dih));
     if (L.empty()) return;
     float bx = px[0], by = py[0];
     for (int k = 0; k < measN; k++) { bx = std::max(bx, px[k]); by = std::min(by, py[k]); }
@@ -897,20 +861,19 @@ static void drawMeasure() {
     for (size_t k = 0; k < L.size(); k++) drawText(fontS, bx + uiPx(7), by + uiPx(4) + k * lh, L[k], C_MEAS);
 }
 static void drawScene() {
-    const bool d3 = DIM == 3;
     glEnable(GL_SCISSOR_TEST); glScissor((int)sceneX, (int)(winH - sceneY - sceneH), (int)sceneW, (int)sceneH);
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_TEXTURE_2D);
     rectFill(sceneX, sceneY, sceneW, sceneH, C_SCENE);   // фон сцены — чистый чёрный
     projectAll();
-    // --- сетка (слой): 2D — в плоскости ящика, 3D — на «полу» (y = 0); шаг — «красивое» число нанометров
+    // --- сетка (слой) на «полу» (y = 0); шаг — «красивое» число нанометров
     if (layerGrid) {
         double pps = pxPerSigma(), stepNm = niceStep(realNm(uiPx(46) / std::max(1e-6, pps))), st = stepNm / cfg::U_L_NM;
         glEnable(GL_LINE_SMOOTH); glBegin(GL_LINES);
-        int nx = (int)(S.Lx / st), nz = (int)((d3 ? S.Lz : S.Ly) / st);
+        int nx = (int)(S.Lx / st), nz = (int)(S.Lz / st);
         if (nx < 400 && nz < 400) {
-            for (int k = 0; k <= nx; k++) { double x = k * st; glColor4f(1, 1, 1, k % 5 == 0 ? 0.11f : 0.05f); if (d3) line3(x, 0, 0, x, 0, S.Lz); else line3(x, 0, 0, x, S.Ly, 0); }
-            for (int k = 0; k <= nz; k++) { double z = k * st; glColor4f(1, 1, 1, k % 5 == 0 ? 0.11f : 0.05f); if (d3) line3(0, 0, z, S.Lx, 0, z); else line3(0, z, 0, S.Lx, z, 0); }
+            for (int k = 0; k <= nx; k++) { double x = k * st; glColor4f(1, 1, 1, k % 5 == 0 ? 0.11f : 0.05f); line3(x, 0, 0, x, 0, S.Lz); }
+            for (int k = 0; k <= nz; k++) { double z = k * st; glColor4f(1, 1, 1, k % 5 == 0 ? 0.11f : 0.05f); line3(0, 0, z, S.Lx, 0, z); }
         }
         glEnd(); glDisable(GL_LINE_SMOOTH);
     }
@@ -918,39 +881,29 @@ static void drawScene() {
     glLineWidth(1.0f);
     if (isPer()) { glEnable(GL_LINE_STIPPLE); glLineStipple(1, 0x3333); }
     col(isPer() ? withA(C_BOX, 0.4f) : C_BOX);
-    if (d3) { glEnable(GL_LINE_SMOOTH); boxEdges(S.Ly); glDisable(GL_LINE_SMOOTH); }
-    else { glBegin(GL_LINE_LOOP); float a, b, dd, s;
-        double c[4][2] = {{0, 0}, {S.Lx, 0}, {S.Lx, S.Ly}, {0, S.Ly}};
-        for (auto& p : c) { project(p[0], p[1], 0, a, b, dd, s); glVertex2f(std::floor(a) + 0.5f, std::floor(b) + 0.5f); } glEnd(); }
+    glEnable(GL_LINE_SMOOTH); boxEdges(S.Ly); glDisable(GL_LINE_SMOOTH);
     glDisable(GL_LINE_STIPPLE);
     // тепловые стенки: горячая — белая сплошная толстая линия, холодная — серый пунктир
     if (P.heatWalls && !isPer()) {
-        double Z = d3 ? S.Lz : 0;
+        double Z = S.Lz;
         glLineWidth(2.5f); col(withA(C_HOT, 0.9f)); glBegin(GL_LINES);
-        if (P.heatWalls == 1) { line3(0, 0, 0, 0, S.Ly, 0); if (d3) { line3(0, 0, Z, 0, S.Ly, Z); line3(0, 0, 0, 0, 0, Z); line3(0, S.Ly, 0, 0, S.Ly, Z); } }
-        else { line3(0, 0, 0, S.Lx, 0, 0); if (d3) { line3(0, 0, Z, S.Lx, 0, Z); line3(0, 0, 0, 0, 0, Z); line3(S.Lx, 0, 0, S.Lx, 0, Z); } }
+        if (P.heatWalls == 1) { line3(0, 0, 0, 0, S.Ly, 0); line3(0, 0, Z, 0, S.Ly, Z); line3(0, 0, 0, 0, 0, Z); line3(0, S.Ly, 0, 0, S.Ly, Z); }
+        else { line3(0, 0, 0, S.Lx, 0, 0); line3(0, 0, Z, S.Lx, 0, Z); line3(0, 0, 0, 0, 0, Z); line3(S.Lx, 0, 0, S.Lx, 0, Z); }
         glEnd();
         if (P.heatWalls == 1) {
             glLineWidth(2.0f); lineStyle(LS_DASH); col(withA(C_COLD, 0.9f)); glBegin(GL_LINES);
-            line3(S.Lx, 0, 0, S.Lx, S.Ly, 0); if (d3) { line3(S.Lx, 0, Z, S.Lx, S.Ly, Z); line3(S.Lx, 0, 0, S.Lx, 0, Z); line3(S.Lx, S.Ly, 0, S.Lx, S.Ly, Z); }
+            line3(S.Lx, 0, 0, S.Lx, S.Ly, 0); line3(S.Lx, 0, Z, S.Lx, S.Ly, Z); line3(S.Lx, 0, 0, S.Lx, 0, Z); line3(S.Lx, S.Ly, 0, S.Lx, S.Ly, Z);
             glEnd(); lineStyle(LS_SOLID);
         }
         glLineWidth(1.0f);
     }
     // поршень
     if (P.boundary == B_PISTON) {
-        if (d3) {
-            float p[4][2]; float dd, s; double Z = S.Lz;
-            double c[4][3] = {{0, S.Ly, 0}, {S.Lx, S.Ly, 0}, {S.Lx, S.Ly, Z}, {0, S.Ly, Z}};
-            bool ok = true; for (int k = 0; k < 4; k++) ok &= project(c[k][0], c[k][1], c[k][2], p[k][0], p[k][1], dd, s);
-            if (ok) { col(grayc(0.84f, 0.1f)); glBegin(GL_QUADS); for (auto& q : p) glVertex2f(q[0], q[1]); glEnd();
-                      col(grayc(0.84f, 0.75f)); glBegin(GL_LINE_LOOP); for (auto& q : p) glVertex2f(q[0], q[1]); glEnd(); }
-        } else {
-            float a0, b0, a1, b1, dd, s; project(0, S.Ly, 0, a0, b0, dd, s); project(S.Lx, S.Ly, 0, a1, b1, dd, s);
-            col(grayc(0.84f, pistonGrab ? 0.9f : 0.6f));
-            glBegin(GL_QUADS); glVertex2f(a0, b0 - 5); glVertex2f(a1, b0 - 5); glVertex2f(a1, b0); glVertex2f(a0, b0); glEnd();
-            col(grayc(0.84f, 0.3f)); glBegin(GL_LINES); glVertex2f((a0 + a1) / 2, b0 - 5); glVertex2f((a0 + a1) / 2, b0 - 40); glEnd();
-        }
+        float p[4][2]; float dd, s; double Z = S.Lz;
+        double c[4][3] = {{0, S.Ly, 0}, {S.Lx, S.Ly, 0}, {S.Lx, S.Ly, Z}, {0, S.Ly, Z}};
+        bool ok = true; for (int k = 0; k < 4; k++) ok &= project(c[k][0], c[k][1], c[k][2], p[k][0], p[k][1], dd, s);
+        if (ok) { col(grayc(0.84f, 0.1f)); glBegin(GL_QUADS); for (auto& q : p) glVertex2f(q[0], q[1]); glEnd();
+                  col(grayc(0.84f, 0.75f)); glBegin(GL_LINE_LOOP); for (auto& q : p) glVertex2f(q[0], q[1]); glEnd(); }
     }
     // катализатор: пунктирная окружность
     if (P.catalyst) {
@@ -966,7 +919,7 @@ static void drawScene() {
     if (P.efield != 0) {
         float a = (float)clampv(0.1 + 0.08 * std::fabs(P.efield), 0.12, 0.3), sgn = P.efield > 0 ? 1.0f : -1.0f;
         col(grayc(0.88f, a)); glEnable(GL_LINE_SMOOTH);
-        const int rows = 5, colsA = 6; double zm = d3 ? S.Lz / 2 : 0;
+        const int rows = 5, colsA = 6; double zm = S.Lz / 2;
         glBegin(GL_LINES);
         for (int r = 1; r <= rows; r++) for (int c = 0; c < colsA; c++) {
             double y = S.Ly * r / (rows + 1), x1 = S.Lx * (c + 0.2) / colsA, x2 = S.Lx * (c + 0.8) / colsA;
@@ -985,9 +938,9 @@ static void drawScene() {
     int n = S.n;
     std::vector<float> cr(n), cg(n), cb(n);
     float dmin = 1e30f, dmax = -1e30f;
-    for (int i = 0; i < n; i++) { atomColor(i, cr[i], cg[i], cb[i], emin, emax); if (d3 && pvis[i]) { dmin = std::min(dmin, pdep[i]); dmax = std::max(dmax, pdep[i]); } }
+    for (int i = 0; i < n; i++) { atomColor(i, cr[i], cg[i], cb[i], emin, emax); if (pvis[i]) { dmin = std::min(dmin, pdep[i]); dmax = std::max(dmax, pdep[i]); } }
     // глубинное затемнение к чёрному (depth cue): ближние атомы яркие, дальние — тусклее
-    auto fog = [&](float dep) { if (!d3 || dmax <= dmin) return 1.0f; float t = (dep - dmin) / (dmax - dmin); return 1.0f - 0.62f * std::pow(t, 0.85f); };
+    auto fog = [&](float dep) { if (dmax <= dmin) return 1.0f; float t = (dep - dmin) / (dmax - dmin); return 1.0f - 0.62f * std::pow(t, 0.85f); };
     // --- следы
     if (trailsOn && trailCount > 1 && n > 0 && trailN == n) {
         size_t m = trailIdx.size(); glLineWidth(1.0f);
@@ -998,7 +951,7 @@ static void drawScene() {
             for (int s = 1; s < trailCount; s++) {
                 int a = (trailHead - s + TRAIL) % TRAIL, b = (trailHead - s - 1 + TRAIL) % TRAIL;
                 float x1 = trailX[a * m + k], y1 = trailY[a * m + k], z1 = trailZ[a * m + k], x2 = trailX[b * m + k], y2 = trailY[b * m + k], z2 = trailZ[b * m + k];
-                if (std::fabs(x1 - x2) > S.Lx / 2 || std::fabs(y1 - y2) > S.Ly / 2 || (d3 && std::fabs(z1 - z2) > S.Lz / 2)) continue;
+                if (std::fabs(x1 - x2) > S.Lx / 2 || std::fabs(y1 - y2) > S.Ly / 2 || std::fabs(z1 - z2) > S.Lz / 2) continue;
                 glColor4f(cr[ai], cg[ai], cb[ai], 0.4f * (1.0f - (float)s / trailCount));
                 line3(x1, y1, z1, x2, y2, z2);
             }
@@ -1023,14 +976,14 @@ static void drawScene() {
         if (R > 2) { col(withA(C_COLD, (1 - t) * 0.5f)); circlePx(sx, sy, R, 32); }
     }
     glDisable(GL_LINE_SMOOTH);
-    // --- ядра атомов и связи: в 3D — от дальних к ближним (алгоритм художника), связи — тонкие палочки между шарами
-    const bool ballStick = d3 && bondsOn && anyBondable;
+    // --- ядра атомов и связи от дальних к ближним (алгоритм художника), связи — тонкие палочки между шарами
+    const bool ballStick = bondsOn && anyBondable;
     const float coreK = (ballStick ? 0.3f : 0.42f) * (float)atomVis;
     std::vector<DrawItem> items; items.reserve(n * 2);
     for (int i = 0; i < n; i++) if (pvis[i]) items.push_back({pdep[i], i, -1});
-    if (d3 && bondsOn)
+    if (bondsOn)
         for (int i = 0; i < n; i++) for (int k = 0; k < S.nbc[i]; k++) { int j = S.nb[i][k]; if (j > i && pvis[i] && pvis[j]) items.push_back({0.5f * (pdep[i] + pdep[j]) + 0.01f, i, j}); }
-    if (d3) std::sort(items.begin(), items.end(), [](const DrawItem& a, const DrawItem& b) { return a.depth > b.depth; });
+    std::sort(items.begin(), items.end(), [](const DrawItem& a, const DrawItem& b) { return a.depth > b.depth; });
     vb.reserve((size_t)items.size() * 64);
     for (auto& it : items) {
         if (it.b < 0) {
@@ -1048,22 +1001,6 @@ static void drawScene() {
         }
     }
     flushQuads(texCore);
-    // --- связи в 2D: тонкие линии; кратные связи — параллельными штрихами
-    if (!d3 && bondsOn) {
-        glEnable(GL_LINE_SMOOTH);
-        const float lw = (float)clampv(camZoom * 0.03, 1.0, 2.2), gap = (float)clampv(camZoom * 0.07, 1.6, 4.0);
-        glLineWidth(lw); glBegin(GL_LINES);
-        for (int i = 0; i < n; i++) for (int k = 0; k < S.nbc[i]; k++) {
-            int j = S.nb[i][k]; if (j < i) continue;
-            double dx, dy, dz; dvec(i, j, dx, dy, dz);
-            float ax, ay, bx, by, dd, s; project(S.x[i], S.y[i], 0, ax, ay, dd, s); project(S.x[i] + dx, S.y[i] + dy, 0, bx, by, dd, s);
-            float ex = bx - ax, ey = by - ay, l = std::sqrt(ex * ex + ey * ey); if (l < 1) continue;
-            float nx = -ey / l, ny = ex / l; int o = S.bo[i][k];
-            col(grayc(0.92f, 0.55f));
-            for (int q = 0; q < o; q++) { float off = (q - (o - 1) * 0.5f) * gap; segPx(ax + nx * off, ay + ny * off, bx + nx * off, by + ny * off); }
-        }
-        glEnd(); glLineWidth(1.0f); glDisable(GL_LINE_SMOOTH);
-    }
     // --- слои: заряды, скорости, силы, закреплённые атомы, выделение
     glEnable(GL_LINE_SMOOTH);
     if (layerCharges && anyCharge) {
@@ -1140,7 +1077,7 @@ static void drawScene() {
         rectFill(x0, y0, w, h, withA(C_ACC, 0.07f));
         glEnable(GL_LINE_STIPPLE); glLineStipple(1, 0x3333); rectLine(x0, y0, w, h, withA(C_ACC, 0.9f)); glDisable(GL_LINE_STIPPLE);
     }
-    // --- кисть инструмента: окружность радиуса R (в 3D — в плоскости цели камеры)
+    // --- кисть инструмента: окружность радиуса R в плоскости цели камеры
     if (inScene(mouseX, mouseY) && !helpOn && !ptOn && !menuOn) {
         const int tl = lmbTool; const bool brushTool = tl == TOOL_ADD || tl == TOOL_ERASE || tl == TOOL_HEAT || tl == TOOL_COOL || tl == TOOL_PUSH || tl == TOOL_SHOCK;
         if (brushTool || heatBrush) {
@@ -1178,11 +1115,9 @@ static void drawScene() {
 }
 // ---- легенда цветов (правый нижний угол сцены), линейка масштаба и оси (левый нижний угол)
 static void drawLegendAndScale(double emin, double emax) {
-    const bool d3 = DIM == 3;
     const float pad = uiPx(10), by = sceneY + sceneH - pad;   // нижняя граница подписей
     float lx0 = sceneX + pad;
-    // оси-триада (3D)
-    if (d3) {
+    {   // оси-триада
         float L = uiPx(22), ox = lx0 + L + uiPx(4), oy = by - L - uiPx(4); const char* nm[3] = {"x", "y", "z"};
         RGBA cc[3] = {grayc(1.0f), grayc(0.72f), grayc(0.48f)};   // оси различаются яркостью и подписями
         glEnable(GL_LINE_SMOOTH);
@@ -1205,7 +1140,7 @@ static void drawLegendAndScale(double emin, double emax) {
         col(withA(C_TEXT, 0.85f));
         rectFill(lx0, y, lpx, 1, withA(C_TEXT, 0.85f)); rectFill(lx0, y - uiPx(4), 1, uiPx(5), withA(C_TEXT, 0.85f)); rectFill(lx0 + lpx - 1, y - uiPx(4), 1, uiPx(5), withA(C_TEXT, 0.85f));
         drawText(fontXS, lx0 + lpx / 2 - textW(fontXS, lab) / 2, y - uiPx(4) - fontXS.h, lab, withA(C_TEXT, 0.85f));
-        if (d3) drawText(fontXS, lx0 + lpx + uiPx(8), y - fontXS.h * 0.6f, "(в центре вида)", withA(C_DIM, 0.8f));
+        drawText(fontXS, lx0 + lpx + uiPx(8), y - fontXS.h * 0.6f, "(в центре вида)", withA(C_DIM, 0.8f));
     }
     if (!layerLegend) return;
     float lw = uiPx(180), lx = sceneX + sceneW - lw - pad, ly = by - uiPx(12);
@@ -1235,10 +1170,9 @@ static void drawLegendAndScale(double emin, double emax) {
     if (colorMode == 1) bar("цвет — скорость атома", "медленно", "быстро", velMap);
     else if (colorMode == 2) bar("цвет — потенциальная энергия, ε", fmt("%.1f", emin > 1e29 ? 0.0 : emin), fmt("%.1f", emax < -1e29 ? 0.0 : emax),
                                  [](float u, float& r, float& g, float& b) { hsv(0.66f - 0.66f * u, 0.62f, 0.92f, r, g, b); });
-    else if (colorMode == 3 && !d3) bar("цвет — ориентация зерна ψ6, яркость — порядок", "0°", "60°", [](float u, float& r, float& g, float& b) { hsv(u, 0.62f, 0.92f, r, g, b); });
     else if (colorMode == 3) swatches("цвет — локальная структура", {{"ГЦК", {0.40f, 0.82f, 0.45f, 1}}, {"ГПУ", {0.92f, 0.40f, 0.34f, 1}}, {"ОЦК", {0.38f, 0.56f, 0.95f, 1}},
                                                                      {"ПК/NaCl", {0.92f, 0.80f, 0.34f, 1}}, {"лёд", {0.65f, 0.88f, 0.98f, 1}}, {"прочее", {0.55f, 0.56f, 0.6f, 1}}});
-    else if (colorMode == 4) { int n0 = d3 ? 12 : 6;
+    else if (colorMode == 4) { const int n0 = 12;
         swatches("цвет — число соседей", {{fmt("%d норма", n0), {0.55f, 0.72f, 0.86f, 1}}, {fmt("%d", n0 - 1), {0.92f, 0.40f, 0.34f, 1}}, {fmt("%d", n0 + 1), {0.35f, 0.52f, 0.95f, 1}},
                                          {"мало", {0.92f, 0.76f, 0.34f, 1}}, {"газ", {0.42f, 0.44f, 0.48f, 1}}}); }
     else if (colorMode == 5) {

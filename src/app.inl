@@ -40,7 +40,7 @@ static void openManual() {
     showToast(msg);
 }
 // ---- язык интерфейса: atoms.ini рядом с atoms.exe (строка lang=ru|en), по умолчанию — язык Windows
-static const char* WINDOW_TITLE = "Атомы — молекулярная динамика и химия (2D/3D)";
+static const char* WINDOW_TITLE = "Атомы — молекулярная динамика и химия";
 static std::wstring iniPath() { return exeDir() + L"\\atoms.ini"; }
 static bool iniLangLine(const char* p, int* val) {   // «lang = en» (пробелы и BOM допускаются)
     if (!strncmp(p, "\xEF\xBB\xBF", 3)) p += 3;
@@ -96,14 +96,14 @@ static bool saveState(const std::wstring& path, bool quiet) {
     auto wv = [&](const auto& v) { w(v.data(), v.size() * sizeof(v[0])); };
     uint32_t ver = 3, szP = sizeof(Params), szC = sizeof(Cam3);
     w(SAVE_MAGIC, 8); w(&ver, 4); w(&szP, 4); w(&szC, 4);
-    int32_t hdr[8] = {DIM, currentPreset, presetVariant, colorMode, (int)trailsOn, (int)bondsOn, EL[customType].Z, lmbTool}; w(hdr, sizeof(hdr));
+    int32_t hdr[8] = {3, currentPreset, presetVariant, colorMode, (int)trailsOn, (int)bondsOn, EL[customType].Z, lmbTool}; w(hdr, sizeof(hdr));
     w(&P, sizeof(Params));
     int32_t n = S.n; w(&n, 4);
     double sc[9] = {S.Lx, S.Ly, S.Lz, S.pistonV, S.pistonM, S.xi, S.eta, S.t, (double)S.step}; w(sc, sizeof(sc));
     for (auto* v : {&S.x, &S.y, &S.z, &S.vx, &S.vy, &S.vz, &S.ux, &S.uy, &S.uz, &S.q}) wv(*v);
     wv(S.ty); wv(S.nb); wv(S.bo); wv(S.nbc); wv(S.bc); wv(S.gh); wv(S.ghc);
     uint32_t tl = (uint32_t)presetTitle.size(); w(&tl, 4); w(presetTitle.data(), tl);
-    w(&cam3, sizeof(Cam3)); double c2[3] = {camCX, camCY, camZoom}; w(c2, sizeof(c2)); int32_t cm = camMode; w(&cm, 4);
+    w(&cam3, sizeof(Cam3)); double c2[3] = {0, 0, 0}; w(c2, sizeof(c2)); int32_t cm = camMode; w(&cm, 4);   // c2 — место бывшей плоской камеры
     long long ch[3] = {CH.assoc, CH.exch, CH.diss}; w(ch, sizeof(ch));
     // --- блоки версии 3
     auto chunk = [&](const char* tag, uint32_t size) { w(tag, 4); w(&size, 4); };
@@ -131,7 +131,8 @@ static bool loadState(const std::wstring& path) {
     { size_t m = std::min<size_t>(szP, sizeof(Params)); r(&np, m); skip((long)szP - (long)m); }
     int32_t n = 0; r(&n, 4);
     if (!ok || n < 0 || n > 2000000 || (hdr[0] != 2 && hdr[0] != 3)) { fclose(f); showToast("Файл повреждён"); return false; }
-    Sim ns; ns.resize(n); ns.n = n; ns.dim = hdr[0];
+    if (hdr[0] == 2) { fclose(f); showToast("Файл сохранён в плоском режиме старой версии — сейчас модель только объёмная"); return false; }
+    Sim ns; ns.resize(n); ns.n = n;
     double sc[9]; r(sc, sizeof(sc));
     ns.Lx = sc[0]; ns.Ly = sc[1]; ns.Lz = sc[2]; ns.pistonV = sc[3]; ns.pistonM = sc[4]; ns.xi = sc[5]; ns.eta = sc[6]; ns.t = sc[7]; ns.step = (long long)sc[8];
     auto rv = [&](auto& v) { r(v.data(), v.size() * sizeof(v[0])); };
@@ -172,14 +173,14 @@ static bool loadState(const std::wstring& path) {
     if (!ok) { showToast("Файл повреждён — состояние не изменено"); return false; }
     pushUndo();
     bool pz = P.paused;
-    DIM = hdr[0]; S = std::move(ns); P = np; P.paused = pz;
+    S = std::move(ns); P = np; P.paused = pz;
     currentPreset = hdr[1]; presetVariant = hdr[2]; colorMode = clampv(hdr[3], 0, COLOR_N - 1); trailsOn = hdr[4] != 0; bondsOn = hdr[5] != 0; lmbTool = clampv(hdr[7], 0, TOOL_N - 1);
     // заголовок — исходный литерал (перевод при выводе); пометка «загружено» — отдельно (старые файлы хранили её в заголовке)
     { const std::string mark = "  [загружено]"; while (title.size() >= mark.size() && title.compare(title.size() - mark.size(), mark.size(), mark) == 0) title.resize(title.size() - mark.size()); }
     presetTitle = title; presetLoaded = true;
     if (typeOfZ(hdr[6]) >= 0) customType = typeOfZ(hdr[6]);
-    onDimChanged();
-    cam3 = c3; camGoal = c3; camCX = c2[0]; camCY = c2[1]; camZoom = c2[2]; camMode = cm == 1 ? 1 : 0;
+    rebuildTables();
+    cam3 = c3; camGoal = c3; camMode = cm == 1 ? 1 : 0;
     CH.assoc = ch[0]; CH.exch = ch[1]; CH.diss = ch[2];
     grabbed = -1; followAtom = -1; pistonGrab = false; flashes.clear(); script.clear();
     fieldObjs = haveFO ? fo : std::vector<FieldObj>(); selFieldObj = -1; clearToolState();
@@ -225,7 +226,7 @@ static void exportCSV() {
     };
     auto row = [&](const std::vector<std::string>& cs) { for (size_t k = 0; k < cs.size(); k++) { if (k) fputc(sep, f); fputs(cell(cs[k]).c_str(), f); } fputc('\n', f); };
     fputs("\xEF\xBB\xBF", f);
-    row({T("Атомы — экспорт"), std::string(T(presetTitle)) + (presetLoaded ? T("  [загружено]") : ""), fmt("%dD", DIM), fmt("N=%d", S.n), "t=" + num(S.t)});
+    row({T("Атомы — экспорт"), std::string(T(presetTitle)) + (presetLoaded ? T("  [загружено]") : ""), fmt("N=%d", S.n), "t=" + num(S.t)});
     fputc('\n', f);
     row({T("Временные ряды")}); row({"t", "T", "P", T("Eкин"), T("Eпот"), T("Eполн")});
     for (size_t k = 0; k < A::sT.v.size(); k++)
@@ -379,7 +380,7 @@ static void selectAll() {
 static void loadPresetKey(int p) { openScene(p); }   // повтор той же клавиши — следующий вариант, объекты пользователя сохраняются
 static void handleKeys() {
     for (int k : in.keys) {
-        const bool ctrl = isDown(VK_CONTROL), shift = isDown(VK_SHIFT), d3 = DIM == 3, fly = d3 && camMode == 1;
+        const bool ctrl = isDown(VK_CONTROL), shift = isDown(VK_SHIFT), fly = camMode == 1;
         if (k >= 0x10000) {   // Alt+клавиша: выбор инструмента
             int vk = k - 0x10000;
             if (vk >= '0' && vk <= '9') setTool(TOOL_BY_DIGIT[vk - '0']);
@@ -413,7 +414,6 @@ static void handleKeys() {
         case VK_SPACE: P.paused = !P.paused; break;
         case 'S': P.paused = true; mdStep(); analysisTick(); break;
         case 'R': cmdReset(); break;
-        case 'D': toggleDim(); break;
         case 'O': cam3.autoRot = !cam3.autoRot; break;
         case 'H': helpOn = !helpOn; break;
         case 'G': graphsOn = !graphsOn; viewFitPending = true; break;
@@ -433,12 +433,10 @@ static void handleKeys() {
             else if (!selList.empty()) selDelete();
             break;
         case 'V':
-            if (d3) { camMode ^= 1; showToast(camMode ? "Полёт: WASD — движение, Q/E — вниз/вверх, Shift — быстрее, Ctrl+ЛКМ — осмотреться" : "Камера: орбита вокруг центра"); }
-            else showToast("Режим полёта — только в 3D (клавиша D)");
+            camMode ^= 1; showToast(camMode ? "Полёт: WASD — движение, Q/E — вниз/вверх, Shift — быстрее, Ctrl+ЛКМ — осмотреться" : "Камера: орбита вокруг центра");
             break;
         case 'X':
-            if (d3) { sliceOn = !sliceOn; sliceOff = 0; showToast(sliceOn ? "Разрез: видно только то, что за плоскостью. Shift+колесо — сдвиг" : "Разрез выключен"); }
-            else showToast("Разрез — только в 3D (клавиша D)");
+            sliceOn = !sliceOn; sliceOff = 0; showToast(sliceOn ? "Разрез: видно только то, что за плоскостью. Shift+колесо — сдвиг" : "Разрез выключен");
             break;
         case 'K': {
             double x, y, z; cursorPoint(x, y, z);
@@ -448,17 +446,17 @@ static void handleKeys() {
         case 'L': lightFlash(o, d, P.brushR); break;
         case VK_OEM_4: pushUndo(); strainX(1.0 / 1.02); showToast("Сжатие по x −2%"); break;
         case VK_OEM_6: pushUndo(); strainX(1.02); showToast("Растяжение по x +2%"); break;
-        case VK_LEFT: if (d3) camRotate(-0.12, 0); else camCX -= 20 / camZoom; break;
-        case VK_RIGHT: if (d3) camRotate(0.12, 0); else camCX += 20 / camZoom; break;
-        case VK_UP: if (d3) camRotate(0, 0.08); else camCY += 20 / camZoom; break;
-        case VK_DOWN: if (d3) camRotate(0, -0.08); else camCY -= 20 / camZoom; break;
-        case VK_PRIOR: if (d3) camGoal.dist = clampv(camGoal.dist / 1.15, 2.0, 2000.0); else camZoom = clampv(camZoom * 1.15, 1.0, 400.0); break;
-        case VK_NEXT: if (d3) camGoal.dist = clampv(camGoal.dist * 1.15, 2.0, 2000.0); else camZoom = clampv(camZoom / 1.15, 1.0, 400.0); break;
+        case VK_LEFT: camRotate(-0.12, 0); break;
+        case VK_RIGHT: camRotate(0.12, 0); break;
+        case VK_UP: camRotate(0, 0.08); break;
+        case VK_DOWN: camRotate(0, -0.08); break;
+        case VK_PRIOR: camGoal.dist = clampv(camGoal.dist / 1.15, 2.0, 2000.0); break;
+        case VK_NEXT: camGoal.dist = clampv(camGoal.dist * 1.15, 2.0, 2000.0); break;
         case VK_F1: openManual(); break;
-        case VK_F2: if (d3) { setView(0.0, 0.02); showToast("Вид спереди"); } break;
-        case VK_F3: if (d3) { setView(PI / 2, 0.02); showToast("Вид сбоку"); } break;
-        case VK_F4: if (d3) { setView(camGoal.yaw, 1.45); showToast("Вид сверху"); } break;
-        case VK_F6: if (d3) { setView(0.65, 0.42); showToast("Изометрия"); } break;
+        case VK_F2: setView(0.0, 0.02); showToast("Вид спереди"); break;
+        case VK_F3: setView(PI / 2, 0.02); showToast("Вид сбоку"); break;
+        case VK_F4: setView(camGoal.yaw, 1.45); showToast("Вид сверху"); break;
+        case VK_F6: setView(0.65, 0.42); showToast("Изометрия"); break;
         case VK_F5: saveState(L"quicksave.atoms", true); break;
         case VK_F9: loadState(L"quicksave.atoms"); break;
         case VK_F11: toggleFullscreen(); break;
@@ -492,11 +490,11 @@ static bool overSceneUI(int x, int y) {
     return x >= fx && x < fx + bs + uiPx(8) && y >= fy && y < fy + hh;
 }
 static inline bool sceneHit(int x, int y) { return inScene(x, y) && !overSceneUI(x, y) && !helpOn; }
-// мировая точка под курсором на глубине depth (2D — плоскость)
-static void worldAt(double mx, double my, double depth, double* p) { unprojectAtDepth(mx, my, depth, p[0], p[1], p[2]); if (DIM == 2) p[2] = 0; }
+// мировая точка под курсором на глубине depth
+static void worldAt(double mx, double my, double depth, double* p) { unprojectAtDepth(mx, my, depth, p[0], p[1], p[2]); }
 static void handleMouse(double frameDt) {
     const bool ctrl = isDown(VK_CONTROL), shift = isDown(VK_SHIFT), alt = isDown(VK_MENU);
-    const bool d3 = DIM == 3, cut = d3 && sliceOn;
+    const bool cut = sliceOn;
     selValidate();
     if (ptOn || menuOn) {   // открыто окно поверх сцены — сцена ввод не получает
         in.wheel = 0; in.lPress = in.lRel = in.mPress = in.rPress = in.dbl = false; heatBrush = 0;
@@ -507,20 +505,15 @@ static void handleMouse(double frameDt) {
     const bool over = sceneHit(mouseX, mouseY);
     int part = 0;
     foHover = over && lMode != LM_FOMOVE ? foHitTest((float)mouseX, (float)mouseY, part) : (lMode == LM_FOMOVE ? foDragIdx : -1);
-    // колесо: Alt — поворот выделения; над объектом поля — радиус (Shift — сила); 2D — масштаб к курсору;
-    // 3D — наезд камеры (в полёте — движение вперёд), Shift+колесо при разрезе — сдвиг плоскости
+    // колесо: Alt — поворот выделения; над объектом поля — радиус (Shift — сила); иначе наезд камеры
+    // (в полёте — движение вперёд), Shift+колесо при разрезе — сдвиг плоскости
     if (in.wheel != 0 && inScene(mouseX, mouseY)) {
         double f = std::pow(1.15, in.wheel / 120.0), notch = in.wheel / 120.0;
         if (alt && !selList.empty()) selRotate(notch * 5 * PI / 180);
         else if (foHover >= 0 && over) foWheel(foHover, notch, shift);
-        else if (d3 && cut && shift) sliceOff = clampv(sliceOff + 0.6 * notch, -cam3.dist, 2.0 * cam3.dist);
-        else if (d3 && camMode == 1) { double L = std::max({S.Lx, S.Ly, S.Lz}); camTranslate(camF[0] * 0.04 * L * notch, camF[1] * 0.04 * L * notch, camF[2] * 0.04 * L * notch); }
-        else if (d3) camGoal.dist = clampv(camGoal.dist / f, 2.0, 2000.0);
-        else {
-            double wx, wy; screenToWorld2D(mouseX, mouseY, wx, wy);
-            camZoom = clampv(camZoom * f, 1.0, 400.0);
-            double nx, ny; screenToWorld2D(mouseX, mouseY, nx, ny); camCX += wx - nx; camCY += wy - ny;
-        }
+        else if (cut && shift) sliceOff = clampv(sliceOff + 0.6 * notch, -cam3.dist, 2.0 * cam3.dist);
+        else if (camMode == 1) { double L = std::max({S.Lx, S.Ly, S.Lz}); camTranslate(camF[0] * 0.04 * L * notch, camF[1] * 0.04 * L * notch, camF[2] * 0.04 * L * notch); }
+        else camGoal.dist = clampv(camGoal.dist / f, 2.0, 2000.0);
     }
     in.wheel = 0;
     double o[3], d[3]; mouseRay(mouseX, mouseY, o, d);
@@ -541,17 +534,21 @@ static void handleMouse(double frameDt) {
         lMode = LM_NONE; lDragTool = 0;
         if (lInScene) {
             dragX = mouseX; dragY = mouseY;
-            float pyS = 0, dd, s, pxS;
-            bool nearPiston = !d3 && P.boundary == B_PISTON && project(0, S.Ly, 0, pxS, pyS, dd, s) && std::fabs(mouseY - (pyS - 3)) < 8;
-            if (ctrl || lmbTool == TOOL_CAMERA) { if (d3 && !shift) rotating = true; else panning = true; lMode = LM_CAMERA; }
-            else if (nearPiston && lmbTool == TOOL_ADD) { pistonGrab = true; pistonTarget = S.Ly; lMode = LM_PISTON; }
+            // поршень можно тянуть мышью: курсор на его плоскости и не на атоме
+            bool nearPiston = false;
+            if (P.boundary == B_PISTON && lmbTool == TOOL_ADD && std::fabs(d[1]) > 1e-9 && hoverAtom() < 0) {
+                const double t = (S.Ly - o[1]) / d[1], px = o[0] + d[0] * t, pz = o[2] + d[2] * t;
+                nearPiston = t > 0 && px > 0 && px < S.Lx && pz > 0 && pz < S.Lz;
+            }
+            if (ctrl || lmbTool == TOOL_CAMERA) { if (!shift) rotating = true; else panning = true; lMode = LM_CAMERA; }
+            else if (nearPiston) { pistonGrab = true; pistonTarget = S.Ly; moveDepth = viewDepth(S.Lx / 2, S.Ly, S.Lz / 2); lMode = LM_PISTON; }
             else switch (lmbTool) {
             case TOOL_ERASE: case TOOL_HEAT: case TOOL_COOL: lDragTool = lmbTool; if (lmbTool == TOOL_ERASE) pushUndo(); lMode = LM_BRUSH; break;
             case TOOL_ADD:
                 if (palette[selPal].tool == 1) { pushUndo(); wallStroke = true; lastWallX = lastWallY = lastWallZ = 1e9; lMode = LM_WALL; }
                 else {
                     int h = hoverAtom();
-                    if (h >= 0 && !EL[S.ty[h]].fixed) { grabbed = h; grabDepth = d3 ? pdep[h] : 0; grabX = S.x[h]; grabY = S.y[h]; grabZ = S.z[h]; lMode = LM_TWEEZER; }
+                    if (h >= 0 && !EL[S.ty[h]].fixed) { grabbed = h; grabDepth = pdep[h]; grabX = S.x[h]; grabY = S.y[h]; grabZ = S.z[h]; lMode = LM_TWEEZER; }
                     else if (chemStampActive()) {   // «штамп» молекулы из библиотеки (вкладка «Химия»): одна структура за щелчок
                         double p[3]; cursorPoint(p[0], p[1], p[2]); pushUndo();
                         if (insertMolecule(chemStampMol, p[0], p[1], p[2])) showToast(std::string(T("Вставлено: ")) + T(palette[0].label));
@@ -563,7 +560,7 @@ static void handleMouse(double frameDt) {
             case TOOL_SELECT: {
                 int h = hoverAtom();
                 if (h >= 0 && isSel(h)) {
-                    double c[3]; selCOM(c[0], c[1], c[2]); moveDepth = d3 ? viewDepth(c[0], c[1], c[2]) : 0;
+                    double c[3]; selCOM(c[0], c[1], c[2]); moveDepth = viewDepth(c[0], c[1], c[2]);
                     if (alt) { throwDrag = true; throwX0 = (float)mouseX; throwY0 = (float)mouseY; worldAt(mouseX, mouseY, moveDepth, throwW0); lMode = LM_THROW; }
                     else { pushUndo(); worldAt(mouseX, mouseY, moveDepth, lastW); lMode = LM_MOVESEL; }
                 } else { rubberOn = true; rubX0 = rubX1 = (float)mouseX; rubY0 = rubY1 = (float)mouseY; rubberAdd = shift; rubberAtom = h; lMode = LM_RUBBER; }
@@ -574,18 +571,18 @@ static void handleMouse(double frameDt) {
             case TOOL_MEASURE: {
                 int h = hoverAtom();
                 if (h < 0) measN = 0;
-                else { if (measN >= (d3 ? 4 : 3)) measN = 0; if (measN == 0 || measIdx[measN - 1] != h) measIdx[measN++] = h; }
+                else { if (measN >= 4) measN = 0; if (measN == 0 || measIdx[measN - 1] != h) measIdx[measN++] = h; }
                 break; }
             case TOOL_FIELD: {
                 int ph = 0, fh = foHitTest((float)mouseX, (float)mouseY, ph);
                 if (fh >= 0) {
                     selFieldObj = fh; foDragIdx = fh; foDragPart = ph; const FieldObj& ob = fieldObjs[fh];
                     double cx = ph == 2 ? ob.x2 : ob.x, cy = ph == 2 ? ob.y2 : ob.y, cz = ph == 2 ? ob.z2 : ob.z;
-                    moveDepth = d3 ? viewDepth(cx, cy, cz) : 0; worldAt(mouseX, mouseY, moveDepth, lastW); lMode = LM_FOMOVE;
+                    moveDepth = viewDepth(cx, cy, cz); worldAt(mouseX, mouseY, moveDepth, lastW); lMode = LM_FOMOVE;
                 } else {
-                    double p[3]; cursorOnMidPlane(mouseX, mouseY, p[0], p[1], p[2]); if (!d3) p[2] = 0;
+                    double p[3]; cursorOnMidPlane(mouseX, mouseY, p[0], p[1], p[2]);
                     if (foKind == FO_WIND || foKind == FO_EMITTER || foKind == FO_BARRIER) { foPlacing = true; for (int q = 0; q < 3; q++) foP0[q] = foP1[q] = p[q]; lMode = LM_FOPLACE; }
-                    else { foDragIdx = foCreate(foKind, p, p, false); foDragPart = 0; moveDepth = d3 ? viewDepth(p[0], p[1], p[2]) : 0; worldAt(mouseX, mouseY, moveDepth, lastW); lMode = LM_FOMOVE; }
+                    else { foDragIdx = foCreate(foKind, p, p, false); foDragPart = 0; moveDepth = viewDepth(p[0], p[1], p[2]); worldAt(mouseX, mouseY, moveDepth, lastW); lMode = LM_FOMOVE; }
                 }
                 break; }
             default: break;
@@ -597,19 +594,17 @@ static void handleMouse(double frameDt) {
         switch (lMode) {
         case LM_CAMERA:
             if (rotating) camRotate(-mdx * 0.008, mdy * 0.008);
-            else if (d3) { double k = cam3.dist / focal; camTranslate((-camR[0] * mdx + camU[0] * mdy) * k, (-camR[1] * mdx + camU[1] * mdy) * k, (-camR[2] * mdx + camU[2] * mdy) * k); followAtom = -1; }
-            else { camCX -= mdx / camZoom; camCY += mdy / camZoom; }
+            else { double k = cam3.dist / focal; camTranslate((-camR[0] * mdx + camU[0] * mdy) * k, (-camR[1] * mdx + camU[1] * mdy) * k, (-camR[2] * mdx + camU[2] * mdy) * k); followAtom = -1; }
             break;
-        case LM_PISTON: { double wx, wy; screenToWorld2D(mouseX, mouseY, wx, wy); pistonTarget = clampv(wy, 3.0, 400.0); break; }
+        case LM_PISTON: { double p[3]; worldAt(mouseX, mouseY, moveDepth, p); pistonTarget = clampv(p[1], 3.0, 400.0); break; }
         case LM_TWEEZER: if (grabbed >= 0) unprojectAtDepth(mouseX, mouseY, grabDepth, grabX, grabY, grabZ); break;
         case LM_WALL: {
-            // стена: цепочка неподвижных атомов вдоль штриха (в 3D — «занавес» вдоль оси, ближайшей к направлению взгляда)
-            double wx, wy, wz; unprojectAtDepth(mouseX, mouseY, d3 ? cam3.dist : 0, wx, wy, wz);
-            int ax = 2; if (d3) { double a0 = std::fabs(camF[0]), a1 = std::fabs(camF[1]), a2 = std::fabs(camF[2]); ax = a0 > a1 && a0 > a2 ? 0 : (a1 > a2 ? 1 : 2); }
+            // стена — «занавес» из неподвижных атомов вдоль штриха и вдоль оси, ближайшей к направлению взгляда
+            double wx, wy, wz; unprojectAtDepth(mouseX, mouseY, cam3.dist, wx, wy, wz);
+            int ax = 2; double a0 = std::fabs(camF[0]), a1 = std::fabs(camF[1]), a2 = std::fabs(camF[2]); ax = a0 > a1 && a0 > a2 ? 0 : (a1 > a2 ? 1 : 2);
             double Lax = ax == 0 ? S.Lx : (ax == 1 ? S.Ly : S.Lz);
             int before = S.n;
             auto put = [&](double px, double py, double pz) {
-                if (!d3) { if (px > 0 && py > 0 && px < S.Lx && py < S.Ly && !overlaps(E_WALL, px, py, 0, 0.85)) addAtom(E_WALL, px, py, 0, 0, 0, 0); return; }
                 for (double s2 = 0.5; s2 < Lax; s2 += 0.9) {
                     double p[3] = {px, py, pz}; p[ax] = s2;
                     if (p[0] > 0 && p[1] > 0 && p[2] > 0 && p[0] < S.Lx && p[1] < S.Ly && p[2] < S.Lz && !overlaps(E_WALL, p[0], p[1], p[2], 0.85)) addAtom(E_WALL, p[0], p[1], p[2], 0, 0, 0);
@@ -628,16 +623,13 @@ static void handleMouse(double frameDt) {
                 lastAddT += frameDt;
                 if (lastAddT > 0.03) {
                     lastAddT = 0; int added = 0;
-                    double t0 = 0, t1 = 0; bool hit = d3 ? rayBox(o, d, t0, t1) : true;
+                    double t0 = 0, t1 = 0; bool hit = rayBox(o, d, t0, t1);
                     if (hit && cut) { double dd = d[0] * camF[0] + d[1] * camF[1] + d[2] * camF[2]; if (dd > 1e-6) t0 = std::max(t0, sliceDepth() / dd); hit = t1 > t0; }   // только за плоскостью разреза
                     if (hit) for (int k = 0; k < 8 && added < 2; k++) {
-                        // случайная точка в круге радиуса R вокруг луча (в 3D — ещё и по глубине внутри ящика)
-                        double a = urand() * 2 * PI, r = P.brushR * std::sqrt(urand()), cx, cy, cz;
-                        if (d3) {
-                            double t = std::max(t0, 0.0) + urand() * (t1 - std::max(t0, 0.0));
-                            double ca = std::cos(a) * r, sa = std::sin(a) * r;
-                            cx = o[0] + d[0] * t + camR[0] * ca + camU[0] * sa; cy = o[1] + d[1] * t + camR[1] * ca + camU[1] * sa; cz = o[2] + d[2] * t + camR[2] * ca + camU[2] * sa;
-                        } else { cx = o[0] + r * std::cos(a); cy = o[1] + r * std::sin(a); cz = 0; }
+                        // случайная точка в круге радиуса R вокруг луча и по глубине внутри ящика
+                        const double a = urand() * 2 * PI, r = P.brushR * std::sqrt(urand()), t = std::max(t0, 0.0) + urand() * (t1 - std::max(t0, 0.0));
+                        const double ca = std::cos(a) * r, sa = std::sin(a) * r;
+                        const double cx = o[0] + d[0] * t + camR[0] * ca + camU[0] * sa, cy = o[1] + d[1] * t + camR[1] * ca + camU[1] * sa, cz = o[2] + d[2] * t + camR[2] * ca + camU[2] * sa;
                         if (placeMol(palette[selPal], cx, cy, cz, P.Tset, 0.85)) added++;
                     }
                     if (added) { updatePresence(); computeForces(); resetEnergyRef(); }
@@ -647,7 +639,7 @@ static void handleMouse(double frameDt) {
         case LM_RUBBER: rubX1 = (float)mouseX; rubY1 = (float)mouseY; break;
         case LM_MOVESEL: {   // выделение догоняет курсор шагами ≤ 0.3σ; упёрлось в соседей — стоит (не «взрывается»)
             double p[3]; worldAt(mouseX, mouseY, moveDepth, p);
-            double dv[3] = {p[0] - lastW[0], p[1] - lastW[1], d3 ? p[2] - lastW[2] : 0}, l = std::sqrt(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
+            double dv[3] = {p[0] - lastW[0], p[1] - lastW[1], p[2] - lastW[2]}, l = std::sqrt(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
             if (l > 1e-9) {
                 double k = std::min(1.0, 0.3 / l);
                 for (int tr = 0; tr < 3; tr++, k *= 0.5)
@@ -662,7 +654,7 @@ static void handleMouse(double frameDt) {
         case LM_FOMOVE:
             if (foDragIdx >= 0 && foDragIdx < (int)fieldObjs.size()) {
                 double p[3]; worldAt(mouseX, mouseY, moveDepth, p);
-                double dx = p[0] - lastW[0], dy = p[1] - lastW[1], dz = d3 ? p[2] - lastW[2] : 0;
+                double dx = p[0] - lastW[0], dy = p[1] - lastW[1], dz = p[2] - lastW[2];
                 if (dx != 0 || dy != 0 || dz != 0) {
                     FieldObj& ob = fieldObjs[foDragIdx];
                     foEditBegin();
@@ -673,7 +665,7 @@ static void handleMouse(double frameDt) {
                 for (int q = 0; q < 3; q++) lastW[q] = p[q];
             }
             break;
-        case LM_FOPLACE: cursorOnMidPlane(mouseX, mouseY, foP1[0], foP1[1], foP1[2]); if (!d3) foP1[2] = 0; break;
+        case LM_FOPLACE: cursorOnMidPlane(mouseX, mouseY, foP1[0], foP1[1], foP1[2]);  break;
         default: break;
         }
     }
@@ -716,7 +708,7 @@ static void handleMouse(double frameDt) {
     heatBrush = 0;
     if (((in.rDown && !rDeleting) || (lTool && (lDragTool == TOOL_HEAT || lDragTool == TOOL_COOL))) && inScene(mouseX, mouseY)) {
         heatBrush = (in.rDown && !rDeleting) ? (shift ? -1 : 1) : (lDragTool == TOOL_HEAT ? 1 : -1);
-        for (int k = 0; k < 3; k++) { brushO[k] = o[k]; brushD[k] = d[k]; brushF[k] = d3 ? camF[k] : (k == 2 ? 1.0 : 0.0); }
+        for (int k = 0; k < 3; k++) { brushO[k] = o[k]; brushD[k] = d[k]; brushF[k] = camF[k]; }
         brushCut = cut ? sliceDepth() : -1e30;
     }
     // СКМ (или ЛКМ с инструментом «ластик») — удаляет молекулы целиком
@@ -735,7 +727,7 @@ static void handleMouse(double frameDt) {
 // ===================================== ОКНО / ГЛАВНЫЙ ЦИКЛ ================================
 static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
-    case WM_SIZE: winW = std::max(200, (int)LOWORD(lp)); winH = std::max(200, (int)HIWORD(lp)); if (DIM == 2) viewFitPending = true; return 0;
+    case WM_SIZE: winW = std::max(200, (int)LOWORD(lp)); winH = std::max(200, (int)HIWORD(lp));  return 0;
     case WM_MOUSEMOVE: mouseX = (short)LOWORD(lp); mouseY = (short)HIWORD(lp); return 0;
     case WM_LBUTTONDOWN: SetCapture(h); in.lDown = true; in.lPress = true; ui.down = true; ui.pressed = true; return 0;
     case WM_LBUTTONDBLCLK: SetCapture(h); in.lDown = true; in.dbl = true; ui.down = true; ui.pressed = true; return 0;   // второй щелчок: кнопки UI срабатывают, в сцене — слежение
@@ -823,80 +815,74 @@ static void renderFrame(double frameDt) {
 static double driftPct() { double norm = std::max(std::fabs(Eref), std::max(1.0, EN.ek)); return (EN.total() - Wext - Eref) / norm * 100; }
 static int selftest() {
     FILE* f = fopen("selftest.log", "w"); if (!f) return 1;
-    initBondTable(); initKlm();
+    initBondTable(); initKlm(); rebuildTables();
     fprintf(f, "threads: %d\n", omp_get_max_threads());
-    for (int dim : {2, 3}) {
-        DIM = dim; onDimChanged();
-        fprintf(f, "\n==================== %dD ====================\n", dim);
-        int presets[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 35, 36, 37, 38, 39};
-        for (int k : presets) {
-            loadPreset(k, 0);
-            auto t0 = std::chrono::high_resolution_clock::now();
-            int steps = dim == 3 ? 1500 : 3000; double Estart = EN.total(); int rb0 = nlRebuilds;
-            for (int s = 0; s < steps; s++) { runScript(); mdStep(); if (s % 50 == 0) analysisTick(); advanceFlashes(0.01f); }
-            analysisTick(); computeMolecules();
-            double sec = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count();
-            fprintf(f, "\n[%d] %s\n  N=%d  steps=%d  %.2f s (%.0f steps/s, %d пересборок списка)  t=%.2f dt=%.4f\n", k, presetTitle.c_str(), S.n, steps, sec, steps / sec, nlRebuilds - rb0, S.t, P.dt);
-            fprintf(f, "  T=%.3f P=%.4f Ek=%.2f Enb=%.2f Ebond=%.2f E=%.3f (start %.3f) Wext=%.3f drift=%.4f%% conserving=%d capped=%d\n",
-                    EN.T, EN.P, EN.ek, EN.enb, EN.ebond, EN.total(), Estart, Wext, driftPct(), (int)conserving, EN.capped);
-            fprintf(f, "  phase=%s  ord=%.2f coord=%.2f cryst=%.2f (FCC %d HCP %d BCC %d SC %d) D=%.4f  reactions a/e/d=%lld/%lld/%lld ions %d/%d\n  molecules:",
-                    A::phase.c_str(), A::psiMean, A::meanCoord, A::fCryst, A::stCount[ST_FCC], A::stCount[ST_HCP], A::stCount[ST_BCC], A::stCount[ST_SC], A::D, CH.assoc, CH.exch, CH.diss, A::ionsFree, A::ionsTotal);
-            int shown = 0; for (auto& kv : A::mol) if (shown++ < 12) fprintf(f, " %s:%d", kv.first.c_str(), kv.second);
-            fprintf(f, "\n");
-            if (!A::sceneNote.empty()) fprintf(f, "  note: %s\n", A::sceneNote.c_str());
-            fflush(f);
-        }
-        // распознавание решёток: все варианты пресета 2 при низкой T (без нагрева)
-        fprintf(f, "\nLATTICES (%dD): 400 шагов при T=0.1\n", dim);
-        for (int v = 0; v < presetVariants(2); v++) {
-            loadPreset(2, v); P.thermostat = TH_BERENDSEN; P.Tset = DIM == 3 && v == L_ICE ? 0.05 : 0.1;
-            for (int s = 0; s < 400; s++) mdStep();
-            analysisTick();
-            fprintf(f, "  var %d: N=%d phase=%s ord=%.2f coord=%.2f cryst=%.2f  FCC %d HCP %d BCC %d SC %d HEX %d SQ %d ICE %d other %d  drift(Berendsen)=%.4f%%\n", v, S.n, A::phase.c_str(), A::psiMean, A::meanCoord, A::fCryst,
-                    A::stCount[ST_FCC], A::stCount[ST_HCP], A::stCount[ST_BCC], A::stCount[ST_SC], A::stCount[ST_HEX2D], A::stCount[ST_SQ2D], A::stCount[ST_ICE], A::stCount[ST_OTHER], driftPct());
-            if (DIM == 3 && v == L_ICE) {   // лёд: устойчивость при нагреве
-                P.thermostat = TH_BERENDSEN;
-                for (double T : {0.1, 0.2, 0.3, 0.45, 0.6}) {
-                    P.Tset = T; for (int s = 0; s < 1500; s++) mdStep();
-                    analysisTick(); analysisTick();
-                    fprintf(f, "     ice T=%.2f -> Tmeas=%.3f ICE %d of %d, D=%.4f phase=%s\n", T, EN.T, A::stCount[ST_ICE], S.n, A::D, A::phase.c_str());
-                }
-            }
-            fflush(f);
-        }
-        // проверка NVE: сохранение энергии и импульса (жидкость + газ LJ)
-        loadPreset(4, 0); P.thermostat = TH_NVE; resetEnergyRef();
-        double e0 = EN.total();
-        for (int s = 0; s < 4000; s++) mdStep();
-        measure(); double px = 0, py = 0, pz = 0;
-        for (int i = 0; i < S.n; i++) { double m = EL[S.ty[i]].m; px += m * S.vx[i]; py += m * S.vy[i]; pz += m * S.vz[i]; }
-        fprintf(f, "\nNVE check (preset 4, 4000 steps): E0=%.4f E=%.4f rel=%.2e  |p|=%.2e  N=%d\n", e0, EN.total(), (EN.total() - e0) / std::fabs(e0), std::sqrt(px * px + py * py + pz * pz), S.n);
-        // кинетика реакций
-        auto kin = [&](int preset, int variant, int total, std::function<void(int)> hook) {
-            loadPreset(preset, variant);
-            fprintf(f, "\nKINETICS %dD %s\n", DIM, presetTitle.c_str());
-            for (int s = 0; s <= total; s++) {
-                runScript(); if (hook) hook(s); mdStep(); advanceFlashes(0.002f);
-                if (s % (total / 6) == 0) {
-                    computeMolecules(); measure();
-                    fprintf(f, "  t=%6.1f T=%.3f dt=%.4f cap=%d a/e/d=%lld/%lld/%lld drift=%.4f%% :", S.t, EN.T, P.dt, EN.capped, CH.assoc, CH.exch, CH.diss, driftPct());
-                    int shown = 0; for (auto& kv : A::mol) if (shown++ < 10) fprintf(f, " %s:%d", kv.first.c_str(), kv.second);
-                    fprintf(f, "\n"); fflush(f);
-                }
-            }
-        };
-        int K = dim == 3 ? 24000 : 30000;
-        kin(7, 0, K, nullptr);
-        kin(7, 1, K, nullptr);
-        kin(0, 0, K, [K](int s) { if (s == K / 2) P.Tset = 3.5; });
-        kin(6, 0, dim == 3 ? 12000 : 30000, nullptr);
+    for (const SceneInfo& sc : SCENES) {   // все сцены меню
+        const int k = sc.key; loadPreset(k, sc.var);
+        auto t0 = std::chrono::high_resolution_clock::now();
+        const int steps = 1500; double Estart = EN.total(); int rb0 = nlRebuilds;
+        for (int s = 0; s < steps; s++) { runScript(); mdStep(); if (s % 50 == 0) analysisTick(); advanceFlashes(0.01f); }
+        analysisTick(); computeMolecules();
+        double sec = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count();
+        fprintf(f, "\n[%d] %s\n  N=%d  steps=%d  %.2f s (%.0f steps/s, %d пересборок списка)  t=%.2f dt=%.4f\n", k, presetTitle.c_str(), S.n, steps, sec, steps / sec, nlRebuilds - rb0, S.t, P.dt);
+        fprintf(f, "  T=%.3f P=%.4f Ek=%.2f Enb=%.2f Ebond=%.2f E=%.3f (start %.3f) Wext=%.3f drift=%.4f%% conserving=%d capped=%d\n",
+                EN.T, EN.P, EN.ek, EN.enb, EN.ebond, EN.total(), Estart, Wext, driftPct(), (int)conserving, EN.capped);
+        fprintf(f, "  phase=%s  coord=%.2f cryst=%.2f (FCC %d HCP %d BCC %d SC %d) D=%.4f  reactions a/e/d=%lld/%lld/%lld ions %d/%d\n  molecules:",
+                A::phase.c_str(), A::meanCoord, A::fCryst, A::stCount[ST_FCC], A::stCount[ST_HCP], A::stCount[ST_BCC], A::stCount[ST_SC], A::D, CH.assoc, CH.exch, CH.diss, A::ionsFree, A::ionsTotal);
+        int shown = 0; for (auto& kv : A::mol) if (shown++ < 12) fprintf(f, " %s:%d", kv.first.c_str(), kv.second);
+        fprintf(f, "\n");
+        if (!A::sceneNote.empty()) fprintf(f, "  note: %s\n", A::sceneNote.c_str());
+        fflush(f);
     }
+    // распознавание решёток: все варианты пресета 2 при низкой T (без нагрева)
+    fprintf(f, "\nLATTICES: 400 шагов при T=0.1\n");
+    for (int v = 0; v < presetVariants(2); v++) {
+        loadPreset(2, v); P.thermostat = TH_BERENDSEN; P.Tset = v == L_ICE ? 0.05 : 0.1;
+        for (int s = 0; s < 400; s++) mdStep();
+        analysisTick();
+        fprintf(f, "  var %d: N=%d phase=%s coord=%.2f cryst=%.2f  FCC %d HCP %d BCC %d SC %d ICE %d other %d  drift(Berendsen)=%.4f%%\n", v, S.n, A::phase.c_str(), A::meanCoord, A::fCryst,
+                A::stCount[ST_FCC], A::stCount[ST_HCP], A::stCount[ST_BCC], A::stCount[ST_SC], A::stCount[ST_ICE], A::stCount[ST_OTHER], driftPct());
+        if (v == L_ICE) {   // лёд: устойчивость при нагреве
+            P.thermostat = TH_BERENDSEN;
+            for (double T : {0.1, 0.2, 0.3, 0.45, 0.6}) {
+                P.Tset = T; for (int s = 0; s < 1500; s++) mdStep();
+                analysisTick(); analysisTick();
+                fprintf(f, "     ice T=%.2f -> Tmeas=%.3f ICE %d of %d, D=%.4f phase=%s\n", T, EN.T, A::stCount[ST_ICE], S.n, A::D, A::phase.c_str());
+            }
+        }
+        fflush(f);
+    }
+    // проверка NVE: сохранение энергии и импульса (жидкость + газ LJ)
+    loadPreset(4, 0); P.thermostat = TH_NVE; resetEnergyRef();
+    double e0 = EN.total();
+    for (int s = 0; s < 4000; s++) mdStep();
+    measure(); double px = 0, py = 0, pz = 0;
+    for (int i = 0; i < S.n; i++) { double m = EL[S.ty[i]].m; px += m * S.vx[i]; py += m * S.vy[i]; pz += m * S.vz[i]; }
+    fprintf(f, "\nNVE check (preset 4, 4000 steps): E0=%.4f E=%.4f rel=%.2e  |p|=%.2e  N=%d\n", e0, EN.total(), (EN.total() - e0) / std::fabs(e0), std::sqrt(px * px + py * py + pz * pz), S.n);
+    // кинетика реакций
+    auto kin = [&](int preset, int variant, int total, std::function<void(int)> hook) {
+        loadPreset(preset, variant);
+        fprintf(f, "\nKINETICS %s\n", presetTitle.c_str());
+        for (int s = 0; s <= total; s++) {
+            runScript(); if (hook) hook(s); mdStep(); advanceFlashes(0.002f);
+            if (s % (total / 6) == 0) {
+                computeMolecules(); measure();
+                fprintf(f, "  t=%6.1f T=%.3f dt=%.4f cap=%d a/e/d=%lld/%lld/%lld drift=%.4f%% :", S.t, EN.T, P.dt, EN.capped, CH.assoc, CH.exch, CH.diss, driftPct());
+                int shown = 0; for (auto& kv : A::mol) if (shown++ < 10) fprintf(f, " %s:%d", kv.first.c_str(), kv.second);
+                fprintf(f, "\n"); fflush(f);
+            }
+        }
+    };
+    const int K = 24000;
+    kin(7, 0, K, nullptr);
+    kin(7, 1, K, nullptr);
+    kin(0, 0, K, [K](int s) { if (s == K / 2) P.Tset = 3.5; });
+    kin(6, 0, 12000, nullptr);
     fclose(f);
     return 0;
 }
-
 // ===================================== АВТОТЕСТ ИНТЕРФЕЙСА (--uitest) =====================
-// Сценарий синтетического ввода: пресеты в 2D и 3D, все инструменты (включая выделение, линейку, ножницы, толчок,
+// Сценарий синтетического ввода: пресеты, все инструменты (включая выделение, линейку, ножницы, толчок,
 // удар и объекты поля всех видов), вкладки боковой панели (в том числе все элементы панелей «Физика» и «Химия»),
 // кнопки и слайдеры, слои, клавиши, камера, сохранение/загрузка v3, снимки и запись кадров.
 // После каждого шага проверяются инварианты (конечные координаты и энергия, корректные индексы связей и выделения).
@@ -996,7 +982,7 @@ static void buildUiTest() {
         uiSteps.insert(uiSteps.begin() + uiStepIdx + 1, ins.begin(), ins.end()); }); };
 
     // язык интерфейса: кнопки RU | EN (773/774) и Ctrl+L; после каждого переключения — язык, заголовок окна и уведомление.
-    // Проход 2D идёт на английском, 3D — на языке запуска (с --lang en весь сценарий — на английском).
+    // Сам сценарий идёт на языке запуска (--lang en — на английском).
     const int lang0 = LANG, other = 1 - lang0;
     auto expectLang = [&](int l, bool switched) { add(fmt("проверка языка %d", l), 1, [l, switched](int) {
         wchar_t buf[256] = L""; GetWindowTextW(hwnd, buf, 256);
@@ -1008,152 +994,147 @@ static void buildUiTest() {
     click(773 + other); expectLang(other, true); click(773 + lang0); expectLang(lang0, true);
     click(773 + lang0); expectLang(lang0, false);   // повторный щелчок по активной кнопке — без изменений
     ctrlL(); expectLang(other, true); ctrlL(); expectLang(lang0, true);
-    if (lang0 != LANG_EN) { ctrlL(); expectLang(LANG_EN, true); }
-    for (int dim : {2, 3}) {
-        if (dim == 3 && lang0 != LANG_EN) { ctrlL(); expectLang(lang0, true); }
-        if (dim == 3) key('D', 10);
-        // пресеты и их варианты
-        for (int k : {1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 0}) { key('0' + k, 20); }
-        if (dim == 3) for (int v = 0; v < 3; v++) key('2', 16);
-        key('7', 30);                                                 // химия: горение
-        // палитра: каждый пункт + мазок кистью
-        const int np = (int)palette.size();
-        click(230 + TOOL_ADD);
-        for (int p = 0; p < np; p++) { click(300 + p); gesture("кисть", 0, 0, 0, 0.3f + 0.02f * (p % 5), 0.4f, 0.5f, 0.5f, 6); }
-        // таблица Менделеева: выбрать разные элементы и добавить их в сцену
-        for (int z : {1, 9, 26, 79, 118, 6}) { key('E', 3); click(400 + z); gesture("атомы элемента", 0, 0, 0, 0.35f, 0.45f, 0.5f, 0.5f, 6); }
-        key('E', 3); gesture("щелчок мимо таблицы", 0, 0, 0, 0.01f, 0.99f, 0.01f, 0.99f, 2); key(VK_ESCAPE);
-        click(301);   // Ar
-        // все инструменты: кнопкой и жестом в сцене
-        for (int t : TOOL_ORDER) { if (t < 0) continue; click(230 + t); gesture("инструмент", 0, 0, t == TOOL_CAMERA ? VK_SHIFT : 0, 0.45f, 0.5f, 0.6f, 0.55f, 8); }
-        for (int dg = 0; dg <= 9; dg++) altKey('0' + dg);
-        altKey('F');
-        // объекты поля: каждый вид — поставить (с перетаскиванием), затем колесо, Shift+колесо, N, перенос, удаление
-        click(230 + TOOL_FIELD);
-        for (int k = 0; k < FO_N; k++) {
-            click(740 + k);
-            float u = 0.2f + 0.06f * k;
-            gesture("поставить объект", 0, 0, 0, u, 0.35f + 0.03f * (k % 3), u + 0.08f, 0.45f, 6);
-        }
-        wheelAt("колесо над объектом", 0, 240, [] { if (!fieldObjs.empty()) { float x, y, dd, s; const FieldObj& o = fieldObjs.back(); if (project(o.x, o.y, o.z, x, y, dd, s)) tMouse(x, y); } });
-        wheelAt("Shift+колесо над объектом", VK_SHIFT, -120, [] { if (!fieldObjs.empty()) { float x, y, dd, s; const FieldObj& o = fieldObjs[0]; if (project(o.x, o.y, o.z, x, y, dd, s)) tMouse(x, y); } });
-        key('N'); key('N');
-        add("перенос объекта", 12, [](int fr) {
-            if (fieldObjs.empty()) return; const FieldObj& o = fieldObjs[0]; float x, y, dd, s;
-            if (fr == 0 && project(o.x, o.y, o.z, x, y, dd, s)) tMouse(x, y);
-            if (fr == 1) tLDown(); if (fr > 1 && fr < 10) tMouse((float)mouseX + 5, (float)mouseY + 2); if (fr == 10) tLUp(); });
-        // вкладка «Объект» с выбранным объектом поля: все элементы инспектора
-        for (int id : {800, 800, 810, 811, 812, 813, 814, 816, 817, 802}) { if (id >= 810 && id <= 814) slide(id, 0.3f, 0.6f); else click(id); }
-        add("ПКМ по объекту — удалить", 4, [](int fr) {
-            if (fieldObjs.empty()) return; const FieldObj& o = fieldObjs.back(); float x, y, dd, s;
-            if (fr == 0 && project(o.x, o.y, o.z, x, y, dd, s)) tMouse(x, y); if (fr == 1) { in.rDown = true; in.rPress = true; } if (fr == 2) in.rDown = false; });
-        add("выбрать объект", 1, [](int) { if (!fieldObjs.empty()) selFieldObj = 0; });
-        key(VK_DELETE);
-        run(40);   // объекты работают (источник, сток, барьер…)
-        // выделение: рамка, перенос, бросок, поворот, копия, вставка, закрепление, операции инспектора
-        click(230 + TOOL_SELECT);
-        gesture("рамка", 0, 0, 0, 0.35f, 0.35f, 0.65f, 0.65f, 8);
-        dragSel("перенос выделения", 0);
-        dragSel("бросок (Alt)", VK_MENU);
-        wheelAt("Alt+колесо — поворот", VK_MENU, 120, [] { tMouse((float)scx, (float)scy); });
-        gesture("рамка + Shift", 0, VK_SHIFT, 0, 0.2f, 0.2f, 0.3f, 0.3f, 6);
-        keyMod(VK_CONTROL, 'C');
-        add("курсор в угол", 1, [](int) { tMouse(sceneX + sceneW * 0.15f, sceneY + sceneH * 0.2f); });
-        keyMod(VK_CONTROL, 'V');
-        key('I'); key('I'); key('I');
-        for (int id = 820; id <= 831; id++) if (id != 825 && id != 830) click(id);
-        click(824); click(825);
-        keyMod(VK_CONTROL, 'A'); key(VK_ESCAPE);
-        gesture("рамка 2", 0, 0, 0, 0.45f, 0.45f, 0.55f, 0.55f, 6); key(VK_DELETE);
-        clickAtomK(0); key(VK_ESCAPE);
-        // линейка / угломер
-        click(230 + TOOL_MEASURE);
-        for (int k = 0; k < 5; k++) clickAtomK(k * 3);
-        click(840);
-        gesture("сброс измерения", 0, 0, 0, 0.02f, 0.02f, 0.02f, 0.02f, 2);
-        // толчок, удар, ножницы (в химической сцене — есть связи)
-        key('7', 20);
-        click(230 + TOOL_PUSH); gesture("толчок", 0, 0, 0, 0.4f, 0.5f, 0.6f, 0.5f, 10); gesture("притяжение", 0, VK_SHIFT, 0, 0.6f, 0.4f, 0.4f, 0.6f, 10);
-        click(230 + TOOL_SHOCK); gesture("удар", 0, 0, 0, 0.5f, 0.5f, 0.5f, 0.5f, 2); run(15);
-        click(230 + TOOL_CUT); gesture("ножницы", 0, 0, 0, 0.2f, 0.3f, 0.8f, 0.7f, 20); gesture("ножницы 2", 0, 0, 0, 0.8f, 0.3f, 0.2f, 0.7f, 20);
-        click(230 + TOOL_ADD); click(301);
-        onAtom("пинцет", false);
-        onAtom("двойной щелчок — слежение", true);
-        run(20); key(VK_ESCAPE);
-        gesture("нагрев", 1, 0, 0, 0.5f, 0.5f, 0.55f, 0.5f, 12);
-        gesture("охлаждение", 1, VK_SHIFT, 0, 0.5f, 0.5f, 0.45f, 0.5f, 12);
-        gesture("ластик", 2, 0, 0, 0.4f, 0.4f, 0.6f, 0.6f, 10);
-        gesture("вращение/сдвиг", 0, VK_CONTROL, 0, 0.5f, 0.5f, 0.7f, 0.6f, 12);
-        gesture("сдвиг 3D", 0, VK_CONTROL, VK_SHIFT, 0.5f, 0.5f, 0.4f, 0.4f, 12);
-        add("колесо", 6, [](int fr) { tMouse((float)scx, (float)scy); in.wheel += fr < 3 ? 240 : -360; });
-        // вкладки боковой панели и все их элементы
-        for (int t = 0; t < 5; t++) { click(700 + t); run(3); }
-        clickAllRange(1, 1000, 1200);
-        clickAllRange(2, 1200, 1400);
-        for (int id = 200; id <= 208; id++) { click(id); click(id); }
-        for (int id = 211; id <= 214; id++) { click(id); click(id); }
-        for (int q = 0; q < 4; q++) click(200);   // полный круг термостатов
-        for (int id : {100, 101, 102, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116}) { slide(id, 0.2f, 0.8f); slide(id, 0.8f, 0.45f); }
-        add("колесо над слайдером", 5, [](int fr) { if (fr == 0) { graphsOn = true; sideTab = 0; uiScrollTo(100); } PR r = rectOf(100); tMouse(r.x + r.w / 2, r.y + r.h / 2); if (fr > 1) in.wheel += fr < 3 ? 120 : -120; });
-        for (int id = 790; id <= 797; id++) { click(id); }
-        run(20);   // все слои включены
-        for (int id = 790; id <= 797; id++) { click(id); }
-        add("прокрутка вкладки", 6, [](int fr) { graphsOn = true; sideTab = 3; PR r = rectOf(700); tMouse(r.x + 40, r.y + 200); in.wheel += fr < 3 ? -360 : 360; });
-        // верхняя панель
-        for (int id : {209, 209, 763, 209, 771, 771, 772, 772, 220, 220, 221, 221, 768, 769, 769}) click(id);
-        run(6);
-        // клавиши
-        for (int vk : std::initializer_list<int>{'C', 'C', 'C', 'C', 'C', 'C', 'B', 'B', 'T', 'T', 'G', 'G', 'H', 'H', 'O', 'O', 'U', 'K', 'K', 'L', 'M', 'F', VK_HOME, VK_PRIOR, VK_NEXT,
-                       VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_OEM_4, VK_OEM_6, VK_F2, VK_F3, VK_F4, VK_F6, VK_F1, VK_SPACE, 'S', 'S', VK_SPACE, 'P', VK_F12}) key(vk);
-        keyMod(VK_SHIFT, VK_F12); keyMod(VK_CONTROL, VK_F12); run(8); keyMod(VK_CONTROL, VK_F12);
-        // полёт камеры (3D) и разрез
-        key('V', 3);
-        add("полёт WASDQE", 36, [](int fr) { int ks[6] = {'W', 'A', 'S', 'D', 'Q', 'E'}; for (int k : ks) testKeys[k] = 0; testKeys[VK_SHIFT] = fr > 18;
-            if (fr < 35) testKeys[ks[(fr / 6) % 6]] = 1; else testKeys[VK_SHIFT] = 0; });
-        gesture("осмотр в полёте", 0, VK_CONTROL, 0, 0.5f, 0.5f, 0.6f, 0.45f, 8);
-        key('V', 3);
-        key('X', 3);
-        add("сдвиг разреза", 6, [](int fr) { tMouse((float)scx, (float)scy); testKeys[VK_SHIFT] = fr < 5; in.wheel += fr < 3 ? 240 : -120; });
-        gesture("кисть при разрезе", 0, 0, 0, 0.45f, 0.5f, 0.55f, 0.5f, 6);
-        key('X', 3);
-        // сохранение / загрузка v3: объекты поля и закрепление должны восстановиться
-        add("объекты для сохранения", 2, [](int fr) { if (fr) return;
-            fieldObjs.clear(); double c[3] = {S.Lx / 2, S.Ly / 2, DIM == 3 ? S.Lz / 2 : 0};
-            fieldObjs.push_back(makeFieldObj(FO_ATTRACT, c[0], c[1], c[2])); fieldObjs.push_back(makeFieldObj(FO_BARRIER, c[0] * 0.5, c[1], c[2]));
-            if (S.n > 0 && S.pin.size() == (size_t)S.n) S.pin[0] = 1; uiSavedFO = (int)fieldObjs.size(); });
-        key(VK_F5);
-        add("очистить объекты", 1, [](int) { fieldObjs.clear(); selFieldObj = -1; });
-        key(VK_F9, 10);
-        add("проверка загрузки v3", 1, [](int) {
-            bool ok = (int)fieldObjs.size() == uiSavedFO && S.n > 0 && S.pin.size() == (size_t)S.n && S.pin[0] == 1;
-            if (!ok) { uiProblems++; fprintf(uiLog, "     ОШИБКА: после F9 объектов %d (ожидалось %d), pin[0]=%d\n", (int)fieldObjs.size(), uiSavedFO, S.n > 0 && !S.pin.empty() ? S.pin[0] : -1); }
-            else fprintf(uiLog, "     загрузка v3: объекты поля и закрепление восстановлены\n"); });
-        keyMod(VK_CONTROL, 'S'); keyMod(VK_CONTROL, 'O'); keyMod(VK_CONTROL, 'E');
-        click(767); click(766); click(764); click(765);
-        keyMod(VK_CONTROL, 'Z'); keyMod(VK_CONTROL, 'Z'); keyMod(VK_CONTROL, 'Z');
-        key(VK_F11, 10); run(20); key(VK_F11, 10); add("Alt+Enter", 10, [](int fr) { if (fr == 0) in.keys.push_back(VK_F11); }); key(VK_ESCAPE, 10);
-        // меню сцен (мышью) и новые сцены с клавиатуры
-        for (int sc : {11, 12, 13, 14, 15, 21, 22, 22, 23, 24, 25, 26, 27, 27, 28, 29, 31, 32, 33, 34, 35, 36, 37, 38, 39}) { key(VK_TAB, 3); click(600 + sc); run(20); }
-        key(VK_TAB, 3); key(VK_TAB, 3);
-        for (int d = 1; d <= 5; d++) keyMod(VK_SHIFT, '0' + d);
-        key('7', 20);
-        // стена
-        click(230 + TOOL_ADD);
-        click(300 + np - 1); gesture("рисуем стену", 0, 0, 0, 0.3f, 0.3f, 0.7f, 0.7f, 10); click(300);
-        // число частиц: почти до нуля, затем обратно
-        slide(103, 0.5f, 0.0f); run(10); slide(103, 0.0f, 0.1f); run(20);
-        // крайний случай: всё стёрто при включённых следах на паузе
-        key('T'); key(VK_SPACE); gesture("стереть всё", 2, 0, 0, 0.0f, 0.0f, 1.0f, 1.0f, 30);
-        add("большой ластик", 2, [](int fr) { if (fr == 0) P.brushR = 400; });
-        gesture("стереть всё 2", 2, 0, 0, 0.5f, 0.5f, 0.5f, 0.5f, 4);
-        click(230 + TOOL_SELECT); keyMod(VK_CONTROL, 'A'); keyMod(VK_CONTROL, 'V'); key(VK_DELETE);
-        for (int t = 0; t < 5; t++) { click(700 + t); run(2); }
-        run(20); key(VK_SPACE); run(20); key('T');
-        add("кисть обратно", 1, [](int) { P.brushR = 3; });
-        key('1', 30);
-        expectLang(dim == 2 ? LANG_EN : lang0, false);
+    // пресеты и их варианты
+    for (int k : {1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 0}) { key('0' + k, 20); }
+    for (int v = 0; v < 3; v++) key('2', 16);
+    key('7', 30);                                                 // химия: горение
+    // палитра: каждый пункт + мазок кистью
+    const int np = (int)palette.size();
+    click(230 + TOOL_ADD);
+    for (int p = 0; p < np; p++) { click(300 + p); gesture("кисть", 0, 0, 0, 0.3f + 0.02f * (p % 5), 0.4f, 0.5f, 0.5f, 6); }
+    // таблица Менделеева: выбрать разные элементы и добавить их в сцену
+    for (int z : {1, 9, 26, 79, 118, 6}) { key('E', 3); click(400 + z); gesture("атомы элемента", 0, 0, 0, 0.35f, 0.45f, 0.5f, 0.5f, 6); }
+    key('E', 3); gesture("щелчок мимо таблицы", 0, 0, 0, 0.01f, 0.99f, 0.01f, 0.99f, 2); key(VK_ESCAPE);
+    click(301);   // Ar
+    // все инструменты: кнопкой и жестом в сцене
+    for (int t : TOOL_ORDER) { if (t < 0) continue; click(230 + t); gesture("инструмент", 0, 0, t == TOOL_CAMERA ? VK_SHIFT : 0, 0.45f, 0.5f, 0.6f, 0.55f, 8); }
+    for (int dg = 0; dg <= 9; dg++) altKey('0' + dg);
+    altKey('F');
+    // объекты поля: каждый вид — поставить (с перетаскиванием), затем колесо, Shift+колесо, N, перенос, удаление
+    click(230 + TOOL_FIELD);
+    for (int k = 0; k < FO_N; k++) {
+        click(740 + k);
+        float u = 0.2f + 0.06f * k;
+        gesture("поставить объект", 0, 0, 0, u, 0.35f + 0.03f * (k % 3), u + 0.08f, 0.45f, 6);
     }
-    key('D', 10); run(30);
+    wheelAt("колесо над объектом", 0, 240, [] { if (!fieldObjs.empty()) { float x, y, dd, s; const FieldObj& o = fieldObjs.back(); if (project(o.x, o.y, o.z, x, y, dd, s)) tMouse(x, y); } });
+    wheelAt("Shift+колесо над объектом", VK_SHIFT, -120, [] { if (!fieldObjs.empty()) { float x, y, dd, s; const FieldObj& o = fieldObjs[0]; if (project(o.x, o.y, o.z, x, y, dd, s)) tMouse(x, y); } });
+    key('N'); key('N');
+    add("перенос объекта", 12, [](int fr) {
+        if (fieldObjs.empty()) return; const FieldObj& o = fieldObjs[0]; float x, y, dd, s;
+        if (fr == 0 && project(o.x, o.y, o.z, x, y, dd, s)) tMouse(x, y);
+        if (fr == 1) tLDown(); if (fr > 1 && fr < 10) tMouse((float)mouseX + 5, (float)mouseY + 2); if (fr == 10) tLUp(); });
+    // вкладка «Объект» с выбранным объектом поля: все элементы инспектора
+    for (int id : {800, 800, 810, 811, 812, 813, 814, 816, 817, 802}) { if (id >= 810 && id <= 814) slide(id, 0.3f, 0.6f); else click(id); }
+    add("ПКМ по объекту — удалить", 4, [](int fr) {
+        if (fieldObjs.empty()) return; const FieldObj& o = fieldObjs.back(); float x, y, dd, s;
+        if (fr == 0 && project(o.x, o.y, o.z, x, y, dd, s)) tMouse(x, y); if (fr == 1) { in.rDown = true; in.rPress = true; } if (fr == 2) in.rDown = false; });
+    add("выбрать объект", 1, [](int) { if (!fieldObjs.empty()) selFieldObj = 0; });
+    key(VK_DELETE);
+    run(40);   // объекты работают (источник, сток, барьер…)
+    // выделение: рамка, перенос, бросок, поворот, копия, вставка, закрепление, операции инспектора
+    click(230 + TOOL_SELECT);
+    gesture("рамка", 0, 0, 0, 0.35f, 0.35f, 0.65f, 0.65f, 8);
+    dragSel("перенос выделения", 0);
+    dragSel("бросок (Alt)", VK_MENU);
+    wheelAt("Alt+колесо — поворот", VK_MENU, 120, [] { tMouse((float)scx, (float)scy); });
+    gesture("рамка + Shift", 0, VK_SHIFT, 0, 0.2f, 0.2f, 0.3f, 0.3f, 6);
+    keyMod(VK_CONTROL, 'C');
+    add("курсор в угол", 1, [](int) { tMouse(sceneX + sceneW * 0.15f, sceneY + sceneH * 0.2f); });
+    keyMod(VK_CONTROL, 'V');
+    key('I'); key('I'); key('I');
+    for (int id = 820; id <= 831; id++) if (id != 825 && id != 830) click(id);
+    click(824); click(825);
+    keyMod(VK_CONTROL, 'A'); key(VK_ESCAPE);
+    gesture("рамка 2", 0, 0, 0, 0.45f, 0.45f, 0.55f, 0.55f, 6); key(VK_DELETE);
+    clickAtomK(0); key(VK_ESCAPE);
+    // линейка / угломер
+    click(230 + TOOL_MEASURE);
+    for (int k = 0; k < 5; k++) clickAtomK(k * 3);
+    click(840);
+    gesture("сброс измерения", 0, 0, 0, 0.02f, 0.02f, 0.02f, 0.02f, 2);
+    // толчок, удар, ножницы (в химической сцене — есть связи)
+    key('7', 20);
+    click(230 + TOOL_PUSH); gesture("толчок", 0, 0, 0, 0.4f, 0.5f, 0.6f, 0.5f, 10); gesture("притяжение", 0, VK_SHIFT, 0, 0.6f, 0.4f, 0.4f, 0.6f, 10);
+    click(230 + TOOL_SHOCK); gesture("удар", 0, 0, 0, 0.5f, 0.5f, 0.5f, 0.5f, 2); run(15);
+    click(230 + TOOL_CUT); gesture("ножницы", 0, 0, 0, 0.2f, 0.3f, 0.8f, 0.7f, 20); gesture("ножницы 2", 0, 0, 0, 0.8f, 0.3f, 0.2f, 0.7f, 20);
+    click(230 + TOOL_ADD); click(301);
+    onAtom("пинцет", false);
+    onAtom("двойной щелчок — слежение", true);
+    run(20); key(VK_ESCAPE);
+    gesture("нагрев", 1, 0, 0, 0.5f, 0.5f, 0.55f, 0.5f, 12);
+    gesture("охлаждение", 1, VK_SHIFT, 0, 0.5f, 0.5f, 0.45f, 0.5f, 12);
+    gesture("ластик", 2, 0, 0, 0.4f, 0.4f, 0.6f, 0.6f, 10);
+    gesture("вращение/сдвиг", 0, VK_CONTROL, 0, 0.5f, 0.5f, 0.7f, 0.6f, 12);
+    gesture("сдвиг камеры", 0, VK_CONTROL, VK_SHIFT, 0.5f, 0.5f, 0.4f, 0.4f, 12);
+    add("колесо", 6, [](int fr) { tMouse((float)scx, (float)scy); in.wheel += fr < 3 ? 240 : -360; });
+    // вкладки боковой панели и все их элементы
+    for (int t = 0; t < 5; t++) { click(700 + t); run(3); }
+    clickAllRange(1, 1000, 1200);
+    clickAllRange(2, 1200, 1400);
+    for (int id = 200; id <= 208; id++) { click(id); click(id); }
+    for (int id = 211; id <= 214; id++) { click(id); click(id); }
+    for (int q = 0; q < 4; q++) click(200);   // полный круг термостатов
+    for (int id : {100, 101, 102, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116}) { slide(id, 0.2f, 0.8f); slide(id, 0.8f, 0.45f); }
+    add("колесо над слайдером", 5, [](int fr) { if (fr == 0) { graphsOn = true; sideTab = 0; uiScrollTo(100); } PR r = rectOf(100); tMouse(r.x + r.w / 2, r.y + r.h / 2); if (fr > 1) in.wheel += fr < 3 ? 120 : -120; });
+    for (int id = 790; id <= 797; id++) { click(id); }
+    run(20);   // все слои включены
+    for (int id = 790; id <= 797; id++) { click(id); }
+    add("прокрутка вкладки", 6, [](int fr) { graphsOn = true; sideTab = 3; PR r = rectOf(700); tMouse(r.x + 40, r.y + 200); in.wheel += fr < 3 ? -360 : 360; });
+    // верхняя панель
+    for (int id : {209, 209, 763, 209, 771, 771, 772, 772, 220, 220, 221, 221, 768, 769, 769}) click(id);
+    run(6);
+    // клавиши
+    for (int vk : std::initializer_list<int>{'C', 'C', 'C', 'C', 'C', 'C', 'B', 'B', 'T', 'T', 'G', 'G', 'H', 'H', 'O', 'O', 'U', 'K', 'K', 'L', 'M', 'F', VK_HOME, VK_PRIOR, VK_NEXT,
+                   VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_OEM_4, VK_OEM_6, VK_F2, VK_F3, VK_F4, VK_F6, VK_F1, VK_SPACE, 'S', 'S', VK_SPACE, 'P', VK_F12}) key(vk);
+    keyMod(VK_SHIFT, VK_F12); keyMod(VK_CONTROL, VK_F12); run(8); keyMod(VK_CONTROL, VK_F12);
+    // полёт камеры и разрез
+    key('V', 3);
+    add("полёт WASDQE", 36, [](int fr) { int ks[6] = {'W', 'A', 'S', 'D', 'Q', 'E'}; for (int k : ks) testKeys[k] = 0; testKeys[VK_SHIFT] = fr > 18;
+        if (fr < 35) testKeys[ks[(fr / 6) % 6]] = 1; else testKeys[VK_SHIFT] = 0; });
+    gesture("осмотр в полёте", 0, VK_CONTROL, 0, 0.5f, 0.5f, 0.6f, 0.45f, 8);
+    key('V', 3);
+    key('X', 3);
+    add("сдвиг разреза", 6, [](int fr) { tMouse((float)scx, (float)scy); testKeys[VK_SHIFT] = fr < 5; in.wheel += fr < 3 ? 240 : -120; });
+    gesture("кисть при разрезе", 0, 0, 0, 0.45f, 0.5f, 0.55f, 0.5f, 6);
+    key('X', 3);
+    // сохранение / загрузка v3: объекты поля и закрепление должны восстановиться
+    add("объекты для сохранения", 2, [](int fr) { if (fr) return;
+        fieldObjs.clear(); double c[3] = {S.Lx / 2, S.Ly / 2, S.Lz / 2};
+        fieldObjs.push_back(makeFieldObj(FO_ATTRACT, c[0], c[1], c[2])); fieldObjs.push_back(makeFieldObj(FO_BARRIER, c[0] * 0.5, c[1], c[2]));
+        if (S.n > 0 && S.pin.size() == (size_t)S.n) S.pin[0] = 1; uiSavedFO = (int)fieldObjs.size(); });
+    key(VK_F5);
+    add("очистить объекты", 1, [](int) { fieldObjs.clear(); selFieldObj = -1; });
+    key(VK_F9, 10);
+    add("проверка загрузки v3", 1, [](int) {
+        bool ok = (int)fieldObjs.size() == uiSavedFO && S.n > 0 && S.pin.size() == (size_t)S.n && S.pin[0] == 1;
+        if (!ok) { uiProblems++; fprintf(uiLog, "     ОШИБКА: после F9 объектов %d (ожидалось %d), pin[0]=%d\n", (int)fieldObjs.size(), uiSavedFO, S.n > 0 && !S.pin.empty() ? S.pin[0] : -1); }
+        else fprintf(uiLog, "     загрузка v3: объекты поля и закрепление восстановлены\n"); });
+    keyMod(VK_CONTROL, 'S'); keyMod(VK_CONTROL, 'O'); keyMod(VK_CONTROL, 'E');
+    click(767); click(766); click(764); click(765);
+    keyMod(VK_CONTROL, 'Z'); keyMod(VK_CONTROL, 'Z'); keyMod(VK_CONTROL, 'Z');
+    key(VK_F11, 10); run(20); key(VK_F11, 10); add("Alt+Enter", 10, [](int fr) { if (fr == 0) in.keys.push_back(VK_F11); }); key(VK_ESCAPE, 10);
+    // меню сцен (мышью) и новые сцены с клавиатуры
+    for (const SceneInfo& s : SCENES) if (s.key > 10) for (int v = 0; v < presetVariants(s.key); v++) { key(VK_TAB, 3); click(600 + s.key); run(20); }
+    key(VK_TAB, 3); key(VK_TAB, 3);
+    for (int d = 1; d <= 5; d++) keyMod(VK_SHIFT, '0' + d);
+    key('7', 20);
+    // стена
+    click(230 + TOOL_ADD);
+    click(300 + np - 1); gesture("рисуем стену", 0, 0, 0, 0.3f, 0.3f, 0.7f, 0.7f, 10); click(300);
+    // число частиц: почти до нуля, затем обратно
+    slide(103, 0.5f, 0.0f); run(10); slide(103, 0.0f, 0.1f); run(20);
+    // крайний случай: всё стёрто при включённых следах на паузе
+    key('T'); key(VK_SPACE); gesture("стереть всё", 2, 0, 0, 0.0f, 0.0f, 1.0f, 1.0f, 30);
+    add("большой ластик", 2, [](int fr) { if (fr == 0) P.brushR = 400; });
+    gesture("стереть всё 2", 2, 0, 0, 0.5f, 0.5f, 0.5f, 0.5f, 4);
+    click(230 + TOOL_SELECT); keyMod(VK_CONTROL, 'A'); keyMod(VK_CONTROL, 'V'); key(VK_DELETE);
+    for (int t = 0; t < 5; t++) { click(700 + t); run(2); }
+    run(20); key(VK_SPACE); run(20); key('T');
+    add("кисть обратно", 1, [](int) { P.brushR = 3; });
+    key('1', 30);
+    expectLang(lang0, false);
+    run(30);
     // переключение языка при открытых окнах (справка, меню сцен, таблица) и на каждой вкладке — туда и обратно
     for (int vk : {(int)'H', (int)VK_TAB, (int)'E'}) { key(vk, 4); ctrlL(); run(4); ctrlL(); run(4); expectLang(lang0, true); key(vk == 'H' ? 'H' : VK_ESCAPE, 4); }
     for (int t = 0; t < 5; t++) { click(700 + t); ctrlL(); run(3); ctrlL(); run(3); expectLang(lang0, true); }
@@ -1166,7 +1147,7 @@ static bool uiTestTick() {
     if (++uiStepFrame >= frames) {
         std::string why;
         bool ok = checkInvariants(why);
-        fprintf(uiLog, "%4zu %-34s DIM=%d N=%5d T=%8.3f E=%12.3f W=%10.2f %s%s\n", uiStepIdx, uiSteps[uiStepIdx].name.c_str(), DIM, S.n, EN.T, EN.total(), Wext, ok ? "ok" : "ОШИБКА: ", ok ? "" : why.c_str());
+        fprintf(uiLog, "%4zu %-34s N=%5d T=%8.3f E=%12.3f W=%10.2f %s%s\n", uiStepIdx, uiSteps[uiStepIdx].name.c_str(), S.n, EN.T, EN.total(), Wext, ok ? "ok" : "ОШИБКА: ", ok ? "" : why.c_str());
         if (!ok) uiProblems++;
         {   // «взрыв» (перекрытие атомов после действия пользователя): ни одна сцена и ни один инструмент не дают T > 50
             static double lastT = 0;
@@ -1181,7 +1162,7 @@ static bool uiTestTick() {
 
 // ---- демонстрационное состояние для снимков (--shot … demo): объекты поля, выделение, измерение
 static void setupDemo() {
-    const bool d3 = DIM == 3; double cz = d3 ? S.Lz / 2 : 0;
+    const double cz = S.Lz / 2;
     fieldObjs.clear();
     FieldObj a = makeFieldObj(FO_ATTRACT, S.Lx * 0.25, S.Ly * 0.55, cz); fieldObjs.push_back(a);
     FieldObj h = makeFieldObj(FO_HEATER, S.Lx * 0.72, S.Ly * 0.3, cz); fieldObjs.push_back(h);
@@ -1189,7 +1170,7 @@ static void setupDemo() {
     FieldObj b = makeFieldObj(FO_BARRIER, S.Lx * 0.85, S.Ly * 0.6, cz); fieldObjs.push_back(b);
     selFieldObj = 1;
     std::vector<std::pair<double, int>> c;
-    for (int i = 0; i < S.n; i++) { if (EL[S.ty[i]].fixed) continue; double dx = S.x[i] - S.Lx * 0.45, dy = S.y[i] - S.Ly * 0.45, dz = d3 ? S.z[i] - cz : 0; c.push_back({dx * dx + dy * dy + dz * dz, i}); }
+    for (int i = 0; i < S.n; i++) { if (EL[S.ty[i]].fixed) continue; double dx = S.x[i] - S.Lx * 0.45, dy = S.y[i] - S.Ly * 0.45, dz = S.z[i] - cz; c.push_back({dx * dx + dy * dy + dz * dz, i}); }
     std::sort(c.begin(), c.end());
     std::vector<int> sel; for (size_t k = 0; k < c.size() && k < 24; k++) sel.push_back(c[k].second);
     selSetList(sel);
@@ -1205,12 +1186,12 @@ static int argInt(const wchar_t* cmd, const wchar_t* key, int def) { const wchar
 static double argDbl(const wchar_t* cmd, const wchar_t* key, double def) { const wchar_t* p = cmd ? wcsstr(cmd, key) : nullptr; return p ? wcstod(p + wcslen(key), nullptr) : def; }
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     if (cmd && wcsstr(cmd, L"--selftest")) return selftest();
-    // --gradcheck D K шагов: проверка F = −∇U численным дифференцированием в конфигурации пресета K после N шагов
+    // --gradcheck K шагов: проверка F = −∇U численным дифференцированием в конфигурации пресета K после N шагов
     if (cmd && wcsstr(cmd, L"--gradcheck")) {
-        wchar_t* p = wcsstr(cmd, L"--gradcheck") + 11; int D = (int)wcstol(p, &p, 10), K = (int)wcstol(p, &p, 10), steps = (int)wcstol(p, &p, 10);
-        initBondTable(); initKlm(); DIM = D == 3 ? 3 : 2; onDimChanged(); loadPreset(K, 0);
+        wchar_t* p = wcsstr(cmd, L"--gradcheck") + 11; int K = (int)wcstol(p, &p, 10), steps = (int)wcstol(p, &p, 10);
+        initBondTable(); initKlm(); rebuildTables(); loadPreset(K, 0);
         for (int s = 0; s < steps; s++) { runScript(); mdStep(); }
-        FILE* f = fopen(fmt("grad_%dd_%d.log", DIM, K).c_str(), "w"); if (!f) return 1;
+        FILE* f = fopen(fmt("grad_%d.log", K).c_str(), "w"); if (!f) return 1;
         computeMolecules();
         for (auto& kv : A::mol) fprintf(f, "%s:%d ", kv.first.c_str(), kv.second);
         fprintf(f, "\n");
@@ -1220,7 +1201,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         for (int i = 0; i < S.n; i++) {
             if (EL[S.ty[i]].fixed) continue;
             bool interesting = S.nbc[i] > 0 || S.ghc[i] > 0 || i % 7 == 0; if (!interesting) continue;
-            for (int c = 0; c < DIM; c++) {
+            for (int c = 0; c < 3; c++) {
                 double* X = c == 0 ? &S.x[i] : (c == 1 ? &S.y[i] : &S.z[i]);
                 double x0 = *X; *X = x0 + h; double Ep = U(); *X = x0 - h; double Em = U(); *X = x0;
                 double num = -(Ep - Em) / (2 * h), an = c == 0 ? F0x[i] : (c == 1 ? F0y[i] : F0z[i]);
@@ -1234,12 +1215,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         fprintf(f, "tested %d components, bad %d, worst rel err %.3e\n", tested, bad, worst);
         fclose(f); return 0;
     }
-    // --evcheck D K шагов: баланс энергии каждого химического события и интегратора
+    // --evcheck K шагов: баланс энергии каждого химического события и интегратора
     if (cmd && wcsstr(cmd, L"--evcheck")) {
-        wchar_t* p = wcsstr(cmd, L"--evcheck") + 9; int D = (int)wcstol(p, &p, 10), K = (int)wcstol(p, &p, 10), steps = (int)wcstol(p, &p, 10);
-        initBondTable(); initKlm(); DIM = D == 3 ? 3 : 2; onDimChanged(); loadPreset(K, 0);
+        wchar_t* p = wcsstr(cmd, L"--evcheck") + 9; int K = (int)wcstol(p, &p, 10), steps = (int)wcstol(p, &p, 10);
+        initBondTable(); initKlm(); rebuildTables(); loadPreset(K, 0);
         if (wcsstr(cmd, L"nve")) { P.thermostat = TH_NVE; script.clear(); resetEnergyRef(); }
-        gEvLog = fopen(fmt("ev_%dd_%d.log", DIM, K).c_str(), "w"); if (!gEvLog) return 1; gEvCheck = true;
+        gEvLog = fopen(fmt("ev_%d.log", K).c_str(), "w"); if (!gEvLog) return 1; gEvCheck = true;
         double lastE = 0; bool have = false, haveStep = false; double Eprev = 0; int jumps = 0;
         auto dumpAtom = [&](int i) {
             if (i < 0 || i >= S.n) return;
@@ -1267,7 +1248,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     // --ice σO εO T: устойчивость кубического льда при данных параметрах кислорода (подбор модели воды)
     if (cmd && wcsstr(cmd, L"--ice")) {
         wchar_t* p = wcsstr(cmd, L"--ice") + 5; double sO = wcstod(p, &p), eO = wcstod(p, &p), T = wcstod(p, &p);
-        initBondTable(); initKlm(); EL[E_O].sig = sO; EL[E_O].eps = eO; DIM = 3; onDimChanged(); loadPreset(2, L_ICE);
+        initBondTable(); initKlm(); EL[E_O].sig = sO; EL[E_O].eps = eO; rebuildTables(); loadPreset(2, L_ICE);
         P.thermostat = TH_BERENDSEN; P.Tset = T; P.tauT = 0.2;
         FILE* f = fopen(fmt("ice_%.2f_%.2f_%.2f.log", sO, eO, T).c_str(), "w"); if (!f) return 1;
         {   // диагностика исходной решётки: водородные связи и силы
@@ -1291,12 +1272,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         }
         fclose(f); return 0;
     }
-    // --kin K D шагов T вариант: длинный прогон одного пресета без окна (T ≤ 0 — как в пресете), отчёт в kin_*.log
+    // --kin K шагов T вариант: длинный прогон одного пресета без окна (T ≤ 0 — как в пресете), отчёт в kin_*.log
     if (cmd && wcsstr(cmd, L"--kin")) {
         wchar_t* p = wcsstr(cmd, L"--kin") + 5;
-        int K = (int)wcstol(p, &p, 10), D = (int)wcstol(p, &p, 10), steps = (int)wcstol(p, &p, 10); double T = wcstod(p, &p); int var = (int)wcstol(p, &p, 10);
-        initBondTable(); initKlm(); DIM = D == 3 ? 3 : 2; onDimChanged(); loadPreset(K, var); if (T > 0) P.Tset = T;
-        FILE* f = fopen(fmt("kin_%d_%dd_%.2f_v%d.log", K, DIM, T, var).c_str(), "w"); if (!f) return 1;
+        int K = (int)wcstol(p, &p, 10), steps = (int)wcstol(p, &p, 10); double T = wcstod(p, &p); int var = (int)wcstol(p, &p, 10);
+        initBondTable(); initKlm(); rebuildTables(); loadPreset(K, var); if (T > 0) P.Tset = T;
+        FILE* f = fopen(fmt("kin_%d_%.2f_v%d.log", K, T, var).c_str(), "w"); if (!f) return 1;
         fprintf(f, "%s  N=%d\n", presetTitle.c_str(), S.n);
         auto t0 = std::chrono::high_resolution_clock::now();
         for (int s = 0; s <= steps; s++) {
@@ -1318,7 +1299,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
                     for (int i = 0; i < S.n; i++) { if (S.ty[i] == E_NA) { vp += S.vx[i]; np++; } else if (S.ty[i] == E_CLM) { vm += S.vx[i]; nm2++; } }
                     fprintf(f, "\n   E=%.2f  <vx> Na+ %+.4f  Cl- %+.4f", P.efield, np ? vp / np : 0.0, nm2 ? vm / nm2 : 0.0);
                 }
-                if (!A::sceneNote.empty()) fprintf(f, "\n   note: %s", A::sceneNote.c_str());                fprintf(f, "\n");
+                if (!A::sceneNote.empty()) fprintf(f, "\n   note: %s", A::sceneNote.c_str());
+                fprintf(f, "\n");
                 fflush(f);
             }
         }
@@ -1357,12 +1339,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     uiScale = calcUiScale();
     buildFonts(); buildTextures();
     layout(); sceneAspect = clampv(sceneH / sceneW, 0.4f, 1.2f);
-    // --shot K N [3d] [vV] [rot] [help] [table] [menu] [hoverZ] [tab=T] [tool=T] [fo=K] [demo] [layers] [nopanel] [png] [out=имя] [size=WxH] [scale=S]:
+    // --shot K N [vV] [rot] [help] [table] [menu] [hoverZ] [tab=T] [tool=T] [fo=K] [demo] [layers] [nopanel] [png] [out=имя] [size=WxH] [scale=S]:
     //   пресет K, N кадров, сохранить снимок окна и выйти (проверка графики и раскладки)
     int shotPreset = -1, shotFrames = 400, shotVar = 0; bool shotPng = false, shotDemo = false; std::wstring shotOut;
     if (cmd && wcsstr(cmd, L"--shot")) {
         const wchar_t* p = wcsstr(cmd, L"--shot") + 6; shotPreset = (int)wcstol(p, (wchar_t**)&p, 10); int fr = (int)wcstol(p, nullptr, 10); if (fr > 0) shotFrames = fr;
-        if (wcsstr(cmd, L" 3d")) { DIM = 3; onDimChanged(); }
         const wchar_t* v = wcsstr(cmd, L" v"); if (v) shotVar = (int)wcstol(v + 2, nullptr, 10);
         if (wcsstr(cmd, L"rot")) cam3.autoRot = true;
         if (wcsstr(cmd, L" help")) helpOn = true;
@@ -1383,7 +1364,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         if (swapInterval) swapInterval(0);   // без вертикальной синхронизации — быстрее
         fprintf(uiLog, "шагов сценария: %zu\n", uiSteps.size());
     }
-    showToast("H — справка · D — 2D/3D · Alt+1…0 — инструменты · 1–9, 0 — сцены");
+    showToast("H — справка · Tab — сцены · Alt+1…0 — инструменты · 1–9, 0 — быстрые сцены");
     auto last = std::chrono::high_resolution_clock::now(); double fpsAcc = 0; int fpsCnt = 0; int frame = 0;
     MSG msg; bool running = true;
     while (running) {
@@ -1414,9 +1395,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         ui.pressed = false; ui.released = false; ui.wheel = 0;
         if (shotPreset >= 0 && frame == shotFrames) {
             if (shotPng || !shotOut.empty()) {
-                std::wstring nm = !shotOut.empty() ? shotOut : (L"shot_" + std::to_wstring(shotPreset) + (DIM == 3 ? L"_3d" : L"") + L".png");
+                std::wstring nm = !shotOut.empty() ? shotOut : L"shot_" + std::to_wstring(shotPreset) + L".png";
                 writePNG(nm, winW, winH, readRGB(0, 0, winW, winH));
-            } else savePPM(fmt("shot_%d%s.ppm", shotPreset, DIM == 3 ? "_3d" : "").c_str());
+            } else savePPM(fmt("shot_%d.ppm", shotPreset).c_str());
             running = false;
         }
         SwapBuffers(hdc);

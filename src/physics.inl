@@ -19,12 +19,12 @@ static int grabbed = -1; static double grabX = 0, grabY = 0, grabZ = 0;
 static int followAtom = -1;             // камера следит за этим атомом (двойной клик)
 // кисти (нагрев/охлаждение, ластик, вспышка) действуют на атомы вблизи луча взгляда через курсор
 static int heatBrush = 0; static double brushO[3] = {0, 0, -1}, brushD[3] = {0, 0, 1};
-static double brushF[3] = {0, 0, 1}, brushCut = -1e30;   // при разрезе в 3D кисть действует только за плоскостью
+static double brushF[3] = {0, 0, 1}, brushCut = -1e30;   // при разрезе кисть действует только за плоскостью
 static inline double rayDist2(double px, double py, double pz, const double* o, const double* d) {
     double wx = px - o[0], wy = py - o[1], wz = pz - o[2], t = wx * d[0] + wy * d[1] + wz * d[2];
     return wx * wx + wy * wy + wz * wz - t * t;
 }
-// поршень, который тянут мышью (2D)
+// поршень, который тянут мышью
 static bool pistonGrab = false; static double pistonTarget = 0;
 
 // ===================================== ОБЪЕКТЫ ПОЛЯ: интерфейс для UI =====================
@@ -34,11 +34,11 @@ static bool pistonGrab = false; static double pistonTarget = 0;
 //   FO_TRAP     узкая гармоническая ловушка («оптический пинцет»): U = −A(1 − r²/R²)², k = 4A/R² у дна
 //   FO_HEATER / FO_COOLER — локальный термостат Ланжевена к Tset внутри R, strength = частота столкновений γ (1/τ)
 //   FO_WIND     постоянная сила strength (ε/σ) вдоль (dx,dy,dz) в шаре радиуса R (гладкий край)
-//   FO_VORTEX   вихрь: тангенциальная сила strength·(ρ/R)(1−ρ²/R²)² вокруг оси (dx,dy,dz) (в 2D — ось z)
-//   FO_EMITTER  источник: strength атомов типа elem за τ, скорость «сопла» √((d+2)kTset/m) вдоль (dx,dy,dz)
+//   FO_VORTEX   вихрь: тангенциальная сила strength·(ρ/R)(1−ρ²/R²)² вокруг оси (dx,dy,dz)
+//   FO_EMITTER  источник: strength атомов типа elem за τ, скорость «сопла» √(5kTset/m) вдоль (dx,dy,dz)
 //   FO_SINK     сток: атомы (и небольшие молекулы) внутри R удаляются с частотой strength (1/τ)
-//   FO_BARRIER  непроницаемая мягкая стенка: 2D — отрезок (x,y)–(x2,y2); 3D — пластина в плоскости через (x,y,z)
-//               с нормалью (dx,dy,dz): все точки плоскости на расстоянии ≤ R от отрезка (x,y,z)–(x2,y2,z2)
+//   FO_BARRIER  непроницаемая мягкая стенка — пластина в плоскости через (x,y,z) с нормалью (dx,dy,dz):
+//               все точки плоскости на расстоянии ≤ R от отрезка (x,y,z)–(x2,y2,z2)
 //               (отрезок нулевой длины — диск радиуса R; R ≥ 1000 — бесконечная плоскость); strength — жёсткость ε_w
 // Консервативные объекты (ATTRACT, REPEL, TRAP, BARRIER) дают потенциальную энергию EN.efo; когда пользователь
 // двигает/меняет объект, скачок энергии относится к внешней работе W (баланс E − W сохраняется).
@@ -53,9 +53,9 @@ static const char* FO_HINTS[FO_N] = {
     "Ветер: постоянная сила вдоль направления в области радиуса R\n(работа силы — внешняя). Создаёт поток и перепад давления",
     "Вихрь: тангенциальная сила вокруг оси — закручивает газ и жидкость",
     "Ловушка: узкая гармоническая яма («оптический пинцет»):\nловит отдельные атомы и зародыши",
-    "Источник: испускает атомы выбранного элемента пучком\n(скорость сопла √((d+2)kT/m)), не создавая перекрытий",
+    "Источник: испускает атомы выбранного элемента пучком\n(скорость сопла √(5kT/m)), не создавая перекрытий",
     "Сток: удаляет атомы (и небольшие молекулы), попавшие в радиус R.\nВместе с источником — открытая система",
-    "Барьер: непроницаемая мягкая стенка (в 2D — отрезок, в 3D — пластина)"};
+    "Барьер: непроницаемая мягкая стенка-пластина"};
 static const char* FO_UNITS[FO_N] = {"ε", "ε", "1/τ", "1/τ", "ε/σ", "ε/σ", "ε", "ат/τ", "1/τ", "ε"};
 // диапазон «силы» для слайдера (логарифмический)
 static void foStrengthRange(int kind, double& lo, double& hi) {
@@ -69,15 +69,15 @@ static void foStrengthRange(int kind, double& lo, double& hi) {
     default: lo = 0.2; hi = 20; break;
     }
 }
-static inline bool foUsesDir(int k) { return k == FO_WIND || k == FO_EMITTER || (k == FO_VORTEX && DIM == 3) || (k == FO_BARRIER && DIM == 3); }
+static inline bool foUsesDir(int k) { return k == FO_WIND || k == FO_EMITTER || k == FO_VORTEX || k == FO_BARRIER; }
 static inline bool foUsesT(int k) { return k == FO_HEATER || k == FO_COOLER || k == FO_EMITTER; }
 static inline bool foIsSegment(int k) { return k == FO_BARRIER; }
 static inline bool foConservative(int k) { return k == FO_ATTRACT || k == FO_REPEL || k == FO_TRAP || k == FO_BARRIER; }
-// объект с разумными умолчаниями под размерность и размер ящика; (x,y,z) — центр (для барьера — середина)
+// объект с разумными умолчаниями под размер ящика; (x,y,z) — центр (для барьера — середина)
 static FieldObj makeFieldObj(int kind, double x, double y, double z) {
-    FieldObj o; o.kind = clampv(kind, 0, FO_N - 1); o.x = x; o.y = y; o.z = DIM == 3 ? z : 0;
-    const double Lm = DIM == 3 ? std::min(S.Lx, std::min(S.Ly, S.Lz)) : std::min(S.Lx, S.Ly);
-    const double Rd = clampv(0.18 * Lm, 2.5, DIM == 3 ? 8.0 : 10.0);
+    FieldObj o; o.kind = clampv(kind, 0, FO_N - 1); o.x = x; o.y = y; o.z = z;
+    const double Lm = std::min({S.Lx, S.Ly, S.Lz});
+    const double Rd = clampv(0.18 * Lm, 2.5, 8.0);
     o.R = Rd; o.dx = 1; o.dy = 0; o.dz = 0;
     switch (o.kind) {
     case FO_ATTRACT: o.strength = 3.0; o.R = 1.3 * Rd; break;
@@ -86,13 +86,13 @@ static FieldObj makeFieldObj(int kind, double x, double y, double z) {
     case FO_HEATER: o.strength = 2.0; o.Tset = std::max(1.5, 3.0 * P.Tset); break;
     case FO_COOLER: o.strength = 2.0; o.Tset = std::max(0.02, 0.25 * P.Tset); break;
     case FO_WIND: o.strength = 0.6; break;
-    case FO_VORTEX: o.strength = 1.0; o.dx = 0; o.dy = DIM == 3 ? 1 : 0; o.dz = DIM == 3 ? 0 : 1; break;   // 3D: ось вдоль y
+    case FO_VORTEX: o.strength = 1.0; o.dx = 0; o.dy = 1; o.dz = 0; break;   // ось вдоль y
     case FO_EMITTER: o.strength = 5.0; o.R = 1.5; o.Tset = std::max(0.5, P.Tset); o.elem = E_AR; break;
     case FO_SINK: o.strength = 20.0; o.R = 0.5 * Rd; break;
     case FO_BARRIER: {   // вертикальный отрезок/пластина через (x,y,z), нормаль вдоль x
         o.strength = 2.0; const double h = 0.3 * S.Ly;
         o.y = y - h; o.x2 = x; o.y2 = y + h; o.z2 = o.z;
-        o.R = DIM == 3 ? 0.3 * S.Lz : 0; break; }
+        o.R = 0.3 * S.Lz; break; }
     }
     return o;
 }
@@ -107,7 +107,7 @@ static inline bool physAlertActive(double sec = 6.0) { return !physAlert.empty()
 struct PairP { double sig2, eps4, rc2, shift; };
 static PairP PT[NEL][NEL];
 static double rcMax = 2.5, rcMax2 = 6.25;
-static double rcCoul = cfg::RC_COUL_2D, coulShift = 0, coulFs = 0;   // сдвиг энергии и силы (shifted-force)
+static double rcCoul = cfg::RC_COUL, coulShift = 0, coulFs = 0;   // сдвиг энергии и силы (shifted-force)
 static bool anyCharge = false, anyBondable = false, anyMetal = false;
 static bool present[NEL];
 static bool nlValid = false;          // список Верле действителен
@@ -126,9 +126,7 @@ static inline double taper(double r, double r1, double r2, double& dS) {   // S 
     if (r >= r2) { dS = 0; return 0; }
     double L = r2 - r1, t = (r - r1) / L, t2 = t * t, u = 1 - t;
     dS = -30 * t2 * u * u / L;
-    // S = (1−t)³(1 + 3t + 6t²) — та же функция, но без вычитания близких чисел: S ≥ 0 точно.
-    // (Прежняя запись 1 − 10t³ + 15t⁴ − 6t⁵ у края давала S ≈ −3·10⁻¹⁶ → ρ < 0 → √ρ = NaN в энергии
-    //  металлической связи: так «умирал» пресет «Окисление железа» в 3D при t ≈ 47.)
+    // та же функция в виде (1−t)³(1 + 3t + 6t²): без вычитания близких чисел S ≥ 0 точно, иначе у края ρ < 0 и √ρ = NaN
     return u * u * u * (1 + 3 * t + 6 * t2);
 }
 static inline void gupFG(const GupP& g, double r, double& f, double& df, double& h, double& dh) {
@@ -138,11 +136,8 @@ static inline void gupFG(const GupP& g, double r, double& f, double& df, double&
     h = e2 * S; dh = e2 * (dS - 2 * gup::Q * g.ir0 * S);
 }
 static void calibrateGupta(double r0, double Ecoh, double& A, double& xi) {
-    // оболочки решётки (в долях расстояния до ближайших соседей) и их заселённости: 3D — ГЦК, 2D — треугольная
-    const bool d2 = DIM == 2;
-    const double sh3[5] = {1.0, std::sqrt(2.0), std::sqrt(3.0), 2.0, std::sqrt(5.0)}; const int n3[5] = {12, 6, 24, 12, 24};
-    const double sh2[5] = {1.0, std::sqrt(3.0), 2.0, std::sqrt(7.0), 3.0}; const int n2[5] = {6, 6, 6, 12, 6};
-    const double* sh = d2 ? sh2 : sh3; const int* nsh = d2 ? n2 : n3;
+    // оболочки ГЦК-решётки (в долях расстояния до ближайших соседей) и их заселённости
+    const double sh[5] = {1.0, std::sqrt(2.0), std::sqrt(3.0), 2.0, std::sqrt(5.0)}; const int nsh[5] = {12, 6, 24, 12, 24};
     GupP g; g.r0 = r0; g.ir0 = 1 / r0; g.r1 = gup::R1 * r0; g.r2 = gup::R2 * r0;
     auto sums = [&](double s, double& R, double& G) { R = G = 0; for (int k = 0; k < 5; k++) { double f, df, h, dh; gupFG(g, s * r0 * sh[k], f, df, h, dh); R += nsh[k] * f; G += nsh[k] * h; } };
     double R, G, Rp, Gp, Rm, Gm, e = 1e-5; sums(1, R, G); sums(1 + e, Rp, Gp); sums(1 - e, Rm, Gm);
@@ -191,7 +186,6 @@ static void buildPairTables() {
         PairP p{sig * sig, 4 * eps, rc * rc, 4 * eps * (sr6 * sr6 - sr6)}; PT[a][b] = p; PT[b][a] = p;
     };
     nbfix(E_H, E_H, 0.62, 0.05);
-    rcCoul = DIM == 3 ? cfg::RC_COUL_3D : cfg::RC_COUL_2D;
     double e = cfg::K_COUL * std::exp(-rcCoul / cfg::L_DEBYE);
     coulShift = e / rcCoul;
     coulFs = e * (1.0 / (rcCoul * rcCoul) + 1.0 / (cfg::L_DEBYE * rcCoul));
@@ -290,8 +284,7 @@ static void removeAllBonds(int i) {
 static inline void dvec(int i, int j, double& dx, double& dy, double& dz) {
     dx = S.x[j] - S.x[i]; dy = S.y[j] - S.y[i]; dz = S.z[j] - S.z[i];
     if (P.boundary == B_PERIODIC) {
-        dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly);
-        if (DIM == 3) dz -= S.Lz * std::nearbyint(dz / S.Lz);
+        dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz);
     }
 }
 static inline double dist2(int i, int j) { double dx, dy, dz; dvec(i, j, dx, dy, dz); return dx * dx + dy * dy + dz * dz; }
@@ -312,7 +305,6 @@ static void setPin(int i, bool on) {
 // ===================================== ATOMS ==========================================
 static int addAtom(int type, double x, double y, double z, double vx, double vy, double vz) {
     int i = S.n; S.resize(i + 1); S.n = i + 1;
-    if (DIM == 2) { z = 0; vz = 0; }
     if (EL[type].fixed) vx = vy = vz = 0;
     S.x[i] = x; S.y[i] = y; S.z[i] = z; S.vx[i] = vx; S.vy[i] = vy; S.vz[i] = vz;
     S.fx[i] = S.fy[i] = S.fz[i] = 0; S.ux[i] = x; S.uy[i] = y; S.uz[i] = z;
@@ -355,23 +347,22 @@ static void removeMolecule(int i) {
 
 // ===================================== CELL LIST + VERLET LIST ==========================
 // Сетка ячеек (размер ≥ r_c + skin) → список соседей Верле для каждого атома.
-// Список пересобирается, только когда какой-то атом сместился больше чем на skin/2 — это в разы быстрее,
-// особенно в 3D (27 соседних ячеек против ~80 реальных соседей).
+// Список пересобирается, только когда какой-то атом сместился больше чем на skin/2 — это в разы быстрее
+// (27 соседних ячеек против ~80 реальных соседей).
 static std::vector<int> cellStart, cellAtoms, cellOf, neighList, neighCnt;
-static int cnx = 0, cny = 0, cnz = 0, cdim = 0; static bool cper = false;
+static int cnx = 0, cny = 0, cnz = 0; static bool cper = false;
 static void buildCells(double cs) {
     const bool per = isPer();
-    int nx = std::max(1, (int)(S.Lx / cs)), ny = std::max(1, (int)(S.Ly / cs)), nz = DIM == 3 ? std::max(1, (int)(S.Lz / cs)) : 1;
+    int nx = std::max(1, (int)(S.Lx / cs)), ny = std::max(1, (int)(S.Ly / cs)), nz = std::max(1, (int)(S.Lz / cs));
     if (per) { if (nx < 3) nx = 1; if (ny < 3) ny = 1; if (nz < 3) nz = 1; }
     nx = std::min(nx, 200); ny = std::min(ny, 200); nz = std::min(nz, 200);
-    if (nx != cnx || ny != cny || nz != cnz || per != cper || DIM != cdim) {
-        cnx = nx; cny = ny; cnz = nz; cper = per; cdim = DIM;
+    if (nx != cnx || ny != cny || nz != cnz || per != cper) {
+        cnx = nx; cny = ny; cnz = nz; cper = per;
         size_t nc = (size_t)nx * ny * nz;
         neighList.assign(nc * 27, 0); neighCnt.assign(nc, 0);
-        int zr = DIM == 3 ? 1 : 0;
         for (int iz = 0; iz < nz; iz++) for (int iy = 0; iy < ny; iy++) for (int ix = 0; ix < nx; ix++) {
             int c = (iz * ny + iy) * nx + ix, cnt = 0;
-            for (int dz = -zr; dz <= zr; dz++) for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
                 int jx = ix + dx, jy = iy + dy, jz = iz + dz;
                 if (per) { jx = (jx + nx) % nx; jy = (jy + ny) % ny; jz = (jz + nz) % nz; }
                 else if (jx < 0 || jy < 0 || jz < 0 || jx >= nx || jy >= ny || jz >= nz) continue;
@@ -384,10 +375,10 @@ static void buildCells(double cs) {
     }
     int nc = nx * ny * nz, n = S.n;
     cellStart.assign(nc + 1, 0); cellAtoms.resize(n); cellOf.resize(n);
-    double sx = nx / S.Lx, sy = ny / S.Ly, sz = DIM == 3 ? nz / S.Lz : 0;
+    double sx = nx / S.Lx, sy = ny / S.Ly, sz = nz / S.Lz;
     for (int i = 0; i < n; i++) {
         int ix = clampv((int)(S.x[i] * sx), 0, nx - 1), iy = clampv((int)(S.y[i] * sy), 0, ny - 1);
-        int iz = DIM == 3 ? clampv((int)(S.z[i] * sz), 0, nz - 1) : 0;
+        int iz = clampv((int)(S.z[i] * sz), 0, nz - 1);
         int c = (iz * ny + iy) * nx + ix; cellOf[i] = c; cellStart[c + 1]++;
     }
     for (int c = 0; c < nc; c++) cellStart[c + 1] += cellStart[c];
@@ -473,23 +464,23 @@ static inline double bondPot(double D, double r0, double r, double& dUdr) {
     return U;
 }
 static inline double morseU(double D, double r0, double r) { double d; return bondPot(D, r0, r, d); }
-// Равновесный валентный угол центра c (град) по элементу и числу связей; 0 — угловой член не нужен
-static inline double theta0Of(int c) {
-    int t = S.ty[c], k = S.nbc[c];
+// Равновесный валентный угол (град) атома типа t с k связями, по VSEPR; 0 — угловой член не нужен
+static double vseprAngle(int t, int k) {
     if (k < 2) return 0;
-    if (t == E_O) return k == 2 ? 104.5 : 0;                               // H2O, H2O2
-    if (t == E_N) return k == 2 ? 115.0 : (k == 3 ? (DIM == 3 ? 107.0 : 120.0) : 0);   // NH3 — пирамида
-    if (t == E_C) { if (k == 2) return 180.0; if (k == 3) return 120.0; if (k == 4) return DIM == 3 ? 109.47 : 0; }   // sp, sp2, sp3
-    switch (EL[t].Z) {   // остальные элементы — по VSEPR
-    case 14: case 32: case 50: if (k == 2) return 180.0; if (k == 3) return 120.0; if (k == 4) return DIM == 3 ? 109.47 : 0; break;   // Si, Ge, Sn
-    case 15: case 33: case 51: if (k == 2) return 110.0; if (k == 3) return DIM == 3 ? 98.0 : 120.0; break;                         // P, As, Sb
-    case 16: return k == 2 ? 92.0 : 0;                                                                                                // H2S
-    case 34: case 52: return k == 2 ? 91.0 : 0;                                                                                       // Se, Te
-    case 5: case 13: case 31: return k == 3 ? 120.0 : (k == 2 ? 120.0 : 0);                                                         // B, Al, Ga — плоские
-    case 4: case 12: case 30: case 48: case 80: return k == 2 ? 180.0 : 0;                                                            // Be, Mg, Zn, Cd, Hg — линейные
+    if (t == E_O) return k == 2 ? 104.5 : 113.0;                           // H2O; H3O+ — плоская пирамида
+    if (t == E_N) return k == 2 ? 115.0 : (k == 3 ? 107.0 : 109.47);       // NH3 — пирамида, NH4+ — тетраэдр
+    if (t == E_C) return k == 2 ? 180.0 : (k == 3 ? 120.0 : 109.47);       // sp, sp2, sp3
+    switch (EL[t].Z) {
+    case 14: case 32: case 50: return k == 2 ? 180.0 : (k == 3 ? 120.0 : 109.47);   // Si, Ge, Sn
+    case 15: case 33: case 51: return k == 2 ? 110.0 : (k == 3 ? 98.0 : 109.47);    // P, As, Sb
+    case 16: return k == 2 ? 92.0 : 0;                                              // H2S
+    case 34: case 52: return k == 2 ? 91.0 : 0;                                     // H2Se, H2Te
+    case 5: case 13: case 31: return k == 4 ? 109.47 : 120.0;                       // BF3 плоская, BH4− тетраэдр
+    case 4: case 12: case 30: case 48: case 80: return k == 2 ? 180.0 : 0;          // BeH2, HgCl2 — линейные
     }
     return 0;
 }
+static inline double theta0Of(int c) { return vseprAngle(S.ty[c], S.nbc[c]); }
 // U = k(cosθ − cosθ0)² для угла a–c–b; при F != nullptr добавляет силы
 static inline double angleTerm(int c, int a, int b, double c0, bool addForce) {
     double ax, ay, az, bx, by, bz; dvec(c, a, ax, ay, az); dvec(c, b, bx, by, bz);
@@ -574,7 +565,7 @@ static double swCentered(int i, bool addForce, double* vir) {
         nb[k] = j; rv[k][0] = dx; rv[k][1] = dy; rv[k][2] = dz; rr[k] = r; k++;
     }
     if (k < 2) return 0;
-    const double c0 = DIM == 3 ? -1.0 / 3.0 : -0.5, lam = cfg::SW_LAMBDA, gam = cfg::SW_GAMMA, a = cfg::SW_A;
+    const double c0 = -1.0 / 3.0, lam = cfg::SW_LAMBDA, gam = cfg::SW_GAMMA, a = cfg::SW_A;
     double phi[24], dphi[24];
     for (int q = 0; q < k; q++) { double s = rr[q] - a; phi[q] = std::exp(gam / s); dphi[q] = -phi[q] * gam / (s * s); }
     double E = 0;
@@ -665,9 +656,8 @@ static double metalEmbedLocal(const std::vector<int>& C) {
 static inline void tweezerForce(double& Fx, double& Fy, double& Fz) {
     int g = grabbed; double m = EL[S.ty[g]].m, k = cfg::TWEEZER_K, c = 2 * std::sqrt(k);
     double dx = grabX - S.x[g], dy = grabY - S.y[g], dz = grabZ - S.z[g];
-    if (isPer()) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); if (DIM == 3) dz -= S.Lz * std::nearbyint(dz / S.Lz); }
-    if (DIM == 2) dz = 0;
-    Fx = m * (k * dx - c * S.vx[g]); Fy = m * (k * dy - c * S.vy[g]); Fz = m * (k * dz - c * S.vz[g]);
+    if (isPer()) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz); }
+    Fx =m * (k * dx - c * S.vx[g]); Fy = m * (k * dy - c * S.vy[g]); Fz = m * (k * dz - c * S.vz[g]);
 }
 
 // ===================================== ОБЪЕКТЫ ПОЛЯ: силы ================================
@@ -676,23 +666,17 @@ static bool foNC = false;                            // на последнем 
 static bool foAnyOn() { for (auto& o : fieldObjs) if (o.on) return true; return false; }
 // вектор от точки (cx,cy,cz) к атому i с минимальным образом
 static inline void foRel(double cx, double cy, double cz, int i, double& rx, double& ry, double& rz) {
-    rx = S.x[i] - cx; ry = S.y[i] - cy; rz = DIM == 3 ? S.z[i] - cz : 0.0;
-    if (isPer()) { rx -= S.Lx * std::nearbyint(rx / S.Lx); ry -= S.Ly * std::nearbyint(ry / S.Ly); if (DIM == 3) rz -= S.Lz * std::nearbyint(rz / S.Lz); }
+    rx = S.x[i] - cx; ry = S.y[i] - cy; rz = S.z[i] - cz;
+    if (isPer()) { rx -= S.Lx * std::nearbyint(rx / S.Lx); ry -= S.Ly * std::nearbyint(ry / S.Ly); rz -= S.Lz * std::nearbyint(rz / S.Lz); }
 }
 static inline void foUnitDir(const FieldObj& o, double& ux, double& uy, double& uz) {
-    ux = o.dx; uy = o.dy; uz = DIM == 3 ? o.dz : 0.0;
+    ux = o.dx; uy = o.dy; uz = o.dz;
     double l = std::sqrt(ux * ux + uy * uy + uz * uz);
-    if (l < 1e-12) { ux = 1; uy = 0; uz = 0; if (o.kind == FO_VORTEX) { ux = 0; if (DIM == 3) uy = 1; else uz = 1; } return; }
+    if (l < 1e-12) { ux = 1; uy = 0; uz = 0; if (o.kind == FO_VORTEX) { ux = 0; uy = 1; } return; }
     ux /= l; uy /= l; uz /= l;
 }
-// Барьер: вектор от ближайшей точки барьера к атому (2D — отрезок; 3D — область плоскости в пределах R от отрезка)
+// Барьер: вектор от ближайшей точки барьера (область плоскости в пределах R от отрезка) к атому
 static inline void barrierVec(const FieldObj& o, int i, double& vx, double& vy, double& vz) {
-    if (DIM == 2) {
-        double mx = 0.5 * (o.x + o.x2), my = 0.5 * (o.y + o.y2), sx = o.x2 - o.x, sy = o.y2 - o.y, L = std::sqrt(sx * sx + sy * sy);
-        double rx, ry, rz; foRel(mx, my, 0, i, rx, ry, rz);
-        double t = 0; if (L > 1e-9) { sx /= L; sy /= L; t = clampv(rx * sx + ry * sy, -0.5 * L, 0.5 * L); }
-        vx = rx - t * sx; vy = ry - t * sy; vz = 0; return;
-    }
     double nx, ny, nz; foUnitDir(o, nx, ny, nz);
     double ax = o.x2 - o.x, ay = o.y2 - o.y, az = o.z2 - o.z, an = ax * nx + ay * ny + az * nz;
     ax -= an * nx; ay -= an * ny; az -= an * nz;   // отрезок проецируется в плоскость барьера
@@ -797,7 +781,7 @@ static void fieldObjForces() {
 
 static void computeForces() {
     ensureNeighborList();
-    const int n = S.n; const bool per = isPer(), d3 = DIM == 3;
+    const int n = S.n; const bool per = isPer();
     const double Lx = S.Lx, Ly = S.Ly, Lz = S.Lz, invL = 1.0 / cfg::L_DEBYE, rcc2 = rcCoul * rcCoul, rcc = rcCoul;
     double enb = 0, vir = 0;
     // --- парные силы: каждый поток считает силу только на «свой» атом i → без гонок данных
@@ -809,8 +793,8 @@ static void computeForces() {
         const bool bi = S.nbc[i] != 0, gi = S.ghc[i] != 0;
         for (int p = nlStart[i]; p < nlStart[i + 1]; p++) {
             const int j = nlIdx[p];
-            double dx = S.x[j] - xi, dy = S.y[j] - yi, dz = d3 ? S.z[j] - zi : 0.0;
-            if (per) { dx -= Lx * std::nearbyint(dx / Lx); dy -= Ly * std::nearbyint(dy / Ly); if (d3) dz -= Lz * std::nearbyint(dz / Lz); }
+            double dx = S.x[j] - xi, dy = S.y[j] - yi, dz = S.z[j] - zi;
+            if (per) { dx -= Lx * std::nearbyint(dx / Lx); dy -= Ly * std::nearbyint(dy / Ly); dz -= Lz * std::nearbyint(dz / Lz); }
             const double r2 = dx * dx + dy * dy + dz * dz;
             if (r2 > rcMax2 || r2 < 1e-12) continue;
             if ((gi || (bi && S.nbc[j])) && excluded(i, j)) continue;
@@ -843,10 +827,8 @@ static void computeForces() {
             wallTerm(Lx - S.x[i], s, U, F); S.fx[i] -= F; eu += U; fw += F;
             wallTerm(S.y[i], s, U, F);      S.fy[i] += F; eu += U; fw += F;
             wallTerm(Ly - S.y[i], s, U, F); S.fy[i] -= F; eu += U; fw += F; fp += F;
-            if (d3) {
-                wallTerm(S.z[i], s, U, F);      S.fz[i] += F; eu += U; fw += F;
-                wallTerm(Lz - S.z[i], s, U, F); S.fz[i] -= F; eu += U; fw += F;
-            }
+            wallTerm(S.z[i], s, U, F);      S.fz[i] += F; eu += U; fw += F;
+            wallTerm(Lz - S.z[i], s, U, F); S.fz[i] -= F; eu += U; fw += F;
             ewall += eu; S.ep[i] += eu;
             if (g != 0) { S.fy[i] -= e.m * g; egrav += e.m * g * S.y[i]; }   // гравитация только в ящике со дном
         }
@@ -894,7 +876,6 @@ static void computeForces() {
     int capped = 0; double amax2 = 0; int amaxI = -1;
     for (int i = 0; i < n; i++) {
         if (frozenAt(i)) continue;
-        if (!d3) S.fz[i] = 0;
         double f2 = S.fx[i] * S.fx[i] + S.fy[i] * S.fy[i] + S.fz[i] * S.fz[i];
         if (f2 > cfg::F_CAP * cfg::F_CAP) { double s = cfg::F_CAP / std::sqrt(f2); S.fx[i] *= s; S.fy[i] *= s; S.fz[i] *= s; capped++; f2 = cfg::F_CAP * cfg::F_CAP; }
         double im = 1.0 / EL[S.ty[i]].m; if (f2 * im * im > amax2) { amax2 = f2 * im * im; amaxI = i; }
@@ -938,7 +919,7 @@ static void measure();
 static bool chemistryStep();
 static void relaxBondOffsets(double dt);
 
-// сила на поршень от мыши (2D): пружина к положению курсора
+// сила на поршень от мыши: пружина к положению курсора
 static double pistonGrabForce() {
     if (!pistonGrab || P.boundary != B_PISTON) return 0;
     double k = 20.0, M = S.pistonM;
@@ -955,7 +936,7 @@ static int baroCount = 0;
 
 static void mdStep() {
     const double dt = P.dt; const int n = S.n;
-    const bool per = isPer(), d3 = DIM == 3;
+    const bool per = isPer();
     if (P.thermostat == TH_NOSE) nhHalf(dt);
     // Velocity Verlet: v(t+dt/2) = v + dt/2·F/m;  x(t+dt) = x + dt·v(t+dt/2)
     const bool nc = foNC && (int)foFx.size() == n;
@@ -989,16 +970,14 @@ static void mdStep() {
         if (per) {
             if (S.x[i] < 0 || S.x[i] >= S.Lx) S.x[i] -= S.Lx * std::floor(S.x[i] / S.Lx);
             if (S.y[i] < 0 || S.y[i] >= S.Ly) S.y[i] -= S.Ly * std::floor(S.y[i] / S.Ly);
-            if (d3 && (S.z[i] < 0 || S.z[i] >= S.Lz)) S.z[i] -= S.Lz * std::floor(S.z[i] / S.Lz);
+            if (S.z[i] < 0 || S.z[i] >= S.Lz) S.z[i] -= S.Lz * std::floor(S.z[i] / S.Lz);
         } else {   // упругое отражение (страховка, обычно работает потенциал стенки)
             if (S.x[i] < 0) { S.x[i] = -S.x[i]; S.vx[i] = std::fabs(S.vx[i]); }
             if (S.x[i] > S.Lx) { S.x[i] = 2 * S.Lx - S.x[i]; S.vx[i] = -std::fabs(S.vx[i]); }
             if (S.y[i] < 0) { S.y[i] = -S.y[i]; S.vy[i] = std::fabs(S.vy[i]); }
             if (S.y[i] > S.Ly) { S.y[i] = std::max(0.0, 2 * S.Ly - S.y[i]); S.vy[i] = -std::fabs(S.vy[i]); }
-            if (d3) {
-                if (S.z[i] < 0) { S.z[i] = -S.z[i]; S.vz[i] = std::fabs(S.vz[i]); }
-                if (S.z[i] > S.Lz) { S.z[i] = 2 * S.Lz - S.z[i]; S.vz[i] = -std::fabs(S.vz[i]); }
-            }
+            if (S.z[i] < 0) { S.z[i] = -S.z[i]; S.vz[i] = std::fabs(S.vz[i]); }
+            if (S.z[i] > S.Lz) { S.z[i] = 2 * S.Lz - S.z[i]; S.vz[i] = -std::fabs(S.vz[i]); }
         }
     }
     computeForces();
@@ -1053,7 +1032,7 @@ static void mdStep() {
         for (int i = 0; i < n; i++) {
             const Element& e = EL[S.ty[i]]; if (frozenAt(i)) continue;
             double sd = s * std::sqrt(P.Tset / e.m), k0 = S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i];
-            S.vx[i] = c * S.vx[i] + sd * grand(); S.vy[i] = c * S.vy[i] + sd * grand(); if (d3) S.vz[i] = c * S.vz[i] + sd * grand();
+            S.vx[i] = c * S.vx[i] + sd * grand(); S.vy[i] = c * S.vy[i] + sd * grand(); S.vz[i] = c * S.vz[i] + sd * grand();
             dK += 0.5 * e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i] - k0);
         }
         Wext += dK; K += dK;
@@ -1073,10 +1052,10 @@ static void mdStep() {
             auto ray = [&](double Tw) { return std::sqrt(-2 * Tw / e.m * std::log(std::max(1e-12, urand()))); };
             auto tang = [&](double Tw) { return grand() * std::sqrt(Tw / e.m); };
             if (P.heatWalls == 1) {
-                if (S.x[i] < s && S.vx[i] < 0) { S.vx[i] = ray(P.Thot); S.vy[i] = tang(P.Thot); if (d3) S.vz[i] = tang(P.Thot); hit = 0; }
-                else if (S.x[i] > S.Lx - s && S.vx[i] > 0) { S.vx[i] = -ray(P.Tcold); S.vy[i] = tang(P.Tcold); if (d3) S.vz[i] = tang(P.Tcold); hit = 1; }
+                if (S.x[i] < s && S.vx[i] < 0) { S.vx[i] = ray(P.Thot); S.vy[i] = tang(P.Thot); S.vz[i] = tang(P.Thot); hit = 0; }
+                else if (S.x[i] > S.Lx - s && S.vx[i] > 0) { S.vx[i] = -ray(P.Tcold); S.vy[i] = tang(P.Tcold); S.vz[i] = tang(P.Tcold); hit = 1; }
             } else if (P.heatWalls == 2) {
-                if (S.y[i] < s && S.vy[i] < 0) { S.vy[i] = ray(P.Thot); S.vx[i] = tang(P.Thot); if (d3) S.vz[i] = tang(P.Thot); hit = 0; }
+                if (S.y[i] < s && S.vy[i] < 0) { S.vy[i] = ray(P.Thot); S.vx[i] = tang(P.Thot); S.vz[i] = tang(P.Thot); hit = 0; }
             }
             if (hit >= 0) { double dK = 0.5 * e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]) - K0; Wext += dK; heatWallQ[hit] += dK; }
         }
@@ -1088,9 +1067,9 @@ static void mdStep() {
             const Element& e = EL[S.ty[i]]; if (frozenAt(i)) continue;
             if (rayDist2(S.x[i], S.y[i], S.z[i], brushO, brushD) > R2) continue;
             if ((S.x[i] - brushO[0]) * brushF[0] + (S.y[i] - brushO[1]) * brushF[1] + (S.z[i] - brushO[2]) * brushF[2] < brushCut) continue;
-            double v2 =S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i];
-            double K0 = 0.5 * e.m * v2, Ti = e.m * v2 / DIM;   // «температура» атома
-            if (K0 < 1e-6) { S.vx[i] += grand() * 0.1; S.vy[i] += grand() * 0.1; if (d3) S.vz[i] += grand() * 0.1; }
+            double v2 = S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i];
+            double K0 = 0.5 * e.m * v2, Ti = e.m * v2 / 3;   // «температура» атома
+            if (K0 < 1e-6) { S.vx[i] += grand() * 0.1; S.vy[i] += grand() * 0.1; S.vz[i] += grand() * 0.1; }
             else { double l = std::sqrt(clampv(1 + 0.05 * (Tb / Ti - 1), 0.8, 1.3)); S.vx[i] *= l; S.vy[i] *= l; S.vz[i] *= l; }
             Wext += 0.5 * e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]) - K0;
         }
@@ -1165,13 +1144,13 @@ static void barostatCRescale(double dtB) {
     double deps = -(baroBeta / tau) * (P.pExt - Pint - kT / V) * dtB + std::sqrt(2 * kT * baroBeta * dtB / (V * tau)) * grand();
     deps = clampv(deps, -0.01, 0.01);
     // ящик не должен стать меньше двух радиусов обрезки (минимальный образ) и больше разумного
-    const double Lmin = 2 * (rcMax + cfg::SKIN) + 0.1, Lnow = DIM == 3 ? std::min({S.Lx, S.Ly, S.Lz}) : std::min(S.Lx, S.Ly);
+    const double Lmin = 2 * (rcMax + cfg::SKIN) + 0.1, Lnow = std::min({S.Lx, S.Ly, S.Lz});
     if (deps < 0 && Lnow * std::exp(deps / DIM) < Lmin) deps = 0;
     if (deps > 0 && V > 5e7) deps = 0;
     if (deps == 0) return;
     const double mu = std::exp(deps / DIM), imu = 1.0 / mu;
     const double E0 = K + EN.enb + EN.ebond + EN.egrav + EN.efo;
-    S.Lx *= mu; S.Ly *= mu; if (DIM == 3) S.Lz *= mu;
+    S.Lx *= mu; S.Ly *= mu; S.Lz *= mu;
     const int n = S.n;
 #pragma omp parallel for
     for (int i = 0; i < n; i++) {
@@ -1188,7 +1167,6 @@ static void barostatCRescale(double dtB) {
 // Потенциальная энергия системы (для учёта работы при добавлении/удалении атомов)
 static inline double potentialNow() { return EN.enb + EN.ebond + EN.egrav + EN.efo; }
 static void applyFieldObjs(double dt) {
-    const bool d3 = DIM == 3;
     // 1) нагреватели / охладители: Ланжевен к Tset, частота γ·w(r), w = 1 внутри 0.7R и плавно → 0 к краю
     for (auto& o : fieldObjs) {
         if (o.kind != FO_HEATER && o.kind != FO_COOLER) continue;
@@ -1202,7 +1180,7 @@ static void applyFieldObjs(double dt) {
             double dS, w = taper(std::sqrt(r2), 0.7 * o.R, o.R, dS);
             double c = std::exp(-std::max(0.0, o.strength) * w * dt), m = EL[S.ty[i]].m, sd = std::sqrt((1 - c * c) * Tz / m);
             double k0 = S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i];
-            S.vx[i] = c * S.vx[i] + sd * grand(); S.vy[i] = c * S.vy[i] + sd * grand(); if (d3) S.vz[i] = c * S.vz[i] + sd * grand();
+            S.vx[i] = c * S.vx[i] + sd * grand(); S.vy[i] = c * S.vy[i] + sd * grand(); S.vz[i] = c * S.vz[i] + sd * grand();
             dK += 0.5 * m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i] - k0);
         }
         Wext += dK;
@@ -1250,29 +1228,28 @@ static void applyFieldObjs(double dt) {
                         double e1x = uy * az - uz * ay, e1y = uz * ax - ux * az, e1z = ux * ay - uy * ax, l1 = std::sqrt(e1x * e1x + e1y * e1y + e1z * e1z);
                         e1x /= l1; e1y /= l1; e1z /= l1;
                         double e2x = uy * e1z - uz * e1y, e2y = uz * e1x - ux * e1z, e2z = ux * e1y - uy * e1x;
-                        double rr = o.R * (d3 ? std::sqrt(urand()) : (2 * urand() - 1)), ph = 2 * PI * urand();
-                        double c1 = d3 ? rr * std::cos(ph) : rr, c2 = d3 ? rr * std::sin(ph) : 0;
-                        if (!d3) { e1x = -uy; e1y = ux; e1z = 0; }
-                        px = o.x + c1 * e1x + c2 * e2x; py = o.y + c1 * e1y + c2 * e2y; pz = d3 ? o.z + c1 * e1z + c2 * e2z : 0;
+                        double rr = o.R * std::sqrt(urand()), ph = 2 * PI * urand();
+                        double c1 = rr * std::cos(ph), c2 = rr * std::sin(ph);
+                        px = o.x + c1 * e1x + c2 * e2x; py = o.y + c1 * e1y + c2 * e2y; pz = o.z + c1 * e1z + c2 * e2z;
                     }
-                    if (isPer()) { px -= S.Lx * std::floor(px / S.Lx); py -= S.Ly * std::floor(py / S.Ly); if (d3) pz -= S.Lz * std::floor(pz / S.Lz); }
+                    if (isPer()) { px -= S.Lx * std::floor(px / S.Lx); py -= S.Ly * std::floor(py / S.Ly); pz -= S.Lz * std::floor(pz / S.Lz); }
                     else {
                         const double mg = 0.6 * EL[t].sig;
-                        if (px < mg || py < mg || px > S.Lx - mg || py > S.Ly - mg || (d3 && (pz < mg || pz > S.Lz - mg))) continue;
+                        if (px < mg || py < mg || pz < mg || px > S.Lx - mg || py > S.Ly - mg || pz > S.Lz - mg) continue;
                     }
                     bool ok = true;
                     for (int j = 0; j < S.n && ok; j++) {
-                        double dx = S.x[j] - px, dy = S.y[j] - py, dz = d3 ? S.z[j] - pz : 0;
-                        if (isPer()) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); if (d3) dz -= S.Lz * std::nearbyint(dz / S.Lz); }
+                        double dx = S.x[j] - px, dy = S.y[j] - py, dz = S.z[j] - pz;
+                        if (isPer()) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz); }
                         double s = 0.9 * std::sqrt(PT[t][S.ty[j]].sig2); if (s < 0.5) s = 0.5;
                         if (dx * dx + dy * dy + dz * dz < s * s) ok = false;
                     }
                     if (!ok) continue;
                     if (!haveE) { Ebefore = energyNow(); haveE = true; }
-                    // скорость «сопла»: ½mu² = (d+2)/2·kT (энтальпия идеального газа) + небольшой тепловой разброс
-                    const double m = EL[t].m, Tz = std::max(0.01, o.Tset), u = std::sqrt((DIM + 2) * Tz / m), sd = std::sqrt(0.1 * Tz / m);
-                    int a = addAtom(t, px, py, pz, u * ux + sd * grand(), u * uy + sd * grand(), d3 ? u * uz + sd * grand() : 0);
-                    (void)a; placed = true; emitted++;
+                    // скорость «сопла»: ½mu² = 5/2·kT (энтальпия идеального газа) + небольшой тепловой разброс
+                    const double m = EL[t].m, Tz = std::max(0.01, o.Tset), u = std::sqrt(5 * Tz / m), sd = std::sqrt(0.1 * Tz / m);
+                    addAtom(t, px, py, pz, u * ux + sd * grand(), u * uy + sd * grand(), u * uz + sd * grand());
+                    placed = true; emitted++;
                 }
                 o.acc -= 1.0;
                 if (!placed) { o.acc += 1.0; break; }   // место занято — попробуем на следующем шаге
@@ -1339,13 +1316,13 @@ static void physGuard(double K, double T) {
             guardCounter = 0;
             guardSnap[1] = std::move(guardSnap[0]);
             PhysSnap& s = guardSnap[0];
-            s.s = S; s.s.dim = DIM; s.Wext = Wext; s.Eref = Eref; s.T = T; s.dt = P.dt; s.E = energyForGuard(K); s.epoch = energyEpoch; s.ok = true;
+            s.s = S; s.Wext = Wext; s.Eref = Eref; s.T = T; s.dt = P.dt; s.E = energyForGuard(K); s.epoch = energyEpoch; s.ok = true;
         }
         return;
     }
     // откат: к более старому снимку (более свежий мог уже содержать зародыш неустойчивости);
     // только к снимкам текущей сцены (после последней правки пользователя)
-    auto usable = [](const PhysSnap& s) { return s.ok && s.s.dim == DIM && s.epoch == energyEpoch; };
+    auto usable = [](const PhysSnap& s) { return s.ok && s.epoch == energyEpoch; };
     int k = usable(guardSnap[1]) ? 1 : (usable(guardSnap[0]) ? 0 : -1);
     physRollbacks++; physAlertTime = physClock();
     guardDtScale = std::max(1.0 / 32, guardDtScale * 0.5);
@@ -1369,7 +1346,6 @@ static void physGuard(double K, double T) {
 
 // ===================================== РЕАЛЬНЫЕ ЕДИНИЦЫ ==================================
 // Аргоноподобная шкала (см. cfg::U_*): ε/k = 139.8 K, σ = 0.3405 нм, единица массы 10 а.е.м.
-// В 2D давление и плотность пересчитаны на слой толщиной σ.
 static inline double toKelvin(double T) { return T * cfg::U_T_K; }
 static inline double toAtm(double Pr) { return Pr * cfg::U_P_ATM; }
 static inline double toBar(double Pr) { return Pr * cfg::U_P_ATM * 1.01325; }
@@ -1378,14 +1354,14 @@ static inline double toNm(double L) { return L * cfg::U_L_NM; }
 static inline double toPs(double t) { return t * cfg::U_T_PS; }
 static inline double toKJmol(double e) { return e * cfg::U_KJMOL; }   // энергия на частицу (ε) → кДж/моль
 static inline double toEV(double e) { return e / cfg::EV; }            // химическая шкала: 1 эВ = 4ε
-// объём/площадь, доступные веществу (σ³; в 2D — площадь × σ)
+// объём, доступный веществу
 static double realVolumeCm3() { const double s = cfg::U_L_NM * 1e-7; return boxVolume() * s * s * s; }
 // массовая плотность смеси в ящике (г/см³) по реальным массам подвижных атомов
 static double massDensityNow() {
     double m = 0; for (int i = 0; i < S.n; i++) if (!EL[S.ty[i]].fixed) m += EL[S.ty[i]].m * 10.0;   // а.е.м.
     return m * 1.66053907e-24 / std::max(1e-40, realVolumeCm3());
 }
-// числовая плотность подвижных атомов ρ* = N/V (σ⁻³ или σ⁻²) и в моль/л
+// числовая плотность подвижных атомов ρ* = N/V (σ⁻³) и в моль/л
 static double numberDensity() { int c = 0; for (int i = 0; i < S.n; i++) if (!EL[S.ty[i]].fixed) c++; return c / std::max(1e-12, boxVolume()); }
 static double molarConc() { return numberDensity() / (std::pow(cfg::U_L_NM * 1e-8, 3) * 6.02214076e23) ; }   // моль/л (1 л = 10⁻³ м³)
 

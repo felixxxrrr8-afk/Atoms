@@ -1,13 +1,13 @@
-// ===================================== ПАНЕЛЬ «ФИЗИКА» (владелец — физика) ===================
+// ===================================== ПАНЕЛЬ «ФИЗИКА» ===================
 // Рисуется внутри вкладки боковой панели; элементы — из ui.inl, цвета — палитра C_* (render.inl).
 // id элементов: 1000–1199. Прокручиваемая область № 3.
 static bool physShowLog = true;
 // мини-диаграмма T–ρ модели: бинодаль, тройная линия, линии плавления, критическая точка, трасса системы
 static void drawPhaseDiagram(float x, float y, float w, float h) {
-    const LJRef r = ljRef(); const bool d3 = DIM == 3;
+    const LJRef r = ljRef();
     double Tr, rr; reducedState(Tr, rr);
     const int pure = pureLJType();
-    double Tmax = std::max(d3 ? 1.45 : 0.62, std::min(Tr * 1.1, d3 ? 4.0 : 2.0)), Rmax = std::max(d3 ? 1.12 : 0.95, std::min(rr * 1.08, 1.6));
+    double Tmax = std::max(1.45, std::min(Tr * 1.1, 4.0)), Rmax = std::max(1.12, std::min(rr * 1.08, 1.6));
     PR in = plotFrame({x, y, w, h}, pure >= 0 ? fmt("фазовая диаграмма T–ρ (%s, LJ 2.5σ)", EL[pure].sym) : "фазовая диаграмма T–ρ (LJ 2.5σ, аргон)",
                       fmt("T*c %.3g", r.Tc));
     auto X = [&](double rho) { return mapX(in, rho, 0, Rmax); };
@@ -49,14 +49,14 @@ static void drawPhaseDiagram(float x, float y, float w, float h) {
     drawText(fontXS, X(0.02), Y(r.Tt) + uiPx(2), fmt("тройная %.2f", r.Tt), C_DIM);
     // подписи областей
     drawText(fontXS, X(0.03), Y(r.Tt * 0.45), "газ", C_DIM);
-    if (d3) { double rl, rg; ljBinodal(0.5 * (r.Tt + r.Tc), rl, rg); drawTextC(fontXS, X(0.5 * (rl + rg)), Y(0.5 * (r.Tt + r.Tc)) - fontXS.h / 2, "г + ж", C_DIM); }
+    double rl, rg; ljBinodal(0.5 * (r.Tt + r.Tc), rl, rg); drawTextC(fontXS, X(0.5 * (rl + rg)), Y(0.5 * (r.Tt + r.Tc)) - fontXS.h / 2, "г + ж", C_DIM);
     drawTextR(fontXS, X(Rmax) - uiPx(3), Y(Tmax * 0.3), "твёрдое", C_DIM);
     if (Tmax > r.Tc * 1.15) drawTextC(fontXS, X(0.18 * Rmax), Y(0.5 * (r.Tc + Tmax)) - fontXS.h / 2, "флюид", C_DIM);
     // трасса и текущая точка
     const auto& tr = PH::trace;
     if (tr.size() > 1) {
         double sT = 1, sR = 1;
-        if (pure >= 0) { sT = 1 / (EL[pure].eps * P.epsScale); double s = EL[pure].sig; sR = d3 ? s * s * s : s * s; }
+        if (pure >= 0) { sT = 1 / (EL[pure].eps * P.epsScale); double s = EL[pure].sig; sR = s * s * s; }
         glEnable(GL_LINE_SMOOTH); glBegin(GL_LINE_STRIP);
         for (size_t k = 0; k < tr.size(); k++) { float a = 0.15f + 0.75f * k / tr.size(); glColor4f(C_TEXT_HI.r, C_TEXT_HI.g, C_TEXT_HI.b, a); glVertex2f(X(tr[k].first * sR), Y(tr[k].second * sT)); }
         glEnd(); glDisable(GL_LINE_SMOOTH);
@@ -74,7 +74,7 @@ static void drawPhaseDiagram(float x, float y, float w, float h) {
 static void drawPhysPanel(float x, float y, float w, float h) {
     float yy = scrollBegin(3, x, y, w - uiPx(8), h);
     const float W = w - uiPx(8), sh = uiPx(34), bh = uiPx(24), g = uiPx(4), rh = fontS.h + uiPx(3);
-    const bool d3 = DIM == 3, per = isPer();
+    const bool per = isPer();
     auto kv = [&](const std::string& k, const std::string& v, const std::string& u = "", RGBA vc = C_TEXT_HI) {
         drawText(fontXS, x, yy + uiPx(1), k, C_DIM);
         float vx = x + std::floor(W * 0.36f), vw = drawText(fontS, vx, yy, v, vc);
@@ -118,9 +118,8 @@ static void drawPhysPanel(float x, float y, float w, float h) {
                          "мелкий пунктир — тройная линия, К — критическая точка. Белый квадрат с точкой — текущее состояние,\n"
                          "светлая линия — его путь. Для чистого вещества — в его собственных σ и ε");
         yy += ph + g;
-        yy += drawWrapped(fontXS, x, yy, W, d3 ? fmt("Модель аргона: T*c = %.3f (%.0f K, опыт 150.7 K), тройная T* ≈ %.2f (%.0f K, опыт 83.8 K).",
-                                                    ljRef().Tc, toKelvin(ljRef().Tc), ljRef().Tt, toKelvin(ljRef().Tt))
-                                               : std::string("2D-вещество: T*c ≈ 0.459, тройная T* ≈ 0.41 — область жидкости в 2D очень узкая (в 3D: 1.078 и 0.62)."), C_DIM) + g;
+        yy += drawWrapped(fontXS, x, yy, W, fmt("Модель аргона: T*c = %.3f (%.0f K, опыт 150.7 K), тройная T* ≈ %.2f (%.0f K, опыт 83.8 K).",
+                                                    ljRef().Tc, toKelvin(ljRef().Tc), ljRef().Tt, toKelvin(ljRef().Tt)), C_DIM) + g;
     }
     // ---------------- журнал переходов
     uiSection(x, yy, W, fmt("Журнал переходов: %d", (int)phaseLog.size()));
@@ -147,15 +146,15 @@ static void drawPhysPanel(float x, float y, float w, float h) {
         if (!per) yy += drawWrapped(fontXS, x, yy, W, P.boundary == B_PISTON ? "Сейчас границы «поршень»: давление задаёт поршень (масса + P внешн.)." : "Нужны периодические границы (вкладка «Управление» → Границы).", C_WARN) + g;
         double pv = std::max(1e-3, P.pExt);
         if (uiSlider(1011, x, yy, W, sh - uiPx(4), "P* внешнее", &pv, 1e-3, 5.0, true, fmt("%.4f · %.1f бар", P.pExt, toBar(P.pExt)),
-                     "Целевое давление (ε/σ³; в 2D — на слой толщиной σ).\nПересчёт для аргона: 1 P* = 489 бар")) { P.pExt = pv < 1.05e-3 ? 0.0 : pv; resetEnergyRef(); }
+                     "Целевое давление (ε/σ³).\nПересчёт для аргона: 1 P* = 489 бар")) { P.pExt = pv < 1.05e-3 ? 0.0 : pv; resetEnergyRef(); }
         yy += sh;
         { double t = P.tauP; if (uiSlider(1012, x, yy, W, sh - uiPx(4), "τP отклика", &t, 0.2, 30, true, fmt("%.2fτ · %.1f пс", P.tauP, toPs(P.tauP)),
                                              "Время релаксации объёма: меньше — быстрее подстройка,\nбольше — мягче (распределение от τP не зависит)")) P.tauP = t; }
         yy += sh;
         const double V = boxVolume();
         kv("P сейчас", fmt("%.4f", EN.P), fmt("%.1f бар · %.2f МПа", toBar(EN.P), toMPa(EN.P)), per && P.npt && std::fabs(EN.P - P.pExt) > 0.5 * std::max(0.02, P.pExt) ? C_WARN : C_TEXT_HI);
-        kv(d3 ? "объём V" : "площадь", fmt("%.1f", V), d3 ? fmt("σ³ · %.1f нм³", V * std::pow(cfg::U_L_NM, 3)) : fmt("σ² · %.2f нм²", V * cfg::U_L_NM * cfg::U_L_NM));
-        kv("ящик", d3 ? fmt("%.2f×%.2f×%.2f", S.Lx, S.Ly, S.Lz) : fmt("%.2f×%.2f", S.Lx, S.Ly), fmt("σ · %.2f нм", toNm(S.Lx)));
+        kv("объём V", fmt("%.1f", V), fmt("σ³ · %.1f нм³", V * std::pow(cfg::U_L_NM, 3)));
+        kv("ящик", fmt("%.2f×%.2f×%.2f", S.Lx, S.Ly, S.Lz), fmt("σ · %.2f нм", toNm(S.Lx)));
         yy += g;
     }
     // ---------------- реальные единицы
@@ -166,7 +165,7 @@ static void drawPhysPanel(float x, float y, float w, float h) {
         kv("плотность", fmt("%.3f г/см³", massDensityNow()), fmt("%.2f моль/л", molarConc()));
         kv("E на атом", fmt("%.3f кДж/моль", toKJmol(EN.total() / std::max(1, EN.nmob))), fmt("%.4f эВ (хим.)", toEV(EN.total() / std::max(1, EN.nmob))));
         kv("время", fmt("%.2f пс", toPs(S.t)), fmt("шаг %.2f фс", toPs(P.dt) * 1000));
-        yy += drawWrapped(fontXS, x, yy, W, "ε/k = 139.8 K подобран по критической точке аргона для LJ с обрезкой 2.5σ; σ = 0.3405 нм, τ = 1.0 пс. В 2D давление и плотность — на слой толщиной σ.", C_DIM) + g;
+        yy += drawWrapped(fontXS, x, yy, W, "ε/k = 139.8 K подобран по критической точке аргона для LJ с обрезкой 2.5σ; σ = 0.3405 нм, τ = 1.0 пс.", C_DIM) + g;
     }
     // ---------------- объекты поля (сводка; редактирование — вкладка «Объект»)
     if (!fieldObjs.empty()) {
@@ -202,7 +201,7 @@ static void drawPhysPanel(float x, float y, float w, float h) {
 }
 
 // ===================================== ПРОВЕРКИ ФИЗИКИ БЕЗ ОКНА (--phystest) ==================
-// atoms.exe --phystest РЕЖИМ D K N …  — запускается до окна (статическая инициализация), отчёт в phys_*.log
+// atoms.exe --phystest РЕЖИМ K N …  — запускается до окна (статическая инициализация), отчёт в phys_*.log
 static int physTestMain() {
     const wchar_t* cmd = GetCommandLineW();
     const wchar_t* p0 = cmd ? wcsstr(cmd, L"--phystest") : nullptr;
@@ -210,50 +209,46 @@ static int physTestMain() {
     wchar_t* p = (wchar_t*)p0 + 10;
     while (*p == L' ') p++;
     std::wstring mode; while (*p && *p != L' ') mode += *p++;
-    int D = (int)wcstol(p, &p, 10), K = (int)wcstol(p, &p, 10), N = (int)wcstol(p, &p, 10);
+    int K = (int)wcstol(p, &p, 10), N = (int)wcstol(p, &p, 10);
     double A1 = wcstod(p, &p), A2 = wcstod(p, &p);
-    initBondTable(); initKlm(); DIM = D == 3 ? 3 : 2; onDimChanged(); loadPreset(K, 0);
-    FILE* f = fopen(fmt("phys_%ls_%dd_%d_%g.log", mode.c_str(), DIM, K, A1).c_str(), "w"); if (!f) ExitProcess(1);
+    initBondTable(); initKlm(); rebuildTables(); loadPreset(K, 0);
+    FILE* f = fopen(fmt("phys_%ls_%d_%g.log", mode.c_str(), K, A1).c_str(), "w"); if (!f) ExitProcess(1);
     if (mode == L"coex") {   // сосуществование жидкость–пар (плёнка в вытянутом ящике): ρ_ж, ρ_г при T = A1
-        const double T = A1 > 0 ? A1 : (DIM == 3 ? 0.8 : 0.42);
-        if (DIM == 3) {
-            double a = std::cbrt(4 / 0.8); int nx = 7, nz = 12; worldReset(nx * a, nx * a, 60, B_PERIODIC);
-            lattice3D(L_FCC, E_AR, -1, 0, 0, 0, 30 - nz * a / 2, nx, nx, nz, a, T);
-        } else {
-            double a = std::sqrt(2 / (std::sqrt(3.0) * 0.75)); int nx = 30, ny = 40; worldReset(nx * a, 130, 1, B_PERIODIC);
-            hexLattice2D(E_AR, 0, 65 - ny * a * std::sqrt(3.0) / 4, nx, ny, a, T);
-        }
+        const double T = A1 > 0 ? A1 : 0.8;
+        const double a = std::cbrt(4 / 0.8); const int nx = 7, nz = 12;
+        worldReset(nx * a, nx * a, 60, B_PERIODIC);
+        lattice3D(L_FCC, E_AR, -1, 0, 0, 0, 30 - nz * a / 2, nx, nx, nz, a, T);
         finishPreset(); P.thermostat = TH_BUSSI; P.Tset = T; P.tauT = 0.5; P.chemistry = false;
         const int NBIN = 120; std::vector<double> h(NBIN, 0.0); int samples = 0;
-        const double L = DIM == 3 ? S.Lz : S.Ly;
+        const double L = S.Lz;
         for (int s = 0; s < N; s++) {
             mdStep();
             if (s > N / 3 && s % 50 == 0) {
                 // центр плёнки — круговое среднее координаты по длинной оси
-                double cs = 0, sn = 0; for (int i = 0; i < S.n; i++) { double u = (DIM == 3 ? S.z[i] : S.y[i]) / L * 2 * PI; cs += std::cos(u); sn += std::sin(u); }
+                double cs = 0, sn = 0; for (int i = 0; i < S.n; i++) { double u = S.z[i] / L * 2 * PI; cs += std::cos(u); sn += std::sin(u); }
                 double zc = std::atan2(sn, cs) / (2 * PI) * L;
-                for (int i = 0; i < S.n; i++) { double u = (DIM == 3 ? S.z[i] : S.y[i]) - zc; u -= L * std::floor(u / L + 0.5); h[clampv((int)((u / L + 0.5) * NBIN), 0, NBIN - 1)] += 1; }
+                for (int i = 0; i < S.n; i++) { double u = S.z[i] - zc; u -= L * std::floor(u / L + 0.5); h[clampv((int)((u / L + 0.5) * NBIN), 0, NBIN - 1)] += 1; }
                 samples++;
             }
             if (s % 5000 == 0) { measure(); fprintf(f, "s=%d t=%.1f T=%.3f P=%.4f dt=%.4f\n", s, S.t, EN.T, EN.P, P.dt); fflush(f); }
         }
-        const double binV = (DIM == 3 ? S.Lx * S.Ly : S.Lx) * L / NBIN;
+        const double binV = (S.Lx * S.Ly) * L / NBIN;
         for (int b = 0; b < NBIN; b++) fprintf(f, "z=%.2f rho=%.4f\n", (b + 0.5) / NBIN * L - L / 2, h[b] / std::max(1, samples) / binV);
         double rl = 0, rg = 0; int cl = 0, cg = 0;
         for (int b = 0; b < NBIN; b++) { double z = std::fabs((b + 0.5) / NBIN - 0.5); double r = h[b] / std::max(1, samples) / binV;
             if (z < 0.06) { rl += r; cl++; } else if (z > 0.38) { rg += r; cg++; } }
-        fprintf(f, "RESULT %dD T=%.3f  rho_liq=%.4f rho_gas=%.4f  (N=%d)\n", DIM, T, rl / std::max(1, cl), rg / std::max(1, cg), S.n);
+        fprintf(f, "RESULT T=%.3f  rho_liq=%.4f rho_gas=%.4f  (N=%d)\n", T, rl / std::max(1, cl), rg / std::max(1, cg), S.n);
     }
     if (mode == L"vir") {   // вириал Σr·F против −dU/dλ при масштабировании r → λr, L → λL (все многочастичные члены)
         if (!isPer()) fprintf(f, "(границы не периодические: проверяется только внутренняя часть без стенок)\n");
         for (int s = 0; s < N; s++) { runScript(); mdStep(); }
         const bool chem = P.chemistry; P.chemistry = false;
         auto U = [&]() { computeForces(); return EN.enb + EN.ebond + EN.egrav; };
-        auto scale = [&](double m) { S.Lx *= m; S.Ly *= m; if (DIM == 3) S.Lz *= m; for (int i = 0; i < S.n; i++) { S.x[i] *= m; S.y[i] *= m; S.z[i] *= m; } };
+        auto scale = [&](double m) { S.Lx *= m; S.Ly *= m; S.Lz *= m; for (int i = 0; i < S.n; i++) { S.x[i] *= m; S.y[i] *= m; S.z[i] *= m; } };
         U(); double vir = EN.vir; const double h = 1e-6;
         scale(1 + h); double Up = U(); scale(1 / (1 + h)); scale(1 - h); double Um = U(); scale(1 / (1 - h)); U();
         double num = -(Up - Um) / (2 * h);
-        fprintf(f, "RESULT %dD preset %d: vir(analytic)=%.6f  -dU/dlambda=%.6f  rel.err=%.2e  (N=%d, P_conf=%.5f)\n", DIM, K, vir, num, std::fabs(vir - num) / std::max(1.0, std::fabs(num)), S.n, vir / (DIM * boxVolume()));
+        fprintf(f, "RESULT preset %d: vir(analytic)=%.6f  -dU/dlambda=%.6f  rel.err=%.2e  (N=%d, P_conf=%.5f)\n", K, vir, num, std::fabs(vir - num) / std::max(1.0, std::fabs(num)), S.n, vir / (DIM * boxVolume()));
         P.chemistry = chem;
     }
     if (mode == L"log") {   // пресет K: доли фаз и журнал переходов (как в окне: анализ каждые ~0.2τ)
@@ -274,8 +269,7 @@ static int physTestMain() {
     }
     if (mode == L"npt") {   // баростат C-rescale: LJ при T = A2, P = A1 → средняя плотность и давление
         const double P0 = A1, T = A2 > 0 ? A2 : 0.9;
-        if (DIM == 3) { double a = std::cbrt(4 / 0.8); worldReset(6 * a, 6 * a, 6 * a, B_PERIODIC); lattice3D(L_FCC, E_AR, -1, 0, 0, 0, 0, 6, 6, 6, a, T); }
-        else { double a = std::sqrt(2 / (std::sqrt(3.0) * 0.8)); worldReset(24 * a, 24 * a * std::sqrt(3.0) / 2, 1, B_PERIODIC); hexLattice2D(E_AR, 0, 0, 24, 24, a, T); }
+        double a = std::cbrt(4 / 0.8); worldReset(6 * a, 6 * a, 6 * a, B_PERIODIC); lattice3D(L_FCC, E_AR, -1, 0, 0, 0, 0, 6, 6, 6, a, T);
         finishPreset(); P.thermostat = TH_BUSSI; P.Tset = T; P.tauT = 0.5; P.npt = true; P.pExt = P0; P.tauP = 2.0; P.chemistry = false; resetEnergyRef();
         double sr = 0, sp = 0, sv = 0, sv2 = 0; int c = 0;
         for (int s = 0; s <= N; s++) {
@@ -284,17 +278,13 @@ static int physTestMain() {
             if (s % 5000 == 0) { measure(); fprintf(f, "s=%d t=%.1f T=%.4f Pvir=%.4f rho=%.4f L=%.3f E-W-Eref=%.4f dt=%.4f\n", s, S.t, EN.T, EN.Pvir, S.n / boxVolume(), S.Lx, EN.total() - Wext - Eref, P.dt); fflush(f); }
         }
         double mv = sv / c, var = sv2 / c - mv * mv;
-        fprintf(f, "RESULT %dD NPT P0=%.4f T=%.3f: <rho>=%.4f <Pvir>=%.4f  kappa_T=<dV2>/(kT V)=%.4f  (N=%d)\n", DIM, P0, T, sr / c, sp / c, var / (T * mv), S.n);
+        fprintf(f, "RESULT NPT P0=%.4f T=%.3f: <rho>=%.4f <Pvir>=%.4f  kappa_T=<dV2>/(kT V)=%.4f  (N=%d)\n", P0, T, sr / c, sp / c, var / (T * mv), S.n);
     }
     if (mode == L"melt") {   // плавление плоской плёнки кристалла (свободные поверхности, P ≈ p_нас) медленным нагревом
-        const double T0 = DIM == 3 ? 0.50 : 0.30, pw = A2 > 0 ? A2 : 0.003;
-        if (DIM == 3) {
-            double a = std::cbrt(4 / 0.96); int nx = 7, nz = 16; worldReset(nx * a, nx * a, nz * a + 30, B_PERIODIC);
-            lattice3D(L_FCC, E_AR, -1, 0, 0, 0, 15, nx, nx, nz, a, T0);
-        } else {
-            double a = std::sqrt(2 / (std::sqrt(3.0) * 0.83)); int nx = 30, ny = 40; worldReset(nx * a, ny * a * std::sqrt(3.0) / 2 + 40, 1, B_PERIODIC);
-            hexLattice2D(E_AR, 0, 20, nx, ny, a, T0);
-        }
+        const double T0 = 0.50, pw = A2 > 0 ? A2 : 0.003;
+        const double a = std::cbrt(4 / 0.96); const int nx = 7, nz = 16;
+        worldReset(nx * a, nx * a, nz * a + 30, B_PERIODIC);
+        lattice3D(L_FCC, E_AR, -1, 0, 0, 0, 15, nx, nx, nz, a, T0);
         finishPreset(); P.thermostat = TH_POWER; P.heatPower = pw; P.Tset = T0; P.chemistry = false;
         double prevT = 0, prevF = 1; bool found = false; double Tcross = 0;
         for (int s = 0; s <= N; s++) {
@@ -307,20 +297,16 @@ static int physTestMain() {
             }
             if (s % 4000 == 0) { fprintf(f, "s=%d t=%.1f T=%.4f P=%.4f  газ %.2f жидк %.2f тв %.2f  %s\n", s, S.t, EN.T, EN.P, phaseFrac[0], phaseFrac[1], phaseFrac[2], A::phase.c_str()); fflush(f); }
         }
-        fprintf(f, "RESULT %dD melting (solid fraction 0.5) at T ≈ %.4f\n", DIM, Tcross);
+        fprintf(f, "RESULT melting (solid fraction 0.5) at T ≈ %.4f\n", Tcross);
         for (auto& l : phaseLog) fprintf(f, "  log: %s\n", l.c_str());
     }
     if (mode == L"triple") {   // три фазы в NVE (кристалл + расплав + пар) сами приходят к тройной точке
-        const double T0 = DIM == 3 ? 0.55 : 0.36, Thot = DIM == 3 ? 1.3 : 0.8;
-        double zc;
-        if (DIM == 3) {
-            double a = std::cbrt(4 / 0.97); int nx = 7, nz = 22; worldReset(nx * a, nx * a, nz * a + 30, B_PERIODIC);
-            lattice3D(L_FCC, E_AR, -1, 0, 0, 0, 15, nx, nx, nz, a, T0); zc = 15 + nz * a / 2;
-        } else {
-            double a = std::sqrt(2 / (std::sqrt(3.0) * 0.84)); int nx = 30, ny = 50; worldReset(nx * a, ny * a * std::sqrt(3.0) / 2 + 40, 1, B_PERIODIC);
-            hexLattice2D(E_AR, 0, 20, nx, ny, a, T0); zc = 20 + ny * a * std::sqrt(3.0) / 4;
-        }
-        for (int i = 0; i < S.n; i++) if ((DIM == 3 ? S.z[i] : S.y[i]) > zc) { double vx, vy, vz; thermalVel(E_AR, Thot, vx, vy, vz); S.vx[i] = vx; S.vy[i] = vy; S.vz[i] = DIM == 3 ? vz : 0; }
+        const double T0 = 0.55, Thot = 1.3;
+        const double a = std::cbrt(4 / 0.97); const int nx = 7, nz = 22;
+        worldReset(nx * a, nx * a, nz * a + 30, B_PERIODIC);
+        lattice3D(L_FCC, E_AR, -1, 0, 0, 0, 15, nx, nx, nz, a, T0);
+        const double zc = 15 + nz * a / 2;
+        for (int i = 0; i < S.n; i++) if (S.z[i] > zc) { double vx, vy, vz; thermalVel(E_AR, Thot, vx, vy, vz); S.vx[i] = vx; S.vy[i] = vy; S.vz[i] = vz; }
         finishPreset(); P.thermostat = TH_NVE; P.chemistry = false;
         double Tsum = 0; int Tc = 0;
         for (int s = 0; s <= N; s++) {
@@ -331,12 +317,12 @@ static int physTestMain() {
                 fflush(f);
             }
         }
-        fprintf(f, "RESULT %dD T_triple ≈ %.4f (среднее по второй половине)\n", DIM, Tsum / std::max(1, Tc));
+        fprintf(f, "RESULT T_triple ≈ %.4f (среднее по второй половине)\n", Tsum / std::max(1, Tc));
         for (auto& l : phaseLog) fprintf(f, "  log: %s\n", l.c_str());
     }
     if (mode == L"fo") {   // объекты поля и закрепление: баланс E − W (A1 — набор объектов), NVE
         P.thermostat = TH_NVE; script.clear();
-        const double cx = S.Lx / 2, cy = S.Ly / 2, cz = DIM == 3 ? S.Lz / 2 : 0;
+        const double cx = S.Lx / 2, cy = S.Ly / 2, cz = S.Lz / 2;
         int set = (int)A1;
         if (set == 0) {        // консервативные
             fieldObjs.push_back(makeFieldObj(FO_ATTRACT, cx - S.Lx / 4, cy, cz));

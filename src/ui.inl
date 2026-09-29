@@ -282,13 +282,12 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
     auto cell = [&](int k) { int c = k % cols, r = k / cols; return PR{std::floor(x0 + c * (pw + gap)), std::floor(y0 + r * (ph + gap)), std::floor(pw), std::floor(ph)}; };
     // ряды: T и Eк — белые сплошные, P, g(r) и Eп — серые штриховые, Eполн — светлая толстая, идеальный газ — пунктир
     const RGBA cT = C_HOT, cB = grayc(0.62f), cW = grayc(0.85f), cG = grayc(0.8f);
-    const bool d3 = DIM == 3;
     const double V = boxVolume();
     // 1. распределение скоростей + Максвелл–Больцман
     {
         double m = EL[A::vhType].m, T = std::max(EN.T, 0.005), vmax = A::vhMax;
         double ymax = 0; for (double v : A::vh) ymax = std::max(ymax, v);
-        double vp = std::sqrt((d3 ? 2 : 1) * T / m); ymax = std::max(ymax, maxwellF(vp, m, T)) * 1.15;
+        double vp = std::sqrt(2 * T / m); ymax = std::max(ymax, maxwellF(vp, m, T)) * 1.15;
         PR in = plotFrame(cell(0), "f(v) Максвелл", fmt("%s  T=%.2f", EL[A::vhType].sym, EN.T));
         float bw = in.w / A::VH_BINS;
         col(withA(C_ACC, 0.3f)); glBegin(GL_QUADS);
@@ -381,9 +380,9 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
     {
         double rho = EN.nmob / V;
         PR in = plotFrame(cell(7), "ρ–T (LJ, ≈)", fmt("ρ=%.3f T=%.2f", rho, EN.T));
-        // 2D: Tc≈0.46, ρc≈0.35, T_тр≈0.40;  3D: Tc≈1.08, ρc≈0.32, T_тр≈0.69
-        const double Tc = d3 ? 1.08 : 0.46, rc = d3 ? 0.32 : 0.35, Tt = d3 ? 0.69 : 0.40, TM = d3 ? 2.2 : 1.6, RM = d3 ? 1.25 : 1.1;
-        const double rl_t = d3 ? 0.84 : 0.72, rf0 = d3 ? 0.845 : 0.76, rfk = d3 ? 0.16 : 0.13, rmelt = d3 ? 0.10 : 0.04;
+        // Tc ≈ 1.08, ρc ≈ 0.32, T_тр ≈ 0.69
+        const double Tc = 1.08, rc = 0.32, Tt = 0.69, TM = 2.2, RM = 1.25;
+        const double rl_t = 0.84, rf0 = 0.845, rfk = 0.16, rmelt = 0.10;
         const double tt = (Tc - Tt) / Tc;
         auto rl = [&](double T) { double t = (Tc - T) / Tc; return rc + (rl_t - rc) * std::pow(t / tt, 0.325); };
         auto rg = [&](double T) { double t = (Tc - T) / Tc; double u = 1 - std::pow(t / tt, 0.325) * 0.95; return rc * u * u; };
@@ -478,11 +477,10 @@ static float drawPlots(float x0, float y0, float w, float h, float minH = 0) {
 // ===================================== ИЗМЕНЕНИЕ СИСТЕМЫ ИЗ ИНТЕРФЕЙСА ======================
 static const char* HW_NAMES[] = {"нет", "лев./прав.", "горячее дно"};
 static double sliderN = 0;
-static void toggleDim();
 static void userBegin(); static void userEnd();
 static void rescaleBox(double s) {   // работа сжатия/расширения — внешняя (W)
     userBegin();
-    S.Lx *= s; S.Ly *= s; if (DIM == 3) S.Lz *= s;
+    S.Lx *= s; S.Ly *= s; S.Lz *= s;
     for (int i = 0; i < S.n; i++) { S.x[i] *= s; S.y[i] *= s; S.z[i] *= s; }
     for (auto& o : fieldObjs) { o.x *= s; o.y *= s; o.z *= s; o.x2 *= s; o.y2 *= s; o.z2 *= s; }
     nlValid = false; userEnd();
@@ -491,9 +489,9 @@ static void rescaleBox(double s) {   // работа сжатия/расшире
 static double boxTarget = -1;
 static void boxTick() {
     if (boxTarget <= 0) return;
-    // не сжимать сильнее плотной упаковки: ρ ≤ 1.05 σ⁻² (2D) / 1.2 σ⁻³ (3D)
-    double rhoMax = DIM == 3 ? 1.2 : 1.05, Vmin = std::max(1, S.n) / rhoMax, V = boxVolume();
-    double sMin = std::pow(Vmin / V, 1.0 / DIM) * S.Lx;
+    // не сжимать сильнее плотной упаковки: ρ ≤ 1.2 σ⁻³
+    double rhoMax = 1.2, Vmin = std::max(1, S.n) / rhoMax, V = boxVolume();
+    double sMin = std::cbrt(Vmin / V) * S.Lx;
     if (boxTarget < sMin) { boxTarget = sMin; showToast("Сжатие ограничено плотной упаковкой атомов"); }
     double s = boxTarget / S.Lx;
     if (std::fabs(s - 1) < 1e-4 || !std::isfinite(s)) { boxTarget = -1; return; }
@@ -532,9 +530,8 @@ static inline double kinOf(int i) { double m = EL[S.ty[i]].m; return 0.5 * m * (
 static void foEditBegin() { userBegin(); }
 static void foEditEnd() { userEnd(); }
 static inline void wrapPos(double& x, double& y, double& z) {
-    if (isPer()) { x -= S.Lx * std::floor(x / S.Lx); y -= S.Ly * std::floor(y / S.Ly); if (DIM == 3) z -= S.Lz * std::floor(z / S.Lz); }
-    else { x = clampv(x, 0.3, S.Lx - 0.3); y = clampv(y, 0.3, S.Ly - 0.3); if (DIM == 3) z = clampv(z, 0.3, S.Lz - 0.3); }
-    if (DIM == 2) z = 0;
+    if (isPer()) { x -= S.Lx * std::floor(x / S.Lx); y -= S.Ly * std::floor(y / S.Ly); z -= S.Lz * std::floor(z / S.Lz); }
+    else { x = clampv(x, 0.3, S.Lx - 0.3); y = clampv(y, 0.3, S.Ly - 0.3); z = clampv(z, 0.3, S.Lz - 0.3); }
 }
 
 // ---- выделение атомов
@@ -564,13 +561,13 @@ static bool selPlacementOK(const std::vector<std::array<double, 3>>& np) {
     if (selList.empty()) return true;
     std::vector<int> others; others.reserve(S.n); for (int j = 0; j < S.n; j++) if (!isSel(j)) others.push_back(j);
     if ((double)others.size() * selList.size() > 6e7) return true;
-    const bool per = isPer(), d3 = DIM == 3;
+    const bool per = isPer();
     for (size_t k = 0; k < selList.size(); k++) {
         int i = selList[k]; const double* p = np[k].data(), mg = EL[S.ty[i]].fixed ? 0.2 : 0.6 * EL[S.ty[i]].sig;
-        if (!per && (p[0] < mg || p[1] < mg || p[0] > S.Lx - mg || p[1] > S.Ly - mg || (d3 && (p[2] < mg || p[2] > S.Lz - mg)))) return false;
+        if (!per && (p[0] < mg || p[1] < mg || p[0] > S.Lx - mg || p[1] > S.Ly - mg || p[2] < mg || p[2] > S.Lz - mg)) return false;
         for (int j : others) {
-            double dx = S.x[j] - p[0], dy = S.y[j] - p[1], dz = d3 ? S.z[j] - p[2] : 0;
-            if (per) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); if (d3) dz -= S.Lz * std::nearbyint(dz / S.Lz); }
+            double dx = S.x[j] - p[0], dy = S.y[j] - p[1], dz = S.z[j] - p[2];
+            if (per) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz); }
             double r2 = dx * dx + dy * dy + dz * dz; if (r2 > 4.0) continue;
             if (r2 < PT[S.ty[i]][S.ty[j]].sig2 * 0.49 && !isGhost(i, j)) return false;
         }
@@ -580,7 +577,6 @@ static bool selPlacementOK(const std::vector<std::array<double, 3>>& np) {
 // сдвиг выделения; false — сдвиг отклонён (атомы влезли бы в соседей или за стенку)
 static bool selTranslate(double dx, double dy, double dz) {
     if (selList.empty() || (dx == 0 && dy == 0 && dz == 0)) return true;
-    if (DIM == 2) dz = 0;
     std::vector<std::array<double, 3>> np(selList.size());
     for (size_t k = 0; k < selList.size(); k++) { int i = selList[k]; double x = S.x[i] + dx, y = S.y[i] + dy, z = S.z[i] + dz;
         if (isPer()) wrapPos(x, y, z); np[k] = {x, y, z}; }
@@ -590,11 +586,11 @@ static bool selTranslate(double dx, double dy, double dz) {
     nlValid = false; userEnd();
     return true;
 }
-// поворот выделения вокруг центра масс: 2D — в плоскости, 3D — вокруг оси взгляда (скорости поворачиваются тоже)
+// поворот выделения вокруг центра масс и оси взгляда (скорости поворачиваются тоже)
 static void selRotate(double ang) {
     if (selList.size() < 2) return;
     double cx, cy, cz; selCOM(cx, cy, cz);
-    double ax[3] = {0, 0, 1}; if (DIM == 3) for (int k = 0; k < 3; k++) ax[k] = -camF[k];
+    const double ax[3] = {-camF[0], -camF[1], -camF[2]};
     double c = std::cos(ang), s = std::sin(ang);
     auto rot = [&](double& x, double& y, double& z) {   // формула Родрига
         double d = ax[0] * x + ax[1] * y + ax[2] * z, cr[3] = {ax[1] * z - ax[2] * y, ax[2] * x - ax[0] * z, ax[0] * y - ax[1] * x};
@@ -606,15 +602,15 @@ static void selRotate(double ang) {
     for (size_t k = 0; k < selList.size(); k++) { int i = selList[k]; double dx, dy, dz; dvec(a, i, dx, dy, dz); rel[k] = {ox + dx - cx, oy + dy - cy, oz + dz - cz}; }
     for (size_t k = 0; k < selList.size(); k++) {
         double x = rel[k][0], y = rel[k][1], z = rel[k][2]; rot(x, y, z);
-        double nx = cx + x, ny = cy + y, nz = DIM == 3 ? cz + z : 0; if (isPer()) wrapPos(nx, ny, nz); np[k] = {nx, ny, nz};
+        double nx = cx + x, ny = cy + y, nz = cz + z; if (isPer()) wrapPos(nx, ny, nz); np[k] = {nx, ny, nz};
     }
     if (!selPlacementOK(np)) { showToast("Поворот невозможен: атомы перекрылись бы с соседями"); return; }
     userBegin();
     for (size_t k = 0; k < selList.size(); k++) {
         int i = selList[k]; double x = rel[k][0], y = rel[k][1], z = rel[k][2]; rot(x, y, z);
-        S.ux[i] += x - rel[k][0]; S.uy[i] += y - rel[k][1]; S.uz[i] += DIM == 3 ? z - rel[k][2] : 0;
+        S.ux[i] += x - rel[k][0]; S.uy[i] += y - rel[k][1]; S.uz[i] += z - rel[k][2];
         S.x[i] = np[k][0]; S.y[i] = np[k][1]; S.z[i] = np[k][2];
-        rot(S.vx[i], S.vy[i], S.vz[i]); if (DIM == 2) S.vz[i] = 0;
+        rot(S.vx[i], S.vy[i], S.vz[i]);
     }
     nlValid = false; userEnd();
 }
@@ -624,7 +620,7 @@ static void selSetVelocity(double Vx, double Vy, double Vz) {
     double M = 0, px = 0, py = 0, pz = 0, K0 = 0, K1 = 0;
     for (int i : selList) { if (EL[S.ty[i]].fixed || isPinned(i)) continue; double m = EL[S.ty[i]].m; M += m; px += m * S.vx[i]; py += m * S.vy[i]; pz += m * S.vz[i]; K0 += kinOf(i); }
     if (M <= 0) return;
-    double dvx = Vx - px / M, dvy = Vy - py / M, dvz = DIM == 3 ? Vz - pz / M : 0;
+    double dvx = Vx - px / M, dvy = Vy - py / M, dvz = Vz - pz / M;
     for (int i : selList) { if (EL[S.ty[i]].fixed || isPinned(i)) continue; S.vx[i] += dvx; S.vy[i] += dvy; S.vz[i] += dvz; K1 += kinOf(i); }
     Wext += K1 - K0;
 }
@@ -638,7 +634,7 @@ static void selScaleThermal(double k) {
     for (int i : selList) {
         if (EL[S.ty[i]].fixed || isPinned(i)) continue;
         double wx = S.vx[i] - vx, wy = S.vy[i] - vy, wz = S.vz[i] - vz;
-        if (k > 1 && wx * wx + wy * wy + wz * wz < 1e-6) { double s = std::sqrt(0.05 / EL[S.ty[i]].m); wx = grand() * s; wy = grand() * s; wz = DIM == 3 ? grand() * s : 0; }
+        if (k > 1 && wx * wx + wy * wy + wz * wz < 1e-6) { double s = std::sqrt(0.05 / EL[S.ty[i]].m); wx = grand() * s; wy = grand() * s; wz = grand() * s; }
         S.vx[i] = vx + wx * k; S.vy[i] = vy + wy * k; S.vz[i] = vz + wz * k; K1 += kinOf(i);
     }
     Wext += K1 - K0;
@@ -670,17 +666,17 @@ static void breakAllBondsGhost(int i) {
 static void selChangeElement(int t) {
     if (selList.empty() || t < 0 || t >= NEL) return;
     // атом, который с новым размером влез бы в соседа (не связанного с ним), не меняется — иначе «взрыв»
-    std::vector<int> ok; int skipped = 0; const bool per = isPer(), d3 = DIM == 3;
+    std::vector<int> ok; int skipped = 0; const bool per = isPer();
     for (int i : selList) {
         bool bad = false;
         if (!per) {   // стенки (потенциал 9-3 зависит от размера атома)
             double mg = 0.75 * EL[t].sig;
-            if (S.x[i] < mg || S.y[i] < mg || S.x[i] > S.Lx - mg || S.y[i] > S.Ly - mg || (d3 && (S.z[i] < mg || S.z[i] > S.Lz - mg))) bad = true;
+            if (S.x[i] < mg || S.y[i] < mg || S.x[i] > S.Lx - mg || S.y[i] > S.Ly - mg || S.z[i] < mg || S.z[i] > S.Lz - mg) bad = true;
         }
         for (int j = 0; j < S.n && !bad; j++) {
             if (j == i || bonded(i, j) || isGhost(i, j)) continue;
-            double dx, dy, dz; dx = S.x[j] - S.x[i]; dy = S.y[j] - S.y[i]; dz = d3 ? S.z[j] - S.z[i] : 0;
-            if (per) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); if (d3) dz -= S.Lz * std::nearbyint(dz / S.Lz); }
+            double dx, dy, dz; dx = S.x[j] - S.x[i]; dy = S.y[j] - S.y[i]; dz = S.z[j] - S.z[i];
+            if (per) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz); }
             double r2 = dx * dx + dy * dy + dz * dz; if (r2 > 9.0) continue;
             int tj = isSel(j) ? t : S.ty[j];
             if (r2 < PT[t][tj].sig2 * 0.49) bad = true;
@@ -709,11 +705,11 @@ static void selChangeElement(int t) {
 }
 // буфер обмена атомов: относительные координаты, скорости, связи, закрепление
 struct ClipAtom { int t; double x, y, z, vx, vy, vz; unsigned char pin; };
-static std::vector<ClipAtom> clipAtoms; static std::vector<std::array<int, 3>> clipBonds; static int clipDim = 0;
+static std::vector<ClipAtom> clipAtoms; static std::vector<std::array<int, 3>> clipBonds;
 static void selCopy() {
     if (selList.empty()) return;
     double cx, cy, cz; selCOM(cx, cy, cz);
-    clipAtoms.clear(); clipBonds.clear(); clipDim = DIM;
+    clipAtoms.clear(); clipBonds.clear();
     std::map<int, int> loc; int a = selList[0];
     for (int i : selList) {
         double dx, dy, dz; dvec(a, i, dx, dy, dz);
@@ -725,12 +721,11 @@ static void selCopy() {
 }
 static bool pasteAt(double px, double py, double pz) {
     if (clipAtoms.empty()) { showToast("Буфер пуст: выделите атомы и нажмите Ctrl+C"); return false; }
-    if (clipDim != DIM) { showToast("Буфер скопирован в другой размерности (2D/3D)"); return false; }
     std::vector<std::array<double, 3>> pos;
     for (auto& c : clipAtoms) {
-        double x = px + c.x, y = py + c.y, z = DIM == 3 ? pz + c.z : 0;
+        double x = px + c.x, y = py + c.y, z = pz + c.z;
         const double mg = EL[c.t].fixed ? 0.3 : 0.6 * EL[c.t].sig;
-        if (!isPer() && (x < mg || y < mg || x > S.Lx - mg || y > S.Ly - mg || (DIM == 3 && (z < mg || z > S.Lz - mg)))) { showToast("Вставка не помещается в ящик — сдвиньте курсор"); return false; }
+        if (!isPer() && (x < mg || y < mg || x > S.Lx - mg || y > S.Ly - mg || z < mg || z > S.Lz - mg)) { showToast("Вставка не помещается в ящик — сдвиньте курсор"); return false; }
         if (isPer()) wrapPos(x, y, z);
         if (overlaps(c.t, x, y, z, 0.7)) { showToast("Место занято — вставка отменена (сдвиньте курсор)"); return false; }
         pos.push_back({x, y, z});
@@ -817,9 +812,9 @@ static void pushBrush(const double* o, const double* d, double sign, double dt, 
     for (int i = 0; i < S.n; i++) {
         if (EL[S.ty[i]].fixed || isPinned(i)) continue;
         double r2 = rayDist2(S.x[i], S.y[i], S.z[i], o, d); if (r2 > R2) continue;
-        if (DIM == 3 && viewDepth(S.x[i], S.y[i], S.z[i]) < cutDepth) continue;
+        if (viewDepth(S.x[i], S.y[i], S.z[i]) < cutDepth) continue;
         double wx = S.x[i] - o[0], wy = S.y[i] - o[1], wz = S.z[i] - o[2], t = wx * d[0] + wy * d[1] + wz * d[2];
-        double px = wx - t * d[0], py = wy - t * d[1], pz = DIM == 3 ? wz - t * d[2] : 0, r = std::sqrt(r2);
+        double px = wx - t * d[0], py = wy - t * d[1], pz = wz - t * d[2], r = std::sqrt(r2);
         if (r < 1e-6) continue;
         double k = sign * a * dt * (1 - r / R) / r, K0 = kinOf(i);
         S.vx[i] += k * px; S.vy[i] += k * py; S.vz[i] += k * pz; dK += kinOf(i) - K0;
@@ -834,14 +829,14 @@ static void shockWave(double cx, double cy, double cz) {
     double dK = 0; int hit = 0;
     for (int i = 0; i < S.n; i++) {
         if (EL[S.ty[i]].fixed || isPinned(i)) continue;
-        double dx = S.x[i] - cx, dy = S.y[i] - cy, dz = DIM == 3 ? S.z[i] - cz : 0;
-        if (isPer()) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); if (DIM == 3) dz -= S.Lz * std::nearbyint(dz / S.Lz); }
+        double dx = S.x[i] - cx, dy = S.y[i] - cy, dz = S.z[i] - cz;
+        if (isPer()) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz); }
         double r = std::sqrt(dx * dx + dy * dy + dz * dz); if (r > Rs || r < 1e-6) continue;
         double k = A * (1 - r / Rs) / r, K0 = kinOf(i);
         S.vx[i] += k * dx; S.vy[i] += k * dy; S.vz[i] += k * dz; dK += kinOf(i) - K0; hit++;
     }
     Wext += dK;
-    ringsFx.push_back({cx, cy, DIM == 3 ? cz : 0, Rs, 0});
+    ringsFx.push_back({cx, cy, cz, Rs, 0});
     if (ringsFx.size() > 16) ringsFx.erase(ringsFx.begin());
 }
 static void drawRingsFx() {
@@ -879,18 +874,18 @@ static void foDelete(int k) {
     foHover = -1; showToast("Объект поля удалён");
 }
 static void foSetDirFromDrag(FieldObj& o, const double* a, const double* b) {
-    double d[3] = {b[0] - a[0], b[1] - a[1], DIM == 3 ? b[2] - a[2] : 0}, l = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    double d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, l = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
     if (l > 1e-6) { o.dx = d[0] / l; o.dy = d[1] / l; o.dz = d[2] / l; }
 }
 // новый объект в точке p (для ветра/источника — направление p→q, для барьера — отрезок p–q)
 static int foCreate(int kind, const double* p, const double* q, bool dragged) {
     FieldObj o = makeFieldObj(kind, p[0], p[1], p[2]);
     if (kind == FO_EMITTER) { o.elem = currentElemType(); if (EL[o.elem].fixed) o.elem = E_AR; }
-    if (kind == FO_VORTEX && DIM == 3) { o.dx = -camF[0]; o.dy = -camF[1]; o.dz = -camF[2]; }   // ось — к зрителю
+    if (kind == FO_VORTEX) { o.dx = -camF[0]; o.dy = -camF[1]; o.dz = -camF[2]; }   // ось — к зрителю
     if (dragged && (kind == FO_WIND || kind == FO_EMITTER)) foSetDirFromDrag(o, p, q);
     if (kind == FO_BARRIER) {
-        if (dragged) { o.x = p[0]; o.y = p[1]; o.z = DIM == 3 ? p[2] : 0; o.x2 = q[0]; o.y2 = q[1]; o.z2 = DIM == 3 ? q[2] : 0; }
-        if (DIM == 3) {   // пластина содержит отрезок и направление взгляда: пользователь видит её «с ребра», как линию
+        if (dragged) { o.x = p[0]; o.y = p[1]; o.z = p[2]; o.x2 = q[0]; o.y2 = q[1]; o.z2 = q[2]; }
+        {   // пластина содержит отрезок и направление взгляда: пользователь видит её «с ребра», как линию
             double u[3] = {o.x2 - o.x, o.y2 - o.y, o.z2 - o.z}, n[3] = {u[1] * camF[2] - u[2] * camF[1], u[2] * camF[0] - u[0] * camF[2], u[0] * camF[1] - u[1] * camF[0]};
             double nl = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
             if (nl > 1e-6) { o.dx = n[0] / nl; o.dy = n[1] / nl; o.dz = n[2] / nl; }
@@ -909,7 +904,7 @@ static void foWheel(int k, double notch, bool shift) {
     foEditBegin();
     if (shift) { double lo, hi; foStrengthRange(o.kind, lo, hi); double s = std::fabs(o.strength) < 1e-9 ? lo : o.strength;
                  double sg = s < 0 ? -1 : 1; o.strength = sg * clampv(std::fabs(s) * std::pow(1.15, notch), lo, hi); }
-    else o.R = clampv(o.R * std::pow(1.1, notch), 0.3, std::max({S.Lx, S.Ly, DIM == 3 ? S.Lz : 0.0}));
+    else o.R = clampv(o.R * std::pow(1.1, notch), 0.3, std::max({S.Lx, S.Ly, S.Lz}));
     foEditEnd();
     selFieldObj = k;
 }
@@ -927,19 +922,19 @@ static const char* TOOL_HELP[TOOL_N] = {
     "ЛКМ стирает молекулы под кистью (то же — средняя кнопка мыши)",
     "ЛКМ нагревает атомы под кистью (то же — ПКМ).\nПереданная энергия учитывается как внешняя работа W",
     "ЛКМ охлаждает атомы под кистью (то же — Shift+ПКМ)",
-    "ЛКМ — вращение камеры (3D) или сдвиг вида (2D), Shift+ЛКМ — сдвиг в 3D.\nВ любом инструменте: Ctrl+ЛКМ — камера, колесо — масштаб",
+    "ЛКМ — вращение камеры, Shift+ЛКМ — сдвиг.\nВ любом инструменте: Ctrl+ЛКМ — камера, колесо — масштаб",
     "Рамка — выделить (Shift — добавить), щелчок по атому — вся молекула.\nТащить выделенное — сдвинуть, Alt+тащить — бросок (задать скорость),\nAlt+колесо — поворот. Del — удалить, Ctrl+C/Ctrl+V — копия, I — закрепить",
     "ЛКМ — отталкивать атомы от курсора, Shift+ЛКМ — притягивать.\nРадиус — кисть R, сила — «сила инструментов». Работа идёт в W",
     "Щелчок — ударная волна: радиальный импульс атомам в радиусе 2.5·R.\nСила — «сила инструментов». Энергия удара — внешняя работа W",
     "Проведите курсором поперёк связей — они рвутся.\nЭнергия разрыва учитывается как внешняя работа W",
-    "Щелчки по атомам: 2 — расстояние, 3 — угол, 4 — двугранный угол (3D).\nЩелчок по пустому месту — сброс. Результаты — во вкладке «Объект»",
+    "Щелчки по атомам: 2 — расстояние, 3 — угол, 4 — двугранный угол.\nЩелчок по пустому месту — сброс. Результаты — во вкладке «Объект»",
     "ЛКМ — поставить объект выбранного вида (ветер/источник — тянуть по направлению,\nбарьер — от точки к точке); тащить объект — двигать.\nКолесо над объектом — радиус, Shift+колесо — сила; N — вкл/выкл; Del или ПКМ — удалить"};
 static const char* TOOL_STATUS[TOOL_N] = {
     "ЛКМ — добавить вещество · по атому — пинцет · двойной щелчок — следить",
     "ЛКМ — стереть молекулы под кистью",
     "ЛКМ — нагревать под кистью (ПКМ — то же)",
     "ЛКМ — охлаждать под кистью (Shift+ПКМ — то же)",
-    "ЛКМ — вращать (3D) / сдвигать (2D) · Shift — сдвиг · колесо — масштаб",
+    "ЛКМ — вращать · Shift — сдвиг · колесо — масштаб",
     "рамка — выделить (Shift +) · тащить — сдвиг · Alt+тащить — бросок · Alt+колесо — поворот · Del · Ctrl+C/V · I — закрепить",
     "ЛКМ — оттолкнуть · Shift+ЛКМ — притянуть",
     "щелчок — ударная волна (радиус 2.5·R)",
@@ -962,7 +957,7 @@ static void drawTopBar() {
     rectFill(0, 0, (float)winW, H, C_PANEL); lineH(0, (float)winW, H - 1, C_LINE);
     float x = uiPx(12), bh = H - uiPx(10), by = uiPx(5);
     x += drawText(fontUB, x, (H - fontUB.h) / 2 - 1, "АТОМЫ", C_TEXT_HI) + uiPx(8);
-    x += drawText(fontXS, x, (H - fontXS.h) / 2, "MD · 2D/3D", C_DIM) + uiPx(14);
+    x += drawText(fontXS, x, (H - fontXS.h) / 2, "молекулярная динамика", C_DIM) + uiPx(14);
     auto sep = [&]() { lineV(x, uiPx(8), H - uiPx(8), C_LINE); x += uiPx(9); };
     sep();
     auto textBtn = [&](int id, const char* label, bool on, const char* hint) { float w = textW(fontU, label) + uiPx(20); bool c = uiButton(id, x, by, w, bh, label, on, false, hint); x += w + uiPx(4); return c; };
@@ -981,12 +976,6 @@ static void drawTopBar() {
     if (ic(769, IC_REC, recording, recording ? "Остановить запись кадров (Ctrl+F12)" : "Запись серии кадров сцены в PNG (Ctrl+F12)\nПапка «кадры_…» рядом с atoms.exe, каждый 2-й кадр",
            recording ? C_WARN : C_TEXT)) toggleRecording();
     x += uiPx(4); sep();
-    {   // 2D | 3D — сегментный переключатель
-        float w = uiPx(34);
-        bool c2 = uiButton(210, x, by, w, bh, "2D", DIM == 2, false, "Плоская модель (D — переключить)"); x += w;
-        bool c3 = uiButton(762, x, by, w, bh, "3D", DIM == 3, false, "Объёмная модель (D — переключить)"); x += w + uiPx(6);
-        if ((c2 && DIM == 3) || (c3 && DIM == 2)) toggleDim();
-    }
     if (ic(771, IC_PANEL, graphsOn, "Боковая панель (G)\nСкрыть/показать панель вкладок — сцена на весь экран")) { graphsOn = !graphsOn; viewFitPending = true; }
     {
         float w = textW(fontU, "Справка") + uiPx(20);
@@ -1011,7 +1000,6 @@ static void drawTopBar() {
 // ===================================== ПОКАЗАНИЯ (верх боковой панели) =====================
 static float drawReadouts(float x, float y, float w) {
     measure();
-    const bool d3 = DIM == 3;
     const float pad = uiPx(10), rh = fontS.h + uiPx(3);
     double V = boxVolume(), mass = 0; for (int i = 0; i < S.n; i++) if (!EL[S.ty[i]].fixed) mass += EL[S.ty[i]].m;
     double rho = EN.nmob / V, rhoM = massDensity(mass, V);
@@ -1031,7 +1019,7 @@ static float drawReadouts(float x, float y, float w) {
     cell(0, "T", fmt("%.3f", EN.T), fmt("%.1f K", realK(EN.T)), C_WARN);
     cell(1, "P", fmt(EN.P < 0.1 ? "%.4f" : "%.3f", EN.P), fmt("%.1f бар", realBar(EN.P)));
     yy += rh;
-    cell(0, "ρ", fmt("%.3f", rho), d3 ? "σ⁻³" : "σ⁻²");
+    cell(0, "ρ", fmt("%.3f", rho), "σ⁻³");
     cell(1, "ρ", fmt("%.3f", rhoM), "г/см³");
     yy += rh;
     cell(0, "N", fmt("%d", EN.nmob), S.n != EN.nmob ? fmt("+%d неподв.", S.n - EN.nmob) : std::string("атомов"));
@@ -1087,7 +1075,6 @@ static float drawReadouts(float x, float y, float w) {
 static void drawCtrlTab(float x, float y, float w, float h) {
     float yy = scrollBegin(0, x, y, w - uiPx(8), h);
     const float W = w - uiPx(8), sh = uiPx(34), bh = uiPx(24), g = uiPx(4);
-    const bool d3 = DIM == 3;
     auto slider = [&](int id, const std::string& lab, double* v, double lo, double hi, bool logs, const std::string& val, const char* hint) {
         bool c = uiSlider(id, x, yy, W, sh - uiPx(4), lab, v, lo, hi, logs, val, hint); yy += sh; return c; };
     uiSection(x, yy, W, "Термостат");
@@ -1106,7 +1093,7 @@ static void drawCtrlTab(float x, float y, float w, float h) {
         float w1 = std::floor(W * 0.68f);
         if (uiCycle(201, x, yy, w1, bh, "Границы", BD_NAMES[P.boundary], P.boundary != B_PERIODIC, "Границы: периодические → стенки → поршень\n(верхняя стенка под давлением P внешн.)")) {
             pushUndo(); P.boundary = (P.boundary + 1) % 3; S.pistonV = 0; pistonGrab = false;
-            for (int i = 0; i < S.n; i++) { S.x[i] = clampv(S.x[i], 0.3, S.Lx - 0.3); S.y[i] = clampv(S.y[i], 0.3, S.Ly - 0.3); if (d3) S.z[i] = clampv(S.z[i], 0.3, S.Lz - 0.3); }
+            for (int i = 0; i < S.n; i++) { S.x[i] = clampv(S.x[i], 0.3, S.Lx - 0.3); S.y[i] = clampv(S.y[i], 0.3, S.Ly - 0.3); S.z[i] = clampv(S.z[i], 0.3, S.Lz - 0.3); }
             nlValid = false; computeForces(); resetEnergyRef();
         }
         if (uiButton(202, x + w1 + g, yy, W - w1 - g, bh, "NPT", P.npt, false, "Баростат C-rescale (Бернетти–Бусси): ящик сжимается/расширяется до P внешн.,\nправильные флуктуации объёма (только при периодических границах)")) { P.npt = !P.npt; resetEnergyRef(); }
@@ -1134,7 +1121,7 @@ static void drawCtrlTab(float x, float y, float w, float h) {
         float w1 = std::floor((W - g) / 2);
         if (uiButton(205, x, yy, w1, bh, P.chemistry ? "химия: вкл" : "химия: выкл", P.chemistry, false, "Химические реакции: образование и разрыв связей, обмен атомами")) P.chemistry = !P.chemistry;
         if (uiButton(204, x + w1 + g, yy, W - w1 - g, bh, "катализатор", P.catalyst, false, "Катализатор в центре ящика: барьеры реакций ×0.25 внутри круга\n(K — поставить под курсор)")) {
-            P.catalyst = !P.catalyst; P.catX = S.Lx / 2; P.catY = S.Ly / 2; P.catZ = d3 ? S.Lz / 2 : 0; }
+            P.catalyst = !P.catalyst; P.catX = S.Lx / 2; P.catY = S.Ly / 2; P.catZ = S.Lz / 2; }
         yy += bh + g;
     }
     slider(114, "барьеры реакций ×", &P.eaScale, 0, 3, false, fmt("%.2f", P.eaScale), "Множитель энергий активации (кинетическая часть барьера).\n0 — реакции идут при любом столкновении, но не ниже ΔH");
@@ -1160,11 +1147,11 @@ static void drawCtrlTab(float x, float y, float w, float h) {
     slider(115, "размер шаров", &atomVis, 0.4, 2.2, true, fmt("%.2f×", atomVis), "Только отображение: размер атомов на экране");
     {
         float w3 = std::floor((W - 2 * g) / 3);
-        if (uiButton(211, x, yy, w3, bh, "вращение", d3 && cam3.autoRot, false, "Автовращение камеры в 3D (O)")) { cam3.autoRot = !cam3.autoRot; if (!d3) showToast("Вращение камеры — только в 3D (клавиша D)"); }
-        if (uiButton(212, x + w3 + g, yy, w3, bh, "полёт", d3 && camMode == 1, false, "Полёт камеры в 3D (V): WASD — движение, Q/E — вниз/вверх, Shift — быстрее")) {
-            if (d3) { camMode ^= 1; showToast(camMode ? "Полёт: WASD, Q/E, Shift — быстрее" : "Камера: орбита"); } else showToast("Полёт — только в 3D (клавиша D)"); }
-        if (uiButton(213, x + 2 * (w3 + g), yy, W - 2 * (w3 + g), bh, "разрез", d3 && sliceOn, false, "Разрез в 3D (X): показать только то, что за плоскостью;\nShift+колесо — сдвинуть плоскость")) {
-            if (d3) { sliceOn = !sliceOn; sliceOff = 0; } else showToast("Разрез — только в 3D (клавиша D)"); }
+        if (uiButton(211, x, yy, w3, bh, "вращение", cam3.autoRot, false, "Автовращение камеры (O)")) cam3.autoRot = !cam3.autoRot;
+        if (uiButton(212, x + w3 + g, yy, w3, bh, "полёт", camMode == 1, false, "Полёт камеры (V): WASD — движение, Q/E — вниз/вверх, Shift — быстрее")) {
+            camMode ^= 1; showToast(camMode ? "Полёт: WASD, Q/E, Shift — быстрее" : "Камера: орбита"); }
+        if (uiButton(213, x + 2 * (w3 + g), yy, W - 2 * (w3 + g), bh, "разрез", sliceOn, false, "Разрез (X): показать только то, что за плоскостью;\nShift+колесо — сдвинуть плоскость")) {
+            sliceOn = !sliceOn; sliceOff = 0; }
         yy += bh + g;
         if (uiButton(214, x, yy, W, bh, fullscreen ? "оконный режим" : "полноэкранный режим", fullscreen, false, "Полноэкранный режим (F11 или Alt+Enter)")) toggleFullscreen();
         yy += bh + g;
@@ -1178,7 +1165,7 @@ static std::vector<std::string> atomInfoLines(int i) {
     const Element& e = EL[S.ty[i]];
     double v = std::sqrt(S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]);
     L.push_back(e.Z ? fmt("%s — %s (Z = %d)   #%d", e.sym, T(e.name), e.Z, i) : fmt("%s — %s   #%d", e.sym, T(e.name), i));
-    L.push_back(DIM == 3 ? fmt("r = (%.2f, %.2f, %.2f) нм", realNm(S.x[i]), realNm(S.y[i]), realNm(S.z[i])) : fmt("r = (%.2f, %.2f) нм", realNm(S.x[i]), realNm(S.y[i])));
+    L.push_back(fmt("r = (%.2f, %.2f, %.2f) нм", realNm(S.x[i]), realNm(S.y[i]), realNm(S.z[i])));
     L.push_back(fmt("v = %.3f σ/τ = %.0f м/с   Eк = %.3f ε", v, v * cfg::U_L_NM / cfg::U_T_PS * 1000, 0.5 * e.m * v * v));
     L.push_back(fmt("Eп = %.3f ε   q = %+.2f e   m = %.2f а.е.м.", S.ep[i], S.q[i], e.m * 10));
     std::string bs; for (int k = 0; k < S.nbc[i]; k++) { bs += EL[S.ty[S.nb[i][k]]].sym; bs += S.bo[i][k] == 1 ? "–" : (S.bo[i][k] == 2 ? "=" : "≡"); bs += " "; }
@@ -1186,8 +1173,7 @@ static std::vector<std::string> atomInfoLines(int i) {
     if (S.nbc[i]) { std::vector<int> m; moleculeOf(i, m); L.push_back(m.size() < 48 ? fmt("молекула: %s (%d ат.)", molFormula(i).c_str(), (int)m.size()) : fmt("сетка из %d атомов", (int)m.size())); }
     if (isMetalT(S.ty[i])) L.push_back(fmt("металлическая связь: %.0f%% (окислен на %.0f%%)", metalW(i) * 100, (1 - metalW(i)) * 100));
     if (i < (int)A::coord.size()) {
-        if (DIM == 3) L.push_back(fmt("коорд. %d   q̄6 = %.2f  q̄4 = %.2f   %s", A::coord[i], A::ordMag[i], A::ordHue[i], T(ST_NAMES[A::stype[i]])));
-        else L.push_back(fmt("коорд. %d   |ψ6| = %.2f", A::coord[i], A::ordMag[i]));
+        L.push_back(fmt("коорд. %d   q̄6 = %.2f  q̄4 = %.2f   %s", A::coord[i], A::ordMag[i], A::ordHue[i], T(ST_NAMES[A::stype[i]])));
     }
     if (i < (int)atomPhase.size() && atomPhase.size() == (size_t)S.n) L.push_back(std::string(T("состояние: ")) + T(PH_NAMES[std::min(3, (int)atomPhase[i])]));
     if (isPinned(i)) L.push_back("закреплён (I — открепить)");
@@ -1196,7 +1182,6 @@ static std::vector<std::string> atomInfoLines(int i) {
 static void drawObjTab(float x, float y, float w, float h) {
     float yy = scrollBegin(2, x, y, w - uiPx(8), h);
     const float W = w - uiPx(8), bh = uiPx(24), g = uiPx(4), sh = uiPx(34), lh = fontU.h + uiPx(2);
-    const bool d3 = DIM == 3;
     bool any = false;
     auto text = [&](const std::string& s, RGBA c = C_TEXT, const Font* f = nullptr) { const Font& ff = f ? *f : fontU; drawText(ff, x, yy, s, c); yy += ff.h + uiPx(2); };
     auto kv = [&](const std::string& k, const std::string& v) { drawText(fontXS, x, yy + uiPx(1), k, C_DIM); drawText(fontS, x + uiPx(96), yy, v, C_TEXT_HI); yy += fontS.h + uiPx(3); };
@@ -1221,29 +1206,21 @@ static void drawObjTab(float x, float y, float w, float h) {
         FieldObj& oo = fieldObjs[selFieldObj];
         auto foSlider = [&](int id, const std::string& lab, double* v, double lo, double hi, bool logs, const std::string& val, const char* hint) {
             double t = *v; if (uiSlider(id, x, yy, W, sh - uiPx(4), lab, &t, lo, hi, logs, val, hint)) { foEditBegin(); *v = t; foEditEnd(); } yy += sh; };
-        if (!(oo.kind == FO_BARRIER && !d3))
-            foSlider(810, oo.kind == FO_BARRIER ? "полуширина пластины R" : "радиус R", &oo.R, 0.3, std::max(1.0, oo.kind == FO_BARRIER ? 1000.0 : std::max({S.Lx, S.Ly, d3 ? S.Lz : 0.0})), true,
-                     oo.R >= 1000 ? std::string("∞") : fmt("%.2fσ · %.2f нм", oo.R, realNm(oo.R)), "Радиус действия (колесо над значком объекта)");
+        foSlider(810, oo.kind == FO_BARRIER ? "полуширина пластины R" : "радиус R", &oo.R, 0.3, std::max(1.0, oo.kind == FO_BARRIER ? 1000.0 : std::max({S.Lx, S.Ly, S.Lz})), true,
+                 oo.R >= 1000 ? std::string("∞") : fmt("%.2fσ · %.2f нм", oo.R, realNm(oo.R)), "Радиус действия (колесо над значком объекта)");
         { double lo, hi; foStrengthRange(oo.kind, lo, hi); double s = std::max(lo, std::fabs(oo.strength)), sg = oo.strength < 0 ? -1 : 1;
           double t = s; if (uiSlider(811, x, yy, W, sh - uiPx(4), "сила A", &t, lo, hi, true, fmt("%.3g %s", oo.strength, T(FO_UNITS[oo.kind])), "Сила объекта (Shift+колесо над значком)")) { foEditBegin(); oo.strength = sg * t; foEditEnd(); }
           yy += sh;
           if (oo.kind == FO_VORTEX) { if (uiButton(817, x, yy, W, bh, oo.strength >= 0 ? "вращение: против часовой" : "вращение: по часовой", false, false, "Сменить направление вращения")) { oo.strength = -oo.strength; } yy += bh + g; } }
         if (foUsesT(oo.kind)) foSlider(812, oo.kind == FO_EMITTER ? "T испускания" : "T зоны", &oo.Tset, 0.02, 8.0, true, fmt("%.3f · %.0f K", oo.Tset, realK(oo.Tset)), "Температура зоны / скорость испускаемых атомов");
         if (foUsesDir(oo.kind)) {
-            if (!d3) {
-                double a = std::atan2(oo.dy, oo.dx) * 180 / PI; if (a < 0) a += 360;
-                double t = a; if (uiSlider(813, x, yy, W, sh - uiPx(4), "направление", &t, 0, 360, false, fmt("%.0f°", t), "Направление (в плоскости): 0° — вправо, 90° — вверх")) {
-                    foEditBegin(); oo.dx = std::cos(t * PI / 180); oo.dy = std::sin(t * PI / 180); oo.dz = 0; foEditEnd(); }
-                yy += sh;
-            } else {
-                double az = std::atan2(oo.dz, oo.dx) * 180 / PI, el = std::asin(clampv(oo.dy, -1.0, 1.0)) * 180 / PI; if (az < 0) az += 360;
-                double a1 = az, e1 = el; bool ch = false;
-                ch |= uiSlider(813, x, yy, W, sh - uiPx(4), oo.kind == FO_BARRIER ? "нормаль: азимут" : "направление: азимут", &a1, 0, 360, false, fmt("%.0f°", a1), "Азимут в плоскости xz"); yy += sh;
-                ch |= uiSlider(814, x, yy, W, sh - uiPx(4), "угол возвышения", &e1, -90, 90, false, fmt("%+.0f°", e1), "Угол к плоскости xz (+90° — вверх по y)"); yy += sh;
-                if (ch) { foEditBegin(); double ca = std::cos(e1 * PI / 180); oo.dx = ca * std::cos(a1 * PI / 180); oo.dz = ca * std::sin(a1 * PI / 180); oo.dy = std::sin(e1 * PI / 180); foEditEnd(); }
-                if (uiButton(815, x, yy, W, bh, "направить по взгляду камеры", false, false, "Направление/нормаль := направление взгляда")) { foEditBegin(); oo.dx = camF[0]; oo.dy = camF[1]; oo.dz = camF[2]; foEditEnd(); }
-                yy += bh + g;
-            }
+            double az = std::atan2(oo.dz, oo.dx) * 180 / PI, el = std::asin(clampv(oo.dy, -1.0, 1.0)) * 180 / PI; if (az < 0) az += 360;
+            double a1 = az, e1 = el; bool ch = false;
+            ch |= uiSlider(813, x, yy, W, sh - uiPx(4), oo.kind == FO_BARRIER ? "нормаль: азимут" : "направление: азимут", &a1, 0, 360, false, fmt("%.0f°", a1), "Азимут в плоскости xz"); yy += sh;
+            ch |= uiSlider(814, x, yy, W, sh - uiPx(4), "угол возвышения", &e1, -90, 90, false, fmt("%+.0f°", e1), "Угол к плоскости xz (+90° — вверх по y)"); yy += sh;
+            if (ch) { foEditBegin(); double ca = std::cos(e1 * PI / 180); oo.dx = ca * std::cos(a1 * PI / 180); oo.dz = ca * std::sin(a1 * PI / 180); oo.dy = std::sin(e1 * PI / 180); foEditEnd(); }
+            if (uiButton(815, x, yy, W, bh, "направить по взгляду камеры", false, false, "Направление/нормаль := направление взгляда")) { foEditBegin(); oo.dx = camF[0]; oo.dy = camF[1]; oo.dz = camF[2]; foEditEnd(); }
+            yy += bh + g;
         }
         if (oo.kind == FO_EMITTER) {
             int t = currentElemType();
@@ -1251,9 +1228,8 @@ static void drawObjTab(float x, float y, float w, float h) {
                 if (!EL[t].fixed) oo.elem = t; }
             yy += bh + g;
         }
-        if (oo.kind == FO_BARRIER) kv("концы, нм", d3 ? fmt("(%.1f,%.1f,%.1f)–(%.1f,%.1f,%.1f)", realNm(oo.x), realNm(oo.y), realNm(oo.z), realNm(oo.x2), realNm(oo.y2), realNm(oo.z2))
-                                                  : fmt("(%.2f, %.2f) – (%.2f, %.2f)", realNm(oo.x), realNm(oo.y), realNm(oo.x2), realNm(oo.y2)));
-        else kv("центр, нм", d3 ? fmt("(%.2f, %.2f, %.2f)", realNm(oo.x), realNm(oo.y), realNm(oo.z)) : fmt("(%.2f, %.2f)", realNm(oo.x), realNm(oo.y)));
+        if (oo.kind == FO_BARRIER) kv("концы, нм", fmt("(%.1f,%.1f,%.1f)–(%.1f,%.1f,%.1f)", realNm(oo.x), realNm(oo.y), realNm(oo.z), realNm(oo.x2), realNm(oo.y2), realNm(oo.z2)));
+        else kv("центр, нм", fmt("(%.2f, %.2f, %.2f)", realNm(oo.x), realNm(oo.y), realNm(oo.z)));
         yy += g;
     }
     // --- выделение
@@ -1267,10 +1243,10 @@ static void drawObjTab(float x, float y, float w, float h) {
         if (cs.size() > 7) comp += " …";
         kv("состав", comp);
         int nm = 0; for (int i : selList) if (!EL[S.ty[i]].fixed && !isPinned(i)) nm++;
-        double Kcm = M > 0 ? 0.5 * (px * px + py * py + pz * pz) / M : 0, Tsel = nm > 1 ? 2 * (K - Kcm) / (DIM * (nm - 1)) : 0;
+        double Kcm = M > 0 ? 0.5 * (px * px + py * py + pz * pz) / M : 0, Tsel = nm > 1 ? 2 * (K - Kcm) / (3 * (nm - 1)) : 0;
         kv("T (без ц.м.)", fmt("%.3f · %.0f K", Tsel, realK(Tsel)));
         double cx, cy, cz; selCOM(cx, cy, cz);
-        kv("центр масс", d3 ? fmt("(%.2f, %.2f, %.2f) нм", realNm(cx), realNm(cy), realNm(cz)) : fmt("(%.2f, %.2f) нм", realNm(cx), realNm(cy)));
+        kv("центр масс", fmt("(%.2f, %.2f, %.2f) нм", realNm(cx), realNm(cy), realNm(cz)));
         kv("импульс |p|", fmt("%.3f · v ц.м. %.3f σ/τ", std::sqrt(px * px + py * py + pz * pz), M > 0 ? std::sqrt(px * px + py * py + pz * pz) / M : 0.0));
         kv("масса", fmt("%.1f а.е.м.   закреплено %d", M * 10, pinned));
         yy += g;
@@ -1316,7 +1292,7 @@ static void drawObjTab(float x, float y, float w, float h) {
         kv("атомы", atoms);
         if (d12 >= 0) kv("расстояние 1–2", fmt("%.3f Å · %.3fσ", d12 * 3.405, d12));
         if (ang >= 0) kv("угол 1–2–3", fmt("%.2f°", ang));
-        if (measN >= 4 && d3) kv("двугранный", fmt("%.2f°", dih));
+        if (measN >= 4) kv("двугранный", fmt("%.2f°", dih));
         if (measN < 2) text("выберите следующий атом…", C_DIM, &fontXS);
         if (uiButton(840, x, yy, std::floor(W / 2), bh, "сбросить", false, false, "Сбросить измерение")) measN = 0;
         yy += bh + g * 2;
@@ -1384,8 +1360,7 @@ static void drawSidePanel(float x, float y, float w, float h) {
     case 2: pushClip(cx - uiPx(2), cy - uiPx(2), cw + uiPx(4), ch + uiPx(4)); drawChemPanel(cx, cy, cw - uiPx(4), ch); popClip(); break;
     case 3: {
         float yy2 = scrollBegin(1, cx, cy, cw - uiPx(8), ch);
-        std::string sub = DIM == 3 ? fmt("кристалл %.0f%% (ГЦК %d · ГПУ %d · ОЦК %d)   коорд. %.2f   D %.4f", A::fCryst * 100, A::stCount[ST_FCC], A::stCount[ST_HCP], A::stCount[ST_BCC], A::meanCoord, std::max(0.0, A::D))
-                                   : fmt("|ψ6| %.2f   коорд. %.2f   D %.4f σ²/τ", A::psiMean, A::meanCoord, std::max(0.0, A::D));
+        std::string sub = fmt("кристалл %.0f%% (ГЦК %d · ГПУ %d · ОЦК %d)   коорд. %.2f   D %.4f", A::fCryst * 100, A::stCount[ST_FCC], A::stCount[ST_HCP], A::stCount[ST_BCC], A::meanCoord, std::max(0.0, A::D));
         if (A::Cv > 0) sub += fmt("   Cv/Nk %.2f", A::Cv);
         pushClip(cx, yy2, cw - uiPx(8), fontXS.h + uiPx(4)); drawText(fontXS, cx, yy2, sub, C_DIM); popClip();
         float bottom = drawPlots(cx, yy2 + fontXS.h + uiPx(6), cw - uiPx(8), ch - fontXS.h - uiPx(6), uiPx(118));
@@ -1450,8 +1425,7 @@ static void drawStatusBar(float x, float y, float w, float h) {
     // справа: координаты курсора, слежение, запись, пауза
     std::string right;
     if (inScene(mouseX, mouseY)) {
-        if (DIM == 2) { double wx, wy; screenToWorld2D(mouseX, mouseY, wx, wy); right = fmt("x %.2f  y %.2f нм", realNm(wx), realNm(wy)); }
-        else { int hA = hoverAtom(); if (hA >= 0) right = fmt("%s #%d  (%.2f, %.2f, %.2f) нм", EL[S.ty[hA]].sym, hA, realNm(S.x[hA]), realNm(S.y[hA]), realNm(S.z[hA])); }
+        int hA = hoverAtom(); if (hA >= 0) right = fmt("%s #%d  (%.2f, %.2f, %.2f) нм", EL[S.ty[hA]].sym, hA, realNm(S.x[hA]), realNm(S.y[hA]), realNm(S.z[hA]));
     }
     if (followAtom >= 0 && followAtom < S.n) right += fmt("   слежение #%d", followAtom);
     if (!selList.empty()) right += fmt("   выделено %d", (int)selList.size());
@@ -1477,9 +1451,9 @@ static void drawSceneOverlay() {
     float x = sceneX + uiPx(12), y = sceneY + uiPx(8);
     drawText(fontU, x, y, presetLoaded ? std::string(T(presetTitle)) + T("  [загружено]") : presetTitle, withA(C_TEXT, 0.9f));
     std::string sub = fmt("%s · %s · %s · ящик %.1f×%.1f%s σ (%.2f×%.2f%s нм)", T(TH_NAMES[P.thermostat]), T(BD_NAMES[P.boundary]), T(P.chemistry ? "химия вкл." : "химия выкл."),
-                          S.Lx, S.Ly, DIM == 3 ? fmt("×%.1f", S.Lz).c_str() : "", realNm(S.Lx), realNm(S.Ly), DIM == 3 ? fmt("×%.2f", realNm(S.Lz)).c_str() : "");
-    if (DIM == 3) sub += camMode == 1 ? T(" · камера: полёт (WASD, Q/E)") : "";
-    if (DIM == 3 && sliceOn) sub += fmt(" · разрез %+.1fσ (Shift+колесо)", sliceOff);
+                          S.Lx, S.Ly, fmt("×%.1f", S.Lz).c_str(), realNm(S.Lx), realNm(S.Ly), fmt("×%.2f", realNm(S.Lz)).c_str());
+    sub += camMode == 1 ? T(" · камера: полёт (WASD, Q/E)") : "";
+    if (sliceOn) sub += fmt(" · разрез %+.1fσ (Shift+колесо)", sliceOff);
     drawText(fontXS, x, y + fontU.h + uiPx(1), sub, C_DIM);
     if (!A::sceneNote.empty()) drawText(fontXS, x, y + fontU.h + fontXS.h + uiPx(2), A::sceneNote, C_TEXT);   // живое измерение сцены
     popClip();
@@ -1498,8 +1472,7 @@ static int hoverAtom() {
         if (!pvis[i]) continue;
         double dx = psx[i] - mouseX, dy = psy[i] - mouseY, rr = std::max(3.0, visSig(S.ty[i]) * 0.6 * std::max(0.7, atomVis) * pscl[i]);
         if (dx * dx + dy * dy > rr * rr) continue;
-        double key = DIM == 3 ? pdep[i] : dx * dx + dy * dy;   // в 3D — ближайший к камере
-        if (key < bd) { bd = key; best = i; }
+        if (pdep[i] < bd) { bd = pdep[i]; best = i; }   // ближайший к камере
     }
     return best;
 }
@@ -1522,18 +1495,18 @@ static void drawHelp() {
         "#МЫШЬ",
         "ЛКМ — текущий инструмент (панель слева, Alt+1…Alt+0, Alt+F); наведите на значок — подсказка",
         "ПКМ — нагрев, Shift+ПКМ — охлаждение; ПКМ по значку объекта поля — удалить;  СКМ — ластик;  колесо — масштаб",
-        "Ctrl+ЛКМ — камера в любом инструменте;  двойной щелчок по атому — следить камерой;  2D: ЛКМ по поршню — двигать",
+        "Ctrl+ЛКМ — камера в любом инструменте;  двойной щелчок по атому — следить камерой",
         "#ИНСТРУМЕНТЫ",
         "Alt+1 камера   Alt+2 выделение   Alt+3 линейка/угломер   Alt+4 добавить/пинцет   Alt+5 ластик   Alt+6 нагрев   Alt+7 холод",
         "Alt+8 толчок (Shift — притяжение)   Alt+9 ударная волна   Alt+0 ножницы (рвать связи)   Alt+F объекты поля",
         "Выделение: рамка (Shift — добавить), тащить — сдвиг, Alt+тащить — бросок, Alt+колесо — поворот, Ctrl+A — всё",
         "Del — удалить выделенное / объект поля   Ctrl+C / Ctrl+V — копировать / вставить у курсора   I — закрепить/открепить",
         "Объекты поля: колесо над значком — радиус, Shift+колесо — сила, N — вкл/выкл; параметры — во вкладке «Объект»",
-        "#КАМЕРА 3D",
+        "#КАМЕРА",
         "Ctrl+ЛКМ — вращение, Ctrl+Shift+ЛКМ — сдвиг, стрелки — поворот, PgUp/PgDn — ближе/дальше, F/Home — вписать, O — автовращение",
         "V — полёт: WASD, Q/E, Shift — быстрее;  F2 спереди, F3 сбоку, F4 сверху, F6 изометрия;  X — разрез, Shift+колесо — плоскость",
         "#КЛАВИШИ",
-        "D — 2D/3D   Пробел — пауза   S — шаг   R — сброс   G — боковая панель   T — следы   B — связи   C — цвет   H — справка",
+        "Пробел — пауза   S — шаг   R — сброс   G — боковая панель   T — следы   B — связи   C — цвет   H — справка",
         "U — обратить время   M — сброс MSD   K — катализатор   L — вспышка света   [ ] — сжать/растянуть по x",
         "F12 — снимок сцены (PNG), Shift+F12 — всё окно, Ctrl+F12 — запись кадров;  F11 / Alt+Enter — полный экран",
         "F1 — инструкция   F5/F9 — быстрое сохранение/загрузка   Ctrl+S/Ctrl+O — файл   Ctrl+E — CSV   Ctrl+Z — отмена   Esc — закрыть",
@@ -1542,9 +1515,9 @@ static void drawHelp() {
         "1 идеальный газ   2 плавление   3 кипение   4 конденсация   5 диффузия   6 NaCl в воде   7 горение   8 броуновское движение",
         "9 закалка / стекло   0 равновесие Cl2 ↔ 2Cl   Shift+1…5 — золото, окисление железа, Na в хлоре, метан, электрофорез",
         "в меню (Tab), вещество: теплопроводность, ударная труба, барометрическая формула, эффузия, спекание, адиабатическое сжатие,",
-        "смачивание, кристаллизация на затравке, течение Пуазейля",
+        "смачивание, кристаллизация на затравке, течение Пуазейля, жидкость и пар, адсорбция, выравнивание температур, кавитация, нанопровод",
         "в меню (Tab), химия: кислота в воде, нейтрализация, горение этанола, гремучая смесь, катализ на платине, хлорирование метана,",
-        "H2 + I2 ⇌ 2HI, гидрирование на никеле, разложение пероксида, горение ацетилена, H2 + Br2, хлор и бром, H2 + F2, распад озона",
+        "H2 + I2 ⇌ 2HI, гидрирование, пероксид, ацетилен, H2 + Br2, хлор и бром, H2 + F2, озон, пропан, взрыв NCl3, самовоспламенение",
     };
     const int nl = (int)(sizeof(lines) / sizeof(lines[0]));
     float lh = fontU.h + uiPx(4), w = 0;
@@ -1783,20 +1756,14 @@ struct Input { bool lDown = false, rDown = false, mDown = false; bool lPress = f
 static bool lInScene = false, panning = false, rotating = false; static int dragX = 0, dragY = 0; static double lastAddT = 0;
 static bool wallStroke = false; static double lastWallX = 1e9, lastWallY = 1e9, lastWallZ = 1e9; static double grabDepth = 0;
 
-static void onDimChanged() {
+// палитра веществ и таблицы пар (после смены параметров элементов или загрузки файла)
+static void rebuildTables() {
     initPalette(); selPal = clampv(selPal, 0, (int)palette.size() - 1);
     buildPairTables(); nlValid = false; trailN = -1;
-}
-static void toggleDim() {
-    pushUndo();
-    DIM = DIM == 3 ? 2 : 3; onDimChanged();
-    loadPresetKeepObjs(currentPreset, 0, false); viewFitPending = true;   // объекты пользователя в другой размерности не имеют смысла
-    clearToolState();
 }
 // точка «посередине ящика» на луче под курсором
 static bool cursorPoint(double& x, double& y, double& z) {
     double o[3], d[3]; mouseRay(mouseX, mouseY, o, d);
-    if (DIM == 2) { x = o[0]; y = o[1]; z = 0; return true; }
     double t0, t1; if (!rayBox(o, d, t0, t1)) { unprojectAtDepth(mouseX, mouseY, cam3.dist, x, y, z); return false; }
     t0 = std::max(t0, 0.0); double t = 0.5 * (t0 + t1);
     x = o[0] + d[0] * t; y = o[1] + d[1] * t; z = o[2] + d[2] * t; return true;

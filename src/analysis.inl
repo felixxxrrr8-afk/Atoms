@@ -12,14 +12,14 @@ static std::vector<unsigned char> atomPhase;
 static double phaseFrac[3] = {0, 0, 0};          // доли газ / жидкость / твёрдое (подвижные атомы без H)
 static std::vector<std::string> phaseLog;        // журнал фазовых переходов (новые — в конце)
 // типы локальной структуры (цвет «по порядку»)
-enum { ST_OTHER, ST_FCC, ST_HCP, ST_BCC, ST_SC, ST_HEX2D, ST_SQ2D, ST_ICE, ST_N };
-static const char* ST_NAMES[] = {"аморфн.", "ГЦК", "ГПУ", "ОЦК", "ПК/NaCl", "гекс.", "квадр.", "лёд"};
+enum { ST_OTHER, ST_FCC, ST_HCP, ST_BCC, ST_SC, ST_ICE, ST_N };
+static const char* ST_NAMES[] = {"аморфн.", "ГЦК", "ГПУ", "ОЦК", "ПК/NaCl", "лёд"};
 namespace A {
 static const int GR_BINS = 120; static const double GR_RMAX = 5.0;
 static std::vector<double> gr(GR_BINS, 0.0); static bool grInit = false;
 static const int VH_BINS = 40; static std::vector<double> vh(VH_BINS, 0.0); static int vhType = E_AR; static double vhMax = 1;
 static std::vector<float> ordMag, ordHue; static std::vector<unsigned char> coord, stype;
-static double psiMean = 0, fCryst = 0, fGas = 0, meanCoord = 0; static int stCount[ST_N] = {0};
+static double q6Mean = 0, fCryst = 0, fGas = 0, meanCoord = 0; static int stCount[ST_N] = {0};
 static Series sT, sP, sEk, sEp, sEt, sTime;
 static std::vector<float> msdT, msdV, msdBig; static std::vector<double> x0, y0, z0; static double t0 = 0; static int msdN = -1;
 static double D = 0, Dbig = 0;
@@ -59,8 +59,7 @@ static void resetMSD() {
     A::x0 = S.ux; A::y0 = S.uy; A::z0 = S.uz;
     A::t0 = S.t; A::msdN = S.n; A::msdT.clear(); A::msdV.clear(); A::msdBig.clear();
 }
-// g(r): гистограмма расстояний, нормированная на идеальный газ той же плотности:
-//   2D: g = h/(N_ref·ρ·2πr·dr),  3D: g = h/(N_ref·ρ·4πr²·dr)
+// g(r): гистограмма расстояний, нормированная на идеальный газ той же плотности: g = h/(N_ref·ρ·4πr²·dr)
 static void computeGr() {
     int n = S.n; if (n < 2) return;
     std::vector<int> mob; for (int i = 0; i < n; i++) if (!EL[S.ty[i]].fixed && S.ty[i] != E_BIG) mob.push_back(i);
@@ -85,7 +84,7 @@ static void computeGr() {
     }
     double rho = nm / boxVolume();
     for (int k = 0; k < A::GR_BINS; k++) {
-        double r = (k + 0.5) * dr, shell = DIM == 3 ? 4 * PI * r * r * dr : 2 * PI * r * dr;
+        double r = (k + 0.5) * dr, shell = 4 * PI * r * r * dr;
         double g = h[k] / (used * rho * shell);
         A::gr[k] = A::grInit ? 0.8 * A::gr[k] + 0.2 * g : g;
     }
@@ -113,11 +112,9 @@ static void initKlm() {
     }
 }
 typedef std::complex<double> cd;
-// Локальный порядок.
-//  2D: ψ6 = (1/n)Σ e^{6iθ} — гексатический параметр; фаза ψ6 = ориентация зерна.
-//  3D: Стейнхардт q_lm = (1/n)Σ Y_lm(r̂); усреднение Лехнера–Деллаго q̄_l; «твёрдые связи» тен Вольде–Френкеля
-//      (d6 = q6(i)·q6(j)* нормированное > 0.7); атом кристаллический при ≥ 7 твёрдых связях.
-//      Тип решётки: ОЦК — 14 соседей, ПК — 6, иначе по q̄4: ГЦК (q̄4 ≈ 0.19) / ГПУ (q̄4 ≈ 0.10).
+// Локальный порядок: Стейнхардт q_lm = (1/n)Σ Y_lm(r̂); усреднение Лехнера–Деллаго q̄_l; «твёрдые связи»
+// тен Вольде–Френкеля (d6 = q6(i)·q6(j)* нормированное > 0.7); атом кристаллический при ≥ 7 твёрдых связях.
+// Тип решётки: ОЦК — 14 соседей, ПК — 6, иначе по q̄4: ГЦК (q̄4 ≈ 0.19) / ГПУ (q̄4 ≈ 0.10).
 static void computeOrder() {
     int n = S.n;
     A::ordMag.assign(n, 0); A::ordHue.assign(n, 0); A::coord.assign(n, 0); A::stype.assign(n, 0);
@@ -132,28 +129,8 @@ static void computeOrder() {
         double s = 1.35 * 0.5 * (EL[S.ty[i]].sig + EL[S.ty[j]].sig); return r2 < s * s && !bonded(i, j);
     };
     double sm = 0, sc = 0; int ngas = 0, nm = 0;
-    const int gasCut = DIM == 3 ? 2 : 1;
-    if (DIM == 2) {
-        // ψ6 = (1/n)Σe^{6iθ} — гексагональный порядок, ψ4 — квадратный
-#pragma omp parallel for reduction(+ : sm, sc, ngas, nm)
-        for (int i = 0; i < n; i++) {
-            if (EL[S.ty[i]].fixed) continue;
-            double r6 = 0, i6 = 0, r4 = 0, i4 = 0; int cnt = 0;
-            for (int p = nlStart[i]; p < nlStart[i + 1]; p++) {
-                int j = nlIdx[p]; double dx, dy, dz; dvec(i, j, dx, dy, dz); double r2 = dx * dx + dy * dy;
-                if (isNb(i, j, r2)) { double th = std::atan2(dy, dx); r6 += std::cos(6 * th); i6 += std::sin(6 * th); r4 += std::cos(4 * th); i4 += std::sin(4 * th); cnt++; }
-            }
-            if (cnt) { r6 /= cnt; i6 /= cnt; r4 /= cnt; i4 /= cnt; }
-            double m6 = std::sqrt(r6 * r6 + i6 * i6), m4 = std::sqrt(r4 * r4 + i4 * i4);
-            unsigned char st = ST_OTHER;
-            if (cnt >= 5 && m6 > 0.7) st = ST_HEX2D; else if (cnt == 4 && m4 > 0.8) st = ST_SQ2D;
-            bool sq = st == ST_SQ2D;
-            A::ordMag[i] = (float)(sq ? m4 : m6); A::ordHue[i] = (float)(sq ? std::atan2(i4, r4) : std::atan2(i6, r6));
-            A::coord[i] = (unsigned char)std::min(cnt, 20); A::stype[i] = st;
-            if (S.ty[i] != E_H) { sm += m6; sc += cnt; nm++; if (cnt <= gasCut) ngas++; }   // водород не участвует в статистике фазы
-        }
-    } else {
-        // Стейнхардт: q_lm = (1/n)Σ Y_lm(r̂); усреднение Лехнера–Деллаго; «твёрдые связи» тен Вольде–Френкеля
+    const int gasCut = 2;
+    {   // Стейнхардт: q_lm = (1/n)Σ Y_lm(r̂); усреднение Лехнера–Деллаго; «твёрдые связи» тен Вольде–Френкеля
         std::vector<std::array<cd, 7>> q6(n); std::vector<std::array<cd, 5>> q4(n);
         std::vector<std::vector<int>> nbl(n);
 #pragma omp parallel for schedule(dynamic, 64)
@@ -225,42 +202,33 @@ static void computeOrder() {
     }
     int ncr = 0;
     for (int i = 0; i < n; i++) if (!EL[S.ty[i]].fixed) { A::stCount[A::stype[i]]++; if (A::stype[i] != ST_OTHER && S.ty[i] != E_H) ncr++; }
-    if (nm) { A::psiMean = sm / nm; A::meanCoord = sc / nm; A::fCryst = (double)ncr / nm; A::fGas = (double)ngas / nm; }
+    if (nm) { A::q6Mean = sm / nm; A::meanCoord = sc / nm; A::fCryst = (double)ncr / nm; A::fGas = (double)ngas / nm; }
 }
 // ---- Опорные данные модели (LJ с обрезкой 2.5σ и сдвигом — именно этот потенциал у аргона в программе)
-//  3D: Tc = 1.0779, ρc = 0.319, pc = 0.0935; ρ_ж(T) — корреляция Vrabec et al. (Mol. Phys. 2006), ρ_г — по закону
-//      прямолинейного диаметра; тройная точка T ≈ 0.62, ρ_ж ≈ 0.83, ρ_тв ≈ 0.95 (для полного LJ: 1.31 / 0.69).
-//  2D: Tc ≈ 0.459 (Smit, Frenkel 1991); ширина бинодали 1.056·(Tc − T)^{1/8}, диаметр 0.33 + 0.775(Tc − T) —
-//      подогнано по нашим прогонам «плёнка в ящике» (--phystest coex): T = 0.40 → 0.745 / 0.004, T = 0.44 → 0.67 / 0.017.
+//  Tc = 1.0779, ρc = 0.319, pc = 0.0935; ρ_ж(T) — корреляция Vrabec et al. (Mol. Phys. 2006), ρ_г — по закону
+//  прямолинейного диаметра; тройная точка T ≈ 0.62, ρ_ж ≈ 0.83, ρ_тв ≈ 0.95 (для полного LJ: 1.31 / 0.69).
 struct LJRef { double Tc, rc, pc, Tt, rlT, rsT, rgT; };
 static LJRef ljRef() {
-    if (DIM == 3) return {1.0779, 0.319, 0.0935, 0.62, 0.83, 0.95, 0.003};
-    return {0.459, 0.33, 0.0, 0.41, 0.73, 0.80, 0.006};
+    return {1.0779, 0.319, 0.0935, 0.62, 0.83, 0.95, 0.003};
 }
 // бинодаль жидкость–пар: плотности ρ_ж, ρ_г при T (false — выше Tc)
 static bool ljBinodal(double T, double& rl, double& rg) {
     LJRef r = ljRef(); if (T >= r.Tc) { rl = rg = r.rc; return false; }
-    double x = r.Tc - T;
-    if (DIM == 3) {
-        rl = r.rc + 0.5649 * std::cbrt(x) + 0.1314 * x + 0.0413 * x * std::sqrt(x);
-        // пар: по прямолинейному диаметру у Tc, вдали от неё — идеальный газ при давлении насыщения
-        // ln p_s = 3.1664 − 5.9809/T + 0.01498/T⁴ (Vrabec et al.)
-        // (корреляция годится при T ≳ 0.5; ниже — Клапейрон–Клаузиус с теплотой сублимации ≈ 6.5ε)
-        const double Te = std::max(T, 0.5);
-        double ps = std::exp(3.1664 - 5.9809 / Te + 0.01498 / (Te * Te * Te * Te));
-        if (T < 0.5) ps *= std::exp(-6.5 * (1 / std::max(T, 0.02) - 2.0));
-        rg = std::max(2 * r.rc + 2 * 0.2067 * x - rl, ps / std::max(T, 0.02));
-    } else {   // 2D: β = 1/8 (класс Изинга)
-        double w = 1.056 * std::pow(x, 0.125), d = r.rc + 0.775 * x;
-        rl = d + 0.5 * w; rg = d - 0.5 * w;
-    }
-    rg = std::max(rg, 0.0);
+    const double x = r.Tc - T;
+    rl = r.rc + 0.5649 * std::cbrt(x) + 0.1314 * x + 0.0413 * x * std::sqrt(x);
+    // пар: по прямолинейному диаметру у Tc, вдали от неё — идеальный газ при давлении насыщения
+    // ln p_s = 3.1664 − 5.9809/T + 0.01498/T⁴ (Vrabec et al.)
+    // (корреляция годится при T ≳ 0.5; ниже — Клапейрон–Клаузиус с теплотой сублимации ≈ 6.5ε)
+    const double Te = std::max(T, 0.5);
+    double ps = std::exp(3.1664 - 5.9809 / Te + 0.01498 / (Te * Te * Te * Te));
+    if (T < 0.5) ps *= std::exp(-6.5 * (1 / std::max(T, 0.02) - 2.0));
+    rg = std::max({2 * r.rc + 2 * 0.2067 * x - rl, ps / std::max(T, 0.02), 0.0});
     return true;
 }
 // линии плавления: ρ_ж на границе кристаллизации и ρ_тв на границе плавления (T ≥ Tt); ниже Tt — плотность твёрдого
 // на линии сублимации (приближённо, наклоны — как у полного LJ по Hansen–Verlet / Agrawal–Kofke)
-static double ljFreeze(double T) { LJRef r = ljRef(); return r.rlT + (DIM == 3 ? 0.20 : 0.35) * (T - r.Tt); }
-static double ljMelt(double T) { LJRef r = ljRef(); return T >= r.Tt ? r.rsT + (DIM == 3 ? 0.14 : 0.30) * (T - r.Tt) : r.rsT + (DIM == 3 ? 0.19 : 0.29) * (r.Tt - T); }
+static double ljFreeze(double T) { LJRef r = ljRef(); return r.rlT + 0.20 * (T - r.Tt); }
+static double ljMelt(double T) { LJRef r = ljRef(); return T >= r.Tt ? r.rsT + 0.14 * (T - r.Tt) : r.rsT + 0.19 * (r.Tt - T); }
 // чистое LJ-вещество (один подвижный тип без зарядов, связей и металла) — его тип, иначе −1
 static int pureLJType() {
     int t = -1;
@@ -275,7 +243,7 @@ static int pureLJType() {
 // приведённое состояние (T*, ρ*) в собственных σ, ε вещества (для чистого) или в единицах аргона
 static void reducedState(double& Tr, double& rr) {
     int t = pureLJType(); double V = boxVolume(), rho = EN.nmob / std::max(1e-12, V);
-    if (t >= 0) { double e = EL[t].eps * P.epsScale, s = EL[t].sig; Tr = EN.T / e; rr = rho * (DIM == 3 ? s * s * s : s * s); }
+    if (t >= 0) { double e = EL[t].eps * P.epsScale, s = EL[t].sig; Tr = EN.T / e; rr = rho * (s * s * s); }
     else { Tr = EN.T; rr = rho; }
 }
 // область фазовой диаграммы модели для (T*, ρ*)
@@ -297,9 +265,9 @@ static const char* ljRegion(double T, double rho) {
 // ===================================== АГРЕГАТНОЕ СОСТОЯНИЕ АТОМОВ ========================
 // Классификация (дёшево, раз в анализ):
 //   • стенка/закреплённый — PH_WALL;
-//   • твёрдое — кристаллическое окружение (Штейнхардт/тен Вольде в 3D, ψ6/ψ4 в 2D, лёд), либо плотное
+//   • твёрдое — кристаллическое окружение (Штейнхардт / тен Вольде, лёд), либо плотное
 //     аморфное окружение с почти нулевой подвижностью за последние ~2τ (стекло);
-//   • газ — мало соседей (3D ≤ 2, 2D ≤ 1) вне больших ковалентных сеток;
+//   • газ — мало соседей (≤ 3) вне больших ковалентных сеток;
 //   • иначе жидкость. Затем сглаживание «голосованием» соседей; водород наследует состояние своего партнёра.
 namespace PH {
 static std::vector<double> rx, ry, rz, disp; static double rt = -1; static int rn = -1;   // подвижность за окно
@@ -323,7 +291,6 @@ static void updateAtomPhase() {
     const int n = S.n;
     atomPhase.assign(n, PH_LIQ);
     if (n == 0 || (int)A::coord.size() != n) { phaseFrac[0] = phaseFrac[1] = phaseFrac[2] = 0; return; }
-    const bool d3 = DIM == 3;
     // подвижность: смещение (развёрнутые координаты) за окно ≥ 2τ
     if (PH::rn != n || PH::rt < 0 || S.t < PH::rt) { PH::rx = S.ux; PH::ry = S.uy; PH::rz = S.uz; PH::rt = S.t; PH::rn = n; PH::disp.assign(n, 1e9); }
     else if (S.t - PH::rt >= 2.0) {
@@ -339,9 +306,9 @@ static void updateAtomPhase() {
         std::vector<int> sz(n, 0); for (int i = 0; i < n; i++) sz[find(i)]++;
         PH::comp.resize(n); for (int i = 0; i < n; i++) PH::comp[i] = sz[find(i)];
     }
-    // газ: соседей не больше, чем у атома в паре/тройке (в жидкости у Tt — 10–12 в 3D и 5–6 в 2D; у поверхности вдвое меньше)
-    const int gasCut = d3 ? 3 : 2, dense = d3 ? 4 : 3;
-    const double slowCut = d3 ? 0.3 : 0.25;   // σ за окно ≥ 2τ: колебания в кристалле ≈ 0.1σ, диффузия жидкости ≥ 0.35σ
+    // газ: соседей не больше, чем у атома в паре/тройке (в жидкости у Tt — 10–12, у поверхности вдвое меньше)
+    const int gasCut = 3, dense = 4;
+    const double slowCut = 0.3;   // σ за окно ≥ 2τ: колебания в кристалле ≈ 0.1σ, диффузия жидкости ≥ 0.35σ
     std::vector<unsigned char> raw(n, PH_LIQ);
     for (int i = 0; i < n; i++) {
         if (frozenAt(i)) { raw[i] = PH_WALL; continue; }
@@ -502,12 +469,11 @@ static void computeVelHist() {
 }
 // теоретическое распределение Максвелла–Больцмана по модулю скорости
 static double maxwellF(double v, double m, double T) {
-    if (DIM == 3) return 4 * PI * v * v * std::pow(m / (2 * PI * T), 1.5) * std::exp(-m * v * v / (2 * T));
-    return m * v / T * std::exp(-m * v * v / (2 * T));
+    return 4 * PI * v * v * std::pow(m / (2 * PI * T), 1.5) * std::exp(-m * v * v / (2 * T));
 }
 // Профили вдоль x (при гравитации или горячем дне — вдоль y), сглаженные по времени:
 //   температура слоя — по скоростям относительно его среднего движения V = Σmv/Σm: kT = Σm|v − V|²/(d(c − 1))
-//   (поток газа — ударная волна, конвекция — не выдаётся за нагрев), плотность — атомов на σ² (σ³) для двух
+//   (поток газа — ударная волна, конвекция — не выдаётся за нагрев), плотность — атомов на σ³ для двух
 //   самых многочисленных подвижных веществ.
 static void computeTProfile() {
     A::tprofAxis = (P.heatWalls == 2 || (P.gravity > 0 && !isPer())) ? 1 : 0;
