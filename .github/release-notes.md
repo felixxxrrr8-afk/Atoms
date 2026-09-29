@@ -5,7 +5,7 @@ Download **atoms-windows-x64.zip**, unzip it anywhere and run `atoms.exe`. Nothi
 **New in 3.0**
 - The interface speaks English and Russian: **RU | EN** in the top bar or <kbd>Ctrl</kbd>+<kbd>L</kbd>, switched on the fly and remembered
 - A monochrome interface: everything is shades of gray, only the atoms keep their colors
-- 10 new scenes: heat conduction, shock tube, barometric formula, effusion, nanoparticle sintering, methane chlorination, H₂ + I₂ ⇌ 2HI, hydrogenation on nickel, peroxide decomposition, acetylene combustion; the scene menu is split into two sections
+- 18 new scenes: heat conduction, shock tube, barometric formula, effusion, nanoparticle sintering, adiabatic compression, wetting, seeded crystallization, Poiseuille flow, methane chlorination, H₂ + I₂ ⇌ 2HI, hydrogenation on nickel, peroxide decomposition, acetylene combustion, H₂ + Br₂ in light, chlorine displacing bromine, hydrogen and fluorine, ozone decomposition; the scene menu is split into two sections
 - The molecule library grew from 32 to 65 structures: HF, H₂S, PH₃, SiH₄, HCN, halogens, propane, butane, phenol, toluene, acetone, acids, chloromethanes, urea, glycine, a silicon crystal, Cu, Ag, Al and Pd clusters
 - The periodic table card shows the electron configuration, group and period, melting and boiling points, density, ionization energy and the state at 20 °C
 
@@ -31,7 +31,7 @@ The archive was built automatically by GitHub Actions from the sources of this r
 **Новое в 3.0**
 - Интерфейс на русском и английском: **RU | EN** в верхней панели или <kbd>Ctrl</kbd>+<kbd>L</kbd>, переключается на лету и запоминается
 - Монохромный интерфейс: всё в оттенках серого, цветными остались только атомы
-- 10 новых сцен: теплопроводность, ударная труба, барометрическая формула, эффузия, спекание наночастиц, хлорирование метана, H₂ + I₂ ⇌ 2HI, гидрирование на никеле, разложение пероксида, горение ацетилена; меню сцен разбито на два раздела
+- 18 новых сцен: теплопроводность, ударная труба, барометрическая формула, эффузия, спекание наночастиц, адиабатическое сжатие, смачивание, кристаллизация на затравке, течение Пуазейля, хлорирование метана, H₂ + I₂ ⇌ 2HI, гидрирование на никеле, разложение пероксида, горение ацетилена, H₂ + Br₂ на свету, хлор вытесняет бром, водород и фтор, распад озона; меню сцен разбито на два раздела
 - Библиотека молекул выросла с 32 до 65 структур: HF, H₂S, PH₃, SiH₄, HCN, галогены, пропан, бутан, фенол, толуол, ацетон, кислоты, хлорметаны, мочевина, глицин, кристалл кремния, кластеры Cu, Ag, Al, Pd
 - В карточке элемента таблицы Менделеева — электронная конфигурация, группа и период, t плавления и кипения, плотность, энергия ионизации и состояние при 20 °C
 

@@ -110,7 +110,7 @@ they emerge on their own from interaction potentials and conservation laws.
 </tr>
 <tr>
 <td><img src="docs/screenshots/en/periodic-table.png" alt="Periodic table"><br><sub><b>Periodic table.</b> 118 elements; the card shows the electron configuration, melting and boiling points, density, ionization energy and how the element is modeled</sub></td>
-<td><img src="docs/screenshots/en/scenes-menu.png" alt="Scene menu"><br><sub><b>Scene menu.</b> 30 ready-made experiments in two sections, many with variants</sub></td>
+<td><img src="docs/screenshots/en/scenes-menu.png" alt="Scene menu"><br><sub><b>Scene menu.</b> 38 ready-made experiments in two sections, many with variants</sub></td>
 </tr>
 </table>
 
@@ -151,11 +151,19 @@ Requires Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn
 | menu | Barometric formula | gas under gravity, ρ ∝ exp(−mgh/kT): heavy Ar stays below light Ne |
 | menu | Effusion | Graham's law: He leaks through slits √10 ≈ 3.2 times faster than Ar |
 | menu | Nanoparticle sintering | Au and Ag fuse in the solid state: a neck grows, atoms intermix |
+| menu | Adiabatic compression | a piston slowly compresses helium with no heat exchange: T·V<sup>γ−1</sup> ≈ const |
+| menu | Wetting | a droplet spreads or beads up, with the measured contact angle; variant: non-wetting |
+| menu | Seeded crystallization | a supercooled liquid grows layer by layer on a pinned crystallite |
+| menu | Poiseuille flow | liquid in a channel: still at the walls, fastest in the center, a parabolic profile |
 | menu | Methane chlorination | CH₄ + Cl₂ → CH₃Cl + HCl, a radical chain started by UV light |
 | menu | Equilibrium H₂ + I₂ ⇌ 2HI | Bodenstein's experiment: forward and reverse reactions, K<sub>c</sub> |
 | menu | Hydrogenation on nickel | C₂H₄ + H₂ → C₂H₆, H₂ dissociates on the Ni surface |
 | menu | Peroxide decomposition | 2H₂O₂ → 2H₂O + O₂: OH radicals, platinum |
 | menu | Acetylene combustion | 2C₂H₂ + 5O₂ → 4CO₂ + 2H₂O from a spark |
+| menu | H₂ + Br₂ in light | a photochemical chain, slower than with chlorine: Br + H₂ is endothermic |
+| menu | Chlorine displaces bromine | Cl + HBr → HCl + Br: the H–Cl bond is stronger than H–Br |
+| menu | Hydrogen and fluorine | H₂ + F₂ → 2HF without a spark: the weak F–F bond breaks by itself |
+| menu | Ozone decomposition | 2O₃ → 3O₂ on heating, through O atoms |
 
 ## Controls
 

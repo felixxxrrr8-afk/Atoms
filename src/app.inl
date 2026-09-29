@@ -828,7 +828,7 @@ static int selftest() {
     for (int dim : {2, 3}) {
         DIM = dim; onDimChanged();
         fprintf(f, "\n==================== %dD ====================\n", dim);
-        int presets[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33, 34, 35};
+        int presets[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 35, 36, 37, 38, 39};
         for (int k : presets) {
             loadPreset(k, 0);
             auto t0 = std::chrono::high_resolution_clock::now();
@@ -1133,7 +1133,7 @@ static void buildUiTest() {
         keyMod(VK_CONTROL, 'Z'); keyMod(VK_CONTROL, 'Z'); keyMod(VK_CONTROL, 'Z');
         key(VK_F11, 10); run(20); key(VK_F11, 10); add("Alt+Enter", 10, [](int fr) { if (fr == 0) in.keys.push_back(VK_F11); }); key(VK_ESCAPE, 10);
         // меню сцен (мышью) и новые сцены с клавиатуры
-        for (int sc : {11, 12, 13, 14, 15, 21, 22, 22, 23, 24, 25, 31, 32, 33, 34, 35}) { key(VK_TAB, 3); click(600 + sc); run(20); }
+        for (int sc : {11, 12, 13, 14, 15, 21, 22, 22, 23, 24, 25, 26, 27, 27, 28, 29, 31, 32, 33, 34, 35, 36, 37, 38, 39}) { key(VK_TAB, 3); click(600 + sc); run(20); }
         key(VK_TAB, 3); key(VK_TAB, 3);
         for (int d = 1; d <= 5; d++) keyMod(VK_SHIFT, '0' + d);
         key('7', 20);

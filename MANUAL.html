@@ -228,6 +228,10 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <tr><td>menu</td><td>Barometric formula</td><td>Ar and Ne in gravity: ρ ∝ exp(−mgh/kT), Ar below Ne; the scale height kT/mg against the fit of the profile, ρ(y) on the Plots tab</td></tr>
 <tr><td>menu</td><td>Effusion</td><td>Graham's law: He leaks through slits into vacuum √(mAr/mHe) ≈ 3.2 times faster than Ar; the share of each gas past the partition and the measured He/Ar rate</td></tr>
 <tr><td>menu</td><td>Nanoparticle sintering</td><td>Au and Ag fuse in the solid state: the neck width grows, the centers approach, the atoms intermix</td></tr>
+<tr><td>menu</td><td>Adiabatic compression</td><td>the pressure on the piston rises smoothly 14-fold over 75τ, helium heats up with no heat exchange; the measurement line compares T/T₀ with the adiabat (V₀/V)<sup>γ−1</sup></td></tr>
+<tr><td>menu</td><td>Wetting</td><td>a droplet on an attracting wall spreads (θ &lt; 90°); the variant is non-wetting, where the droplet beads up (θ &gt; 90°); the angle is measured from the droplet shape</td></tr>
+<tr><td>menu</td><td>Seeded crystallization</td><td>a supercooled liquid grows layer by layer on a pinned crystallite; color shows ordering, the measurement line shows the crystal fraction</td></tr>
+<tr><td>menu</td><td>Poiseuille flow</td><td>a uniform force drives liquid along a channel: still at the walls, fastest in the center; the mean-to-max speed ratio is ≈ 0.67, as for a parabola</td></tr>
 </table></div>
 <h3>Chemistry and solutions</h3>
 <div class="tbl"><table>
@@ -249,9 +253,13 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <tr><td>menu</td><td>Hydrogenation on nickel</td><td>C₂H₄ + H₂ → C₂H₆: H₂ dissociates on the Ni surface, the H atoms add to ethylene</td></tr>
 <tr><td>menu</td><td>Peroxide decomposition</td><td>2H₂O₂ → 2H₂O + O₂: the weak O–O bond breaks, OH radicals carry the chain, platinum binds OH</td></tr>
 <tr><td>menu</td><td>Acetylene combustion</td><td>2C₂H₂ + 5O₂ → 4CO₂ + 2H₂O from a spark</td></tr>
+<tr><td>menu</td><td>H₂ + Br₂ in light</td><td>flashes every 3τ split Br₂; the step Br + H₂ → HBr + H is endothermic, so the chain is slower than with chlorine (Bodenstein–Lind)</td></tr>
+<tr><td>menu</td><td>Chlorine displaces bromine</td><td>Cl + HBr → HCl + Br: the H–Cl bond is stronger than H–Br; bromine collects into Br₂ and BrCl (UV flashes every 4τ)</td></tr>
+<tr><td>menu</td><td>Hydrogen and fluorine</td><td>H₂ + F₂ → 2HF without a spark: the F–F bond (1.6 eV) breaks by itself at room temperature, then the chain F + H₂ → HF + H, H + F₂ → HF + F runs</td></tr>
+<tr><td>menu</td><td>Ozone decomposition</td><td>on heating O₃ → O₂ + O; O atoms join into O₂ or take oxygen from ozone</td></tr>
 </table></div>
 <ul>
-  <li>The physics scenes heat conduction, shock tube, barometric formula, effusion and sintering show a live measurement line under the scene title.</li>
+  <li>The physics scenes heat conduction, shock tube, barometric formula, effusion, sintering, adiabatic compression, wetting, seeded crystallization and Poiseuille flow show a live measurement line under the scene title.</li>
   <li>Field objects placed by a scene are kept when it loads. <b>Reset scene</b> (<kbd>R</kbd>) recreates the scene's own objects and keeps the ones you placed.</li>
   <li>The "NaCl in water" (2D) and "Iron oxidation" scenes were reworked in 3.0.</li>
 </ul>
@@ -364,7 +372,7 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <ul>
   <li><b>Bilingual interface.</b> English and Russian; <b>RU | EN</b> in the top bar or <kbd>Ctrl+L</kbd> switch instantly. The choice is saved in atoms.ini; on the first start the language follows Windows; <code>--lang ru|en</code> on the command line. <kbd>F1</kbd> opens the manual in the interface language; CSV export uses the separators of that language.</li>
   <li><b>Monochrome interface.</b> Panels, buttons, text, plots, the grid, toasts and field objects are gray; only atoms and the legends explaining their colors are colored. Plot series differ by line style; warnings sit on a light plate, errors are inverted (white plate, black text). The phase diagram uses a solid gray binodal, white dashed melting lines, a dotted triple line and a white square for the current state.</li>
-  <li><b>Scene menu in two sections</b> — "Matter: phases, transport, mechanics" and "Chemistry and solutions" — and 10 new scenes: Heat conduction, Shock tube (with Joule expansion), Barometric formula, Effusion, Nanoparticle sintering, Methane chlorination, Equilibrium H₂ + I₂ ⇌ 2HI, Hydrogenation on nickel, Peroxide decomposition, Acetylene combustion. The new physics scenes show a live measurement line; field objects placed by a scene are kept correctly when it loads; "NaCl in water" (2D) and "Iron oxidation" were reworked.</li>
+  <li><b>Scene menu in two sections</b> — "Matter: phases, transport, mechanics" and "Chemistry and solutions" — and 18 new scenes: Heat conduction, Shock tube (with Joule expansion), Barometric formula, Effusion, Nanoparticle sintering, Adiabatic compression, Wetting (with non-wetting), Seeded crystallization, Poiseuille flow, Methane chlorination, Equilibrium H₂ + I₂ ⇌ 2HI, Hydrogenation on nickel, Peroxide decomposition, Acetylene combustion, H₂ + Br₂ in light, Chlorine displaces bromine, Hydrogen and fluorine, Ozone decomposition. The new physics scenes show a live measurement line; field objects placed by a scene are kept correctly when it loads; "NaCl in water" (2D) and "Iron oxidation" were reworked.</li>
   <li><b>Molecule library</b>: 65 structures instead of 32, in four sections, with a collapsed one-row-per-section view; bond data for H–F, H–Br, H–I, H–S, H–P, H–Si, F–F, Br–Br, I–I, C–F, C–Br, C–I, Si–Si from reference tables; a new <b>reaction rate</b> row in the reaction kinetics.</li>
   <li><b>Element card</b>: group and period, electron configuration, melting and boiling (or sublimation) point, density, ionization energy and the state at 20 °C.</li>
   <li><b>Selection</b>: <b>element → X</b> cancels itself, with a toast, if the new atoms would overlap their neighbors.</li>
