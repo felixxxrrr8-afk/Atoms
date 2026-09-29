@@ -157,6 +157,7 @@ static bool loadState(const std::wstring& path) {
         if (!std::isfinite(ns.x[i]) || !std::isfinite(ns.vx[i])) ok = false;
     }
     if (!ok) { showToast("Файл повреждён — состояние не изменено"); return false; }
+    if (world != W_MD) { world = W_MD; worldLeave(); }   // файл — всегда сцена с атомами
     pushUndo();
     bool pz = P.paused;
     S = std::move(ns); P = np; P.paused = pz;
@@ -195,7 +196,10 @@ static std::wstring fileDialog(bool save) {
     in.lDown = in.rDown = in.mDown = false;   // кнопки мыши могли быть отпущены внутри диалога
     return ok ? std::wstring(buf) : std::wstring();
 }
-static void cmdSave() { std::wstring p = fileDialog(true); if (!p.empty()) saveState(p, false); }
+static void cmdSave() {
+    if (world != W_MD) { showToast("Сохраняются только сцены с атомами; эту сцену R начинает заново"); return; }
+    std::wstring p = fileDialog(true); if (!p.empty()) saveState(p, false);
+}
 static void cmdLoad() { std::wstring p = fileDialog(false); if (!p.empty()) loadState(p); }
 static void cmdReset() { pushUndo(); loadPresetKeepObjs(currentPreset, presetVariant, true); viewFitPending = true; followAtom = -1; clearToolState(); }
 static void cmdUndo() { popUndo(); clearToolState(); showToast("Отмена"); }
@@ -411,7 +415,7 @@ static void handleKeys() {
         double o[3], d[3]; mouseRay(mouseX, mouseY, o, d);
         switch (k) {
         case VK_SPACE: P.paused = !P.paused; break;
-        case 'S': P.paused = true; mdStep(); analysisTick(); break;
+        case 'S': P.paused = true; if (world != W_MD) worldStep(1.0 / 30); else { mdStep(); analysisTick(); } break;
         case 'R': cmdReset(); break;
         case 'O': cam3.autoRot = !cam3.autoRot; break;
         case 'H': helpOn = !helpOn; break;
@@ -456,7 +460,7 @@ static void handleKeys() {
         case VK_F3: setView(PI / 2, 0.02); showToast("Вид сбоку"); break;
         case VK_F4: setView(camGoal.yaw, 1.45); showToast("Вид сверху"); break;
         case VK_F6: setView(0.65, 0.42); showToast("Изометрия"); break;
-        case VK_F5: saveState(exeDir() + L"\\quicksave.atoms", true); break;
+        case VK_F5: if (world != W_MD) cmdSave(); else saveState(exeDir() + L"\\quicksave.atoms", true); break;
         case VK_F9: loadState(exeDir() + L"\\quicksave.atoms"); break;
         case VK_F11: toggleFullscreen(); break;
         case VK_ESCAPE:   // закрывает то, что открыто, по очереди; программу не закрывает
@@ -790,8 +794,9 @@ static void renderFrame(double frameDt) {
     hotId = -1;
     uiModal = anyOverlay();
     uiClock += frameDt;
-    monoCtx = "сцена"; drawScene();
-    pushClip(sceneX, sceneY, sceneW, sceneH); drawRingsFx(); popClip();
+    monoCtx = "сцена";
+    if (world != W_MD) worldDraw();
+    else { drawScene(); pushClip(sceneX, sceneY, sceneW, sceneH); drawRingsFx(); popClip(); }
     monoCtx = "надписи сцены"; drawSceneOverlay();
     if (shotPending == 1) { doCapture(1); shotPending = 0; }   // снимок сцены: без панелей, подсказок и уведомлений
     recordFrame(); clipCapture();
@@ -823,6 +828,11 @@ static int selftest() {
     fprintf(f, "threads: %d\n", omp_get_max_threads());
     for (const SceneInfo& sc : SCENES) {   // все сцены меню
         const int k = sc.key; loadPreset(k, sc.var);
+        if (k >= 100) {   // мир другого масштаба: минута экранного времени
+            for (int s = 0; s < 3600; s++) worldStep(1.0 / 60);
+            fprintf(f, "\n[%d] %s\n  %s\n", k, presetTitle.c_str(), worldReport().c_str()); fflush(f);
+            continue;
+        }
         auto t0 = std::chrono::high_resolution_clock::now();
         const int steps = 1500; double Estart = EN.total(); int rb0 = nlRebuilds;
         for (int s = 0; s < steps; s++) { runScript(); mdStep(); if (s % 50 == 0) analysisTick(); advanceFlashes(0.01f); }
@@ -1119,7 +1129,7 @@ static void buildUiTest() {
     keyMod(VK_CONTROL, 'Z'); keyMod(VK_CONTROL, 'Z'); keyMod(VK_CONTROL, 'Z');
     key(VK_F11, 10); run(20); key(VK_F11, 10); add("Alt+Enter", 10, [](int fr) { if (fr == 0) in.keys.push_back(VK_F11); }); key(VK_ESCAPE, 10);
     // меню сцен (мышью) и новые сцены с клавиатуры
-    for (const SceneInfo& s : SCENES) if (s.key > 10) for (int v = 0; v < presetVariants(s.key); v++) { key(VK_TAB, 3); click(600 + s.key); run(20); }
+    for (const SceneInfo& s : SCENES) if (s.key > 10) for (int v = 0; v < presetVariants(s.key); v++) { key(VK_TAB, 3); click(sceneBtnId(s.key)); run(20); }
     key(VK_TAB, 3); key(VK_TAB, 3);
     for (int d = 1; d <= 5; d++) keyMod(VK_SHIFT, '0' + d);
     key('7', 20);
@@ -1353,6 +1363,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         }
         fclose(f); return 0;
     }
+    // --nuck: k-эффективный голого шара урана по радиусу и реактора по положению стержней → nuck.log
+    if (cmd && wcsstr(cmd, L"--nuck")) {
+        initBondTable(); FILE* f = fopen("nuck.log", "w"); if (!f) return 1;
+        for (double e : {0.9, 0.2}) for (double R : {5.0, 7.0, 8.0, 8.7, 9.5, 10.5, 12.0, 14.0}) {
+            nuc::scene = 2; nuc::enrich = e; nuc::sphereR = R; nucGeometry();
+            fprintf(f, "шар U: обогащение %.0f%% R = %.1f см: k = %.3f\n", e * 100, R, nucKeff(3000, 8)); fflush(f);
+        }
+        for (double e : {0.05, 0.1, 0.2}) for (double rod : {0.0, 0.25, 0.5, 0.75, 1.0}) {
+            nuc::scene = 3; nuc::enrich = e; nuc::rodIns = rod; nuc::moderator = true; nucGeometry();
+            fprintf(f, "реактор: обогащение %.0f%% стержни %.0f%%: k = %.3f\n", e * 100, rod * 100, nucKeff(2000, 8)); fflush(f);
+        }
+        nuc::scene = 3; nuc::enrich = 0.04; nuc::rodIns = 0; nuc::moderator = false; nucGeometry();
+        fprintf(f, "реактор без воды: k = %.3f\n", nucKeff(2000, 8));
+        fclose(f); return 0;
+    }
     // --water T P N шагов: проверка модели воды — N молекул при T (K) и давлении P (атм; 0 — объём постоянный),
     // отчёт water_*.log: плотность, энергия взаимодействия на молекулу, коэффициент диффузии, g(r) O–O
     if (cmd && wcsstr(cmd, L"--water")) {
@@ -1555,18 +1580,19 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         if (!inScene(mouseX, mouseY) || overlay) in.wheel = 0;
         handleKeys();
         handleMouse(frameDt);
-        boxTick();
+        const bool md = world == W_MD;
+        if (md) boxTick();
         const bool minimized = !uiTestMode && IsIconic(hwnd);
         const bool idle = !uiTestMode && opt.bgPause && (minimized || GetForegroundWindow() != hwnd);
         if (!P.paused && !idle) {
-            runScript();
-            for (int s = 0; s < P.substeps; s++) mdStep();
+            if (!md) worldStep(automation ? 1.0 / 60 : frameDt);   // снимки и автотест — ровный шаг, как 60 к/с
+            else { runScript(); for (int s = 0; s < P.substeps; s++) mdStep(); }
         }
         if (minimized || idle) Sleep(15);   // свёрнутое или фоновое окно не грузит процессор отрисовкой
         { static bool wasOpen = false; if (wasOpen && !settingsOn) settingsSave(); wasOpen = settingsOn; }
         frame++;
-        if ((!P.paused && frame % 4 == 0) || (P.paused && frame % 20 == 0)) analysisTick();
-        if (trailsOn && !P.paused && frame % 2 == 0) trailsRecord();
+        if (md && ((!P.paused && frame % 4 == 0) || (P.paused && frame % 20 == 0))) analysisTick();
+        if (md && trailsOn && !P.paused && frame % 2 == 0) trailsRecord();
         advanceFlashes((float)frameDt);
         toastTime -= frameDt;
         renderFrame(frameDt);
@@ -1589,7 +1615,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
             opt.wmax = wp.showCmd == SW_SHOWMAXIMIZED;
         }
         opt.lastScene = currentPreset; opt.lastVar = presetVariant;
-        if (opt.start == START_SESSION) { toastsOff = true; saveState(sessionPath, true); }
+        if (opt.start == START_SESSION && world == W_MD) { toastsOff = true; saveState(sessionPath, true); }
         settingsSave();
     }
     wglMakeCurrent(nullptr, nullptr); wglDeleteContext(hglrc); ReleaseDC(hwnd, hdc);

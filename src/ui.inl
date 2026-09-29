@@ -30,7 +30,7 @@ static bool inClipNow(float x, float y) {
 }
 // ---- прокручиваемые области (боковая панель): колесо над областью, полоса прокрутки справа
 struct ScrollArea { float off = 0, content = 0, x = 0, y = 0, w = 0, h = 0; };
-static ScrollArea scrollAreas[6]; static int curScroll = -1;
+static ScrollArea scrollAreas[8]; static int curScroll = -1;   // 6 — панели миров (worlds.inl)
 static std::map<int, std::pair<int, float>> uiScrollPos;   // элемент → (область, положение в содержимом) — для автотеста
 static float scrollBegin(int k, float x, float y, float w, float h) {
     ScrollArea& a = scrollAreas[k]; a.x = x; a.y = y; a.w = w; a.h = h;
@@ -942,6 +942,7 @@ static const char* TOOL_STATUS[TOOL_N] = {
     "щелчки по атомам: расстояние → угол → двугранный · по пустому — сброс",
     "ЛКМ — поставить/двигать · колесо — R · Shift+колесо — сила · N — вкл/выкл · Del/ПКМ — удалить"};
 static void setTool(int t) {
+    if (world != W_MD) { lmbTool = TOOL_CAMERA; showToast("Здесь мышь управляет только камерой: ЛКМ — вращать, Shift+ЛКМ — сдвиг, колесо — масштаб"); return; }
     t = clampv(t, 0, TOOL_N - 1); lmbTool = t;
     showToast(std::string(T("Инструмент: ")) + T(TOOL_NAMES[t]));
 }
@@ -957,7 +958,7 @@ static void drawTopBar() {
     rectFill(0, 0, (float)winW, H, C_PANEL); lineH(0, (float)winW, H - 1, C_LINE);
     float x = uiPx(12), bh = H - uiPx(10), by = uiPx(5);
     x += drawText(fontUB, x, (H - fontUB.h) / 2 - 1, "АТОМЫ", C_TEXT_HI) + uiPx(8);
-    x += drawText(fontXS, x, (H - fontXS.h) / 2, "молекулярная динамика", C_DIM) + uiPx(14);
+    x += drawText(fontXS, x, (H - fontXS.h) / 2, WORLD_NAMES[world], C_DIM) + uiPx(14);
     auto sep = [&]() { lineV(x, uiPx(8), H - uiPx(8), C_LINE); x += uiPx(9); };
     sep();
     auto textBtn = [&](int id, const char* label, bool on, const char* hint) { float w = textW(fontU, label) + uiPx(20); bool c = uiButton(id, x, by, w, bh, label, on, false, hint); x += w + uiPx(4); return c; };
@@ -966,7 +967,7 @@ static void drawTopBar() {
     x += uiPx(5); sep();
     auto ic = [&](int id, int icon, bool on, const char* hint, RGBA tint = C_TEXT) { bool c = uiIconBtn(id, x, by, bh, bh, icon, on, hint, tint); x += bh + uiPx(2); return c; };
     if (ic(209, P.paused ? IC_PLAY : IC_PAUSE, false, P.paused ? "Продолжить (Пробел)" : "Пауза (Пробел)")) P.paused = !P.paused;
-    if (ic(763, IC_STEP, false, "Один шаг (S)\nСтавит на паузу и делает один шаг интегрирования")) { P.paused = true; mdStep(); analysisTick(); }
+    if (ic(763, IC_STEP, false, "Один шаг (S)\nСтавит на паузу и делает один шаг интегрирования")) { P.paused = true; if (world != W_MD) worldStep(1.0 / 30); else { mdStep(); analysisTick(); } }
     if (ic(764, IC_RESET, false, "Сброс сцены (R)\nЗаново загрузить текущий пресет (объекты поля, поставленные вами, сохраняются)")) cmdReset();
     if (ic(765, IC_UNDO, false, "Отменить (Ctrl+Z)\nВернуть состояние до последнего действия")) cmdUndo();
     x += uiPx(4); sep();
@@ -993,7 +994,7 @@ static void drawTopBar() {
     }
     // справа: время модели и частота кадров
     if (opt.clock) {
-        std::string s = fmt("t %.2f пс   шаг %lld   %.0f к/с", realPs(S.t), S.step, fps);
+        std::string s = world != W_MD ? fmt("t %s   %.0f к/с", worldClock().c_str(), fps) : fmt("t %.2f пс   шаг %lld   %.0f к/с", realPs(S.t), S.step, fps);
         float w = textW(fontS, s);
         if (winW - uiPx(12) - w > x + uiPx(10)) drawText(fontS, winW - uiPx(12) - w, (H - fontS.h) / 2, s, C_DIM);
     }
@@ -1336,6 +1337,7 @@ static void drawObjTab(float x, float y, float w, float h) {
 static int sideTab = 0;   // 0 управление, 1 физика, 2 химия, 3 графики, 4 объект
 static const char* TAB_NAMES[5] = {"Управление", "Физика", "Химия", "Графики", "Объект"};
 static void drawSidePanel(float x, float y, float w, float h) {
+    if (world != W_MD) { worldPanel(x, y, w, h); return; }
     rectFill(x, y, w, h, C_PANEL); lineV(x, y, y + h, C_LINE);
     pushClip(x + 1, y, w - 1, h);
     float yy = drawReadouts(x + 1, y, w - 1);
@@ -1378,6 +1380,7 @@ static void drawToolbar(float x, float y, float w, float h) {
     rectFill(x, y, w, h, C_PANEL); lineV(x + w - 1, y, y + h, C_LINE);
     float bs = w - uiPx(8), yy = y + uiPx(6);
     for (int t : TOOL_ORDER) {
+        if (world != W_MD && t != TOOL_CAMERA) continue;   // в мирах ядер, кварков, волн мышь — только камера
         if (t < 0) { lineH(x + uiPx(8), x + w - uiPx(8), yy + uiPx(3), C_LINE); yy += uiPx(7); continue; }
         std::string hint = fmt("%s (%s)\n%s", T(TOOL_NAMES[t]), TOOL_KEY[t], T(TOOL_HELP[t]));
         if (uiIconBtn(230 + t, x + uiPx(4), yy, bs, bs, TOOL_ICON[t], lmbTool == t, hint.c_str())) setTool(t);
@@ -1402,6 +1405,7 @@ static void drawFoFlyout() {
 }
 // ===================================== ПАЛИТРА ВЕЩЕСТВ (под сценой) ========================
 static void drawPaletteStrip(float x, float y, float w, float h) {
+    if (world != W_MD) { worldStrip(x, y, w, h); return; }
     rectFill(x, y, w, h, C_PANEL); lineH(x, x + w, y, C_LINE);
     pushClip(x, y, w, h);
     float bx = x + uiPx(10), bh = h - uiPx(8), by = y + uiPx(4);
@@ -1451,6 +1455,7 @@ static void drawSceneOverlay() {
     pushClip(sceneX, sceneY, sceneW, sceneH);
     float x = sceneX + uiPx(12), y = sceneY + uiPx(8);
     drawText(fontU, x, y, presetLoaded ? std::string(T(presetTitle)) + T("  [загружено]") : presetTitle, withA(C_TEXT, 0.9f));
+    if (world != W_MD) { drawText(fontXS, x, y + fontU.h + uiPx(1), worldSubtitle(), C_DIM); popClip(); return; }
     std::string sub = fmt("%s · %s · %s · ящик %.1f×%.1f%s σ (%.2f×%.2f%s нм)", T(TH_NAMES[P.thermostat]), T(BD_NAMES[P.boundary]), T(P.chemistry ? "химия вкл." : "химия выкл."),
                           S.Lx, S.Ly, fmt("×%.1f", S.Lz).c_str(), realNm(S.Lx), realNm(S.Ly), fmt("×%.2f", realNm(S.Lz)).c_str());
     sub += camMode == 1 ? T(" · камера: полёт (WASD, Q/E)") : "";
@@ -1739,7 +1744,7 @@ static void drawScenesMenu() {
     for (int s = 0; s < NS; s++) {
         const SceneInfo& sc = SCENES[s];
         PR r = rect[s];
-        bool hover = inPR(r), cur = sc.key == currentPreset; int id = 600 + sc.key;
+        bool hover = inPR(r), cur = sc.key == currentPreset; int id = sceneBtnId(sc.key);
         uiRects[id] = r;
         if (hover && ui.pressed) ui.active = id;
         bool clicked = ui.active == id && ui.released && hover;

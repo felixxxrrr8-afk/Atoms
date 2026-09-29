@@ -18,6 +18,13 @@ static int lmbTool = 0;                // инструмент ЛКМ: 0 доб�
 static bool ptOn = false, menuOn = false;   // открыты таблица Менделеева / меню сцен
 // открыто окно поверх сцены (таблица, меню сцен, настройки, строение атома) — сцена ввод не получает
 static inline bool anyOverlay() { return ptOn || menuOn || settingsOn || atomViewOn; }
+// что сейчас на экране: молекулярная динамика или модель другого масштаба (сцены с номерами от 100, worlds.inl)
+enum { W_MD, W_NUC, W_QUARK, W_SEMI, W_WAVE, W_N };
+static int world = W_MD;
+static const char* WORLD_NAMES[W_N] = {"молекулярная динамика", "ядра и нейтроны", "кварки и адроны", "полупроводники", "квантовые волны"};
+static void worldLoad(int k, int variant); static void worldLeave(); static void worldStep(double frameDt);   // worlds.inl
+static void worldDraw(); static void worldPanel(float x, float y, float w, float h); static void worldStrip(float x, float y, float w, float h);
+static std::string worldClock(); static std::string worldSubtitle();
 static int colorMode = 0;
 static int selPal = 1;
 // режим «штампа» молекулы библиотеки: выбрана структура из вкладки «Химия» (первая ячейка палитры).
@@ -28,7 +35,7 @@ static bool fullscreen = false; static void toggleFullscreen();
 static void showToast(const std::string& s) { toast = LANG == LANG_RU ? s : std::string(Tsv(s, "showToast")); toastTime = opt.toastSec; }   // точный литерал переводится
 static void resetMSD();
 static void popUndo() {
-    if (undoStack.empty()) return;
+    if (undoStack.empty() || world != W_MD) return;   // в мирах других масштабов отмена не нужна: R — заново
     S = undoStack.back().s; bool pz = P.paused; P = undoStack.back().p; P.paused = pz;
     fieldObjs = undoStack.back().fo; selFieldObj = clampv(undoStack.back().selFo, -1, (int)fieldObjs.size() - 1); undoStack.pop_back();
     grabbed = -1; buildPairTables(); updatePresence(); computeForces(); resetEnergyRef(); resetMSD();
@@ -106,6 +113,8 @@ static void sceneMeasureReset() { SM::tPrev = -1; SM::qInit = false; SM::tOpen =
 // двухатомная частица по таблице связей (I2, HI …)
 static Tmpl diTmpl(const char* l, int t1, int t2, int o) { Tmpl m; m.label = l; double r = r0of(t1, t2, o); m.a = {{t1, -r / 2, 0, 0}, {t2, r / 2, 0, 0}}; m.b = {{0, 1, o}}; return m; }
 static void loadPreset(int k, int variant) {
+    if (k >= 100) { worldLoad(k, variant); return; }
+    if (world != W_MD) { world = W_MD; worldLeave(); }
     currentPreset = k; presetVariant = variant % std::max(1, presetVariants(k));
     switch (k) {
     case 1: {   // идеальный газ: PV ≈ NkT
@@ -503,6 +512,7 @@ static void loadPreset(int k, int variant) {
 // Загрузить сцену; keepUser — перенести объекты поля, поставленные пользователем (сброс сцены, повтор клавиши):
 // объекты самого пресета создаются заново, объекты пользователя включаются плавно (ramp с нуля — атомы уже на новых местах)
 static void loadPresetKeepObjs(int k, int variant, bool keepUser) {
+    if (k >= 100) { loadPreset(k, variant); return; }
     std::vector<FieldObj> user;
     if (keepUser) for (const FieldObj& o : fieldObjs) if (!o.fromPreset) { user.push_back(o); user.back().ramp = 0; user.back().acc = 0; }
     loadPreset(k, variant);
@@ -794,8 +804,10 @@ static void sceneMeasure() {
 }
 
 // ---- Сцены меню (Tab): key — номер пресета для loadPreset.
-// group — раздел меню: SG_MATTER — вещество (фазы, перенос, механика), SG_CHEM — химия и растворы.
-enum { SG_MATTER, SG_CHEM, SG_N };
+// group — раздел меню: SG_MATTER — вещество (фазы, перенос, механика), SG_CHEM — химия и растворы,
+// SG_NUCL — ядра (сцены 100–104, worlds.inl).
+enum { SG_MATTER, SG_CHEM, SG_NUCL, SG_N };
+static inline int sceneBtnId(int key) { return key < 100 ? 600 + key : 2000 + key; }   // id карточки в меню сцен
 struct SceneInfo { int key, var; const char* keyLabel; const char* title; const char* desc; int group; };
 static const SceneInfo SCENES[] = {
     {1, 0, "1", "Идеальный газ", "PV = NkT, распределение Максвелла, давление на стенки", SG_MATTER},
@@ -844,5 +856,10 @@ static const SceneInfo SCENES[] = {
     {45, 0, "меню", "Горение пропана", "C3H8 + 5O2 → 3CO2 + 4H2O от искры", SG_CHEM},
     {46, 0, "меню", "Взрыв NCl3", "2NCl3 → N2 + 3Cl2: слабые N–Cl, прочная N≡N", SG_CHEM},
     {47, 0, "меню", "Самовоспламенение", "нагрев без искры до температуры вспышки; повтор — H2 + Cl2", SG_CHEM},
+    {100, 0, "меню", "Период полураспада", "ядра распадаются случайно, а их число — точно по закону 2^(−t/T½)", SG_NUCL},
+    {101, 0, "меню", "Цепочка распадов радона", "Rn-222 → Po-218 → … → Pb-206: α и β, от микросекунд до лет", SG_NUCL},
+    {102, 0, "меню", "Критическая масса", "шар урана-235: нейтроны деления вызывают новые деления", SG_NUCL},
+    {103, 0, "меню", "Ядерный реактор", "вода замедляет нейтроны, стержни с бором держат k = 1", SG_NUCL},
+    {104, 0, "меню", "Ядерный взрыв", "сверхкритическая сборка: лавина делений и разлёт", SG_NUCL},
 };
-static const char* SG_NAMES[SG_N] = {"Вещество: фазы, перенос, механика", "Химия и растворы"};
+static const char* SG_NAMES[SG_N] = {"Вещество: фазы, перенос, механика", "Химия и растворы", "Ядра: распад, деление, цепная реакция"};
