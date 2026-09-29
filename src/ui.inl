@@ -3,6 +3,9 @@ struct PR { float x, y, w, h; };
 struct UIState { int mx = 0, my = 0; bool down = false, pressed = false, released = false; int active = -1; int wheel = 0; } ui;
 static int sliderReleased = -1;
 static bool uiModal = false;           // открыто модальное окно: элементы под ним не реагируют
+static double uiClock = 0;             // секунды с запуска (медленное вращение миниатюр атомов)
+static int avZ = 6;                    // элемент окна «Строение атома» (orbitals.inl)
+static void drawAtomMini(int Z, float x, float y, float s, float t);   // orbitals.inl
 // всплывающие подсказки: элемент под курсором и его текст (показывается после короткой задержки)
 static int hotId = -1, hintShownId = -1; static std::string hotHint; static double hintTime = 0;
 static inline void setHot(int id, const char* hint) { hotId = id; hotHint = hint ? hint : ""; }
@@ -1568,9 +1571,6 @@ static void ptPos(int Z, int& row, int& col) {
 }
 static PR ptRect, menuRect;
 static int ptHoverZ = 0;
-static void drawAtomMini(int Z, float x, float y, float s, float t);   // orbitals.inl
-static int avZ = 6;                                                    // элемент окна «Строение атома» (orbitals.inl)
-static double uiClock = 0;                                             // секунды с запуска (медленное вращение миниатюр)
 static std::string elementModelNote(int t) {
     const Element& e = EL[t];
     if (e.Z == 0) return "";
