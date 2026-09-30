@@ -1,0 +1,45 @@
+#pragma code_page(65001)
+#include <winver.h>
+#include "ver.h"
+
+1 ICON "atoms.ico"
+1 24 "setup.manifest"
+
+// файлы программы (build.bat кладёт их рядом под этими именами); в uninstall.exe их нет
+#ifndef UNINSTALLER
+101 RCDATA "atoms.exe"
+102 RCDATA "vcomp140.dll"
+103 RCDATA "manual_en.html"
+104 RCDATA "manual_ru.html"
+105 RCDATA "LICENSE.txt"
+106 RCDATA "uninstall.exe"
+#endif
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION APP_VER_NUM
+ PRODUCTVERSION APP_VER_NUM
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "041904B0"
+    BEGIN
+#ifdef UNINSTALLER
+      VALUE "FileDescription", "Удаление программы «Атомы»"
+      VALUE "OriginalFilename", "uninstall.exe"
+#else
+      VALUE "FileDescription", "Установка программы «Атомы»"
+      VALUE "OriginalFilename", "AtomsSetup.exe"
+#endif
+      VALUE "ProductName", "Атомы"
+      VALUE "FileVersion", APP_VER_A
+      VALUE "ProductVersion", APP_VER_A
+      VALUE "LegalCopyright", "felinebut, GPL-3.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x419, 1200
+  END
+END
