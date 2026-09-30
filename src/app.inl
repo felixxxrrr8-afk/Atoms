@@ -1672,7 +1672,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         std::vector<int> ks;
         for (const wchar_t* q = lp + 4; *q >= L'0' && *q <= L'9';) { ks.push_back((int)wcstol(q, (wchar_t**)&q, 10)); if (*q == L',') q++; }
         const int n = (int)ks.size(), cols = n == 1 ? 1 : std::max(1, (int)std::ceil(std::sqrt(n * 1.7))), rows = (n + cols - 1) / std::max(1, cols);
-        const double cell = 8;
+        const double cell = clampv(argDbl(cmd, L"cell=", 8.0), 3.0, 20.0);   // шаг сетки: кристаллам нужно 8σ, молекулам хватит 4–5σ
         worldReset(cols * cell, rows * cell, cell, B_PERIODIC);
         P.thermostat = TH_BERENDSEN; P.Tset = 0.02; P.chemistry = false; opt.box = false; colorMode = 0;
         for (int q = 0; q < n; q++) if (ks[q] >= 0 && ks[q] < ML_N) insertMolecule(ks[q], (q % cols + 0.5) * cell, (rows - 1 - q / cols + 0.5) * cell, cell / 2);

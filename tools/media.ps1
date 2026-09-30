@@ -40,10 +40,20 @@ $shotList = @(
   @('nickel-hydrogenation', '33 700 tab=2'),
   @('platinum-catalysis',   '20 700 tab=2'),
   @('acid-ph',              '16 500 tab=2'),
-  @('molecule-gallery',     '1 200 nopanel lib=113,112,111,114,110,116,118,117,121,66,63,60,67,64,97,72,95,88'),
+  @('molecule-gallery',     '1 200 nopanel lib=135,134,133,136,132,138,140,139,143,84,81,78,85,82,115,90,113,106'),
+  @('valence-gallery',      '1 200 nopanel cell=4.2 zoom=0.8 lib=48,55,57,62,58,54,59,61,63,50,126,127'),
   @('library-panel',        '1 60 tab=2 liball scrollto=1400'),
   @('field-objects',        '1 300 demo'),
+  @('scene-editor',         '1 150 tab=5 faces=012340'),
   @('periodic-table',       '1 30 table hover26'),
+  @('orbital-shapes',       '1 30 atomview avz=6 avmode=2'),
+  @('orbital-cloud',        '1 30 atomview avz=26 avmode=1 avn=3 avl=2 avm=1'),
+  @('reactor',              '103 400'),
+  @('proton',               '110 330'),
+  @('led',                  '121 3000'),
+  @('mosfet',               '122 3000'),
+  @('double-slit',          '131 1500'),
+  @('tunneling',            '130 330'),
   @('scenes-menu',          '1 30 menu'),
   @('settings',             '1 60 settings'),
   @('help',                 '1 60 help')
@@ -56,7 +66,11 @@ $clipList = @(
   @('nanowire',    '44',          0, 16, 135),
   @('sodium',      '13',          0, 16, 150),
   @('shock-tube',  '22',         40,  2, 110),
-  @('ncl3',        '46',         30,  2, 110)
+  @('ncl3',        '46',         30,  2, 110),
+  @('double-slit', '131',         0,  6, 120),
+  @('tunneling',   '130',         0,  3, 110),
+  @('proton',      '110',         0,  3, 110),
+  @('nuclear-explosion', '104',   0,  3, 110)
 )
 
 function Run([string[]]$argv) {

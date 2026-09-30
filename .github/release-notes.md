@@ -1,14 +1,18 @@
 ### English
 
-Download **atoms-windows-x64.zip**, unzip it anywhere and run `atoms.exe`. Nothing to install.
+Download **AtomsSetup.exe** — a one-file installer: pick a folder, get shortcuts on the desktop and in the Start menu, uninstall from the list of apps. No administrator rights needed. Or download **atoms-windows-x64.zip**, unzip it anywhere and run `atoms.exe` — nothing to install.
 
-**New in 4.1**
-- Settings window: <kbd>F8</kbd> or the gear in the top bar. Interface scale, tooltips, notifications, vertical sync, scene background, depth dimming, bond thickness, mouse sensitivity, camera smoothing, worker threads, undo depth, pause in the background, what to open on startup (including the whole previous session), where snapshots go, window position. Everything is saved in `atoms.ini`.
-- Snapshots, frame recordings and CSV can go to Pictures\Atoms; quick save always lives next to `atoms.exe`
-- English translation reviewed
-- Fixes: quick save and CSV export no longer depend on the working folder; a failed font atlas allocation no longer crashes the program; the brush circle no longer shows through open windows
+**New in 5.0**
+- Energies on the real scale: reference bond energies, full Coulomb, flexible water, bond stiffnesses from vibrational spectra; the chemistry scenes run at real temperatures
+- Valence counted by electrons: hypervalent SF₆, PCl₅, XeF₄, H₂SO₄; lone pairs set the shape of a molecule; Marcus barriers
+- Ball-and-stick molecules in element colors, glow of red-hot atoms, a new font
+- Atom structure (<kbd>F7</kbd>): electron clouds and the shapes of s, p, d, f orbitals
+- Light with a wavelength: a quantum breaks a bond only if the molecule absorbs it
+- 19 scenes in worlds of other scales: nuclei and chain reactions, quarks, semiconductors, quantum waves
+- The Scene tab: periodicity per axis, the kind of each wall, a spherical or cylindrical vessel, grid placement, filling a region
+- Fixes in the stability guard and the time step after a spark: much lower energy drift in combustion scenes
 
-**Inside the archive**
+**Inside the archive** (the installer puts the same files into the chosen folder)
 - `atoms.exe` — the program
 - `MANUAL.html` — the full manual in English, opens with <kbd>F1</kbd> when the interface is in English
 - `ИНСТРУКЦИЯ.html` — the same manual in Russian
@@ -25,15 +29,19 @@ The full list of changes is in [CHANGELOG.md](https://github.com/felixxxrrr8-afk
 
 ### Русский
 
-Скачайте **atoms-windows-x64.zip**, распакуйте в любую папку и запустите `atoms.exe`. Устанавливать ничего не нужно.
+Скачайте **AtomsSetup.exe** — установщик одним файлом: выберите папку, он сделает ярлыки на рабочем столе и в меню «Пуск», удалить программу можно из списка приложений. Права администратора не нужны. Или скачайте **atoms-windows-x64.zip**, распакуйте в любую папку и запустите `atoms.exe` — без установки.
 
-**Новое в 4.1**
-- Окно настроек: <kbd>F8</kbd> или шестерёнка в верхней панели. Масштаб интерфейса, подсказки, уведомления, вертикальная синхронизация, фон сцены, затемнение дальних атомов, толщина связей, чувствительность мыши, плавность камеры, число потоков, глубина отмены, пауза в фоне, что открывать при запуске (в том числе весь прошлый сеанс), куда сохранять снимки, положение окна. Всё хранится в `atoms.ini`.
-- Снимки, запись кадров и CSV можно сохранять в «Изображения\Атомы»; быстрое сохранение всегда рядом с `atoms.exe`
-- Вычитан английский перевод
-- Исправления: быстрое сохранение и экспорт CSV больше не зависят от рабочей папки; при нехватке памяти под атлас шрифтов программа не падает; кисть не просвечивает сквозь открытые окна
+**Новое в 5.0**
+- Энергии в настоящей шкале: справочные энергии связей, полный кулон, гибкая вода, жёсткости связей по колебательным спектрам; химические сцены идут при настоящих температурах
+- Валентность по электронам: гипервалентные SF₆, PCl₅, XeF₄, H₂SO₄; неподелённые пары задают форму молекулы; барьеры по Маркусу
+- Шаростержневые молекулы цвета элементов, свечение раскалённых атомов, новый шрифт
+- Строение атома (<kbd>F7</kbd>): облака электронов и формы орбиталей s, p, d, f
+- Свет с длиной волны: квант рвёт связь, только если молекула его поглощает
+- 19 сцен в мирах других масштабов: ядра и цепная реакция, кварки, полупроводники, квантовые волны
+- Вкладка «Сцена»: периодичность по осям, вид каждой стенки, сосуд-шар или цилиндр, расстановка по сетке, заливка области
+- Исправления стража устойчивости и шага после искры: дрейф энергии в сценах горения намного меньше
 
-**В архиве**
+**В архиве** (установщик кладёт те же файлы в выбранную папку)
 - `atoms.exe` — программа
 - `ИНСТРУКЦИЯ.html` — подробная инструкция, открывается по <kbd>F1</kbd>
 - `MANUAL.html` — та же инструкция на английском

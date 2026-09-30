@@ -11,7 +11,8 @@
 by **felinebut** · Telegram channel [@felinebut67](https://t.me/felinebut67)
 
 Gas, liquid, crystal, phase transitions and chemical reactions are not scripted here:<br>
-they come out of interaction potentials and conservation laws.
+they come out of interaction potentials and conservation laws.<br>
+Next to them are worlds of other scales: nuclei and chain reactions, quarks, semiconductors and the electron wave.
 
 [![Build](https://github.com/felixxxrrr8-afk/atoms-md/actions/workflows/build.yml/badge.svg)](https://github.com/felixxxrrr8-afk/atoms-md/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/felixxxrrr8-afk/atoms-md?label=download&color=222&style=flat-square)](https://github.com/felixxxrrr8-afk/atoms-md/releases/latest)
@@ -52,6 +53,14 @@ they come out of interaction potentials and conservation laws.
 <td><img src="docs/en/sodium.gif" alt="Sodium in chlorine"><br><sub><b>Sodium in chlorine.</b> 2Na + Cl₂ → 2NaCl: the metal cluster burns, ion pairs gather into salt</sub></td>
 <td><img src="docs/en/ncl3.gif" alt="NCl3 explosion"><br><sub><b>NCl₃ explosion.</b> A spark breaks the weak N–Cl bonds; the very strong N≡N bond releases the energy</sub></td>
 </tr>
+<tr>
+<td><img src="docs/en/double-slit.gif" alt="Double slit"><br><sub><b>Double slit.</b> The electron wave passes both slits at once, and the interference fringes build up on the screen dot by dot</sub></td>
+<td><img src="docs/en/tunneling.gif" alt="Tunneling"><br><sub><b>Tunneling.</b> A 2 eV packet meets a 3 eV barrier: part of the wave gets through — as much as theory says</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/proton.gif" alt="Inside a proton"><br><sub><b>Inside a proton.</b> Three quarks on a Y-shaped gluon string; gluons repaint the quarks, but together they always stay “white”</sub></td>
+<td><img src="docs/en/nuclear-explosion.gif" alt="Nuclear explosion"><br><sub><b>Nuclear explosion.</b> A supercritical uranium-235 sphere: the number of fissions doubles every ~10 ns until the assembly flies apart</sub></td>
+</tr>
 </table>
 
 ## Features
@@ -61,40 +70,41 @@ they come out of interaction potentials and conservation laws.
 <td width="50%" valign="top">
 
 **Physics**
-- Full 3D: perspective camera, orbit and fly modes, cross-section plane
-- Lennard-Jones, screened Coulomb, Morse bonds, VSEPR bond angles, hydrogen bonds, many-body metallic bonding (Gupta)
-- Bussi, Langevin, Nosé–Hoover and Berendsen thermostats; stochastic C-rescale barostat; a piston you can drag with the mouse
+- Energies on the real scale: reference bond energies in eV, full Coulomb (DSF method), flexible water, Joung–Cheatham ions
+- Lennard-Jones, Morse bonds, bond angles, hydrogen bonds, many-body metallic bonding (Gupta)
+- Fast bond vibrations in inner steps (RESPA); Bussi, Langevin, Nosé–Hoover and Berendsen thermostats, C-rescale barostat
 - Energy bookkeeping that counts every bit of external work, so integration drift is always visible
 
 </td>
 <td width="50%" valign="top">
 
 **Chemistry**
-- Bonds form, break and switch partners; reaction heat goes into motion
-- Combustion, explosions, acids and bases, Grotthuss proton hopping, pH
-- Catalysis on metal surfaces, photodissociation by light
-- All 118 elements with a property card: electron configuration, melting and boiling points, density, ionization energy
-- A library of 127 structures: from HF and NF₃ to naphthalene, glycine and fullerene C₆₀, ions, crystals and metal clusters
+- Bonds form, break and switch partners; reaction heat goes into motion, barriers follow Marcus
+- Valence counted by electrons: hypervalent SF₆, PCl₅, XeF₄, H₂SO₄; lone pairs set the shape of a molecule
+- Combustion, explosions, acids and bases, Grotthuss proton hopping, pH, catalysis on metal surfaces
+- Light with a wavelength: a quantum hν breaks a bond only if the molecule absorbs it — frequency matters, not brightness
+- All 118 elements and a library of 149 structures: molecules, ions, crystals, metal clusters
 
 </td>
 </tr>
 <tr>
 <td valign="top">
 
-**Tools**
-- Tweezers, heating and cooling brush, eraser, bond scissors, shock wave
-- Field objects: attractor, heater, wind, vortex, trap, source, sink, barrier
-- Selection, copy and paste, pinning atoms; ruler and protractor with dihedral angles
-- Snapshots, frame recording, CSV export, undo, quick save
+**Other scales** (the <kbd>Tab</kbd> menu)
+- Nuclei: radioactive decay, the radon chain, critical mass, a reactor, a nuclear explosion — real half-lives and cross sections
+- Quarks: inside a proton, string breaking, proton collision, a hadron builder, neutron decay
+- Semiconductors: a diode, an LED and a solar cell, MOS and bipolar transistors
+- Quantum waves: tunneling, the double slit, an oscillator, the quantum carpet, electron diffraction
+- Atom structure (<kbd>F7</kbd>): electron clouds and the shapes of s, p, d, f orbitals instead of a planetary model
 
 </td>
 <td valign="top">
 
-**Analysis**
-- T, P, density and energies in model and real units (K, bar, g/cm³, ps, kJ/mol)
-- Per-atom phase, the model's T–ρ phase diagram, a log of transitions
-- g(r), Maxwell distribution, MSD and diffusion coefficient
-- Reaction log with ΔH, k and K<sub>c</sub>; live measurements in many scenes
+**Tools and analysis**
+- Tweezers, heating and cooling brush, eraser, bond scissors, shock wave, field objects
+- Scene editor: periodicity per axis, the kind of each wall (sticky, thermal, absorbing, mirror), a spherical or cylindrical vessel, grid placement, filling a region
+- T, P, density and energies in real units; per-atom phase, g(r), Maxwell, MSD
+- Reaction log with ΔH, k and K<sub>c</sub>; snapshots, frame recording, CSV, undo, saving
 
 </td>
 </tr>
@@ -166,32 +176,59 @@ they come out of interaction potentials and conservation laws.
 <td><img src="docs/en/electrophoresis.png" alt="Electrophoresis"><br><sub><b>Electrophoresis.</b> Na⁺ and Cl⁻ drift in opposite directions, water dipoles turn</sub></td>
 <td><img src="docs/en/molecule-gallery.png" alt="Structure library"><br><sub><b>Structure library.</b> C₆₀, graphene, diamond, ice, NaCl, silica, metal clusters and organic molecules</sub></td>
 </tr>
+<tr>
+<td><img src="docs/en/valence-gallery.png" alt="Hypervalent molecules"><br><sub><b>Hypervalent molecules.</b> H₂SO₄, SF₆, PCl₅, XeF₄, ClF₃, SF₄, BrF₅, XeF₂, XeO₃, HNO₃, SO₄²⁻, PO₄³⁻: lone pairs set the shape</sub></td>
+<td><img src="docs/en/library-panel.png" alt="Chemistry tab"><br><sub><b>Chemistry tab.</b> Reaction switches, the wavelength of light, the event log and the structure library</sub></td>
+</tr>
+</table>
+
+**The quantum and subatomic world**
+
+<table>
+<tr>
+<td width="50%"><img src="docs/en/orbital-shapes.png" alt="Orbital shapes"><br><sub><b>Atom structure (F7).</b> The shapes of s, p, d and f orbitals; lobe color is the sign of the wave function</sub></td>
+<td width="50%"><img src="docs/en/orbital-cloud.png" alt="Orbital cloud"><br><sub><b>A 3d electron of iron.</b> Points fall with density |ψ|²; on the right, the subshells and where their electrons are</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/double-slit.png" alt="Double slit"><br><sub><b>Double slit.</b> The Schrödinger equation on a 256×256 grid; color is the phase of the wave, hits on the screen on the right</sub></td>
+<td><img src="docs/en/tunneling.png" alt="Tunneling"><br><sub><b>Tunneling.</b> 16.6% got through the barrier; plane-wave theory says 15.3%</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/reactor.png" alt="Nuclear reactor"><br><sub><b>Nuclear reactor.</b> Water slows the neutrons, boron rods keep k ≈ 1; Monte Carlo neutron transport</sub></td>
+<td><img src="docs/en/proton.png" alt="Inside a proton"><br><sub><b>Inside a proton.</b> The Cornell potential and the gluon string; the proton mass is mostly field energy</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/led.png" alt="LED"><br><sub><b>LED.</b> Electrons and holes meet in the junction and emit photons of the band-gap color</sub></td>
+<td><img src="docs/en/mosfet.png" alt="MOSFET"><br><sub><b>MOSFET.</b> The gate voltage gathers an electron channel at the surface; the band diagram on the right</sub></td>
+</tr>
 </table>
 
 **Interface**
 
 <table>
 <tr>
-<td width="50%"><img src="docs/en/scenes-menu.png" alt="Scene menu"><br><sub><b>Scene menu.</b> 46 ready-made experiments in two sections, many with variants</sub></td>
-<td width="50%"><img src="docs/en/periodic-table.png" alt="Periodic table"><br><sub><b>Periodic table.</b> 118 elements; the card shows the electron configuration and physical properties</sub></td>
+<td width="50%"><img src="docs/en/scenes-menu.png" alt="Scene menu"><br><sub><b>Scene menu.</b> 65 experiments in six sections, many with variants</sub></td>
+<td width="50%"><img src="docs/en/periodic-table.png" alt="Periodic table"><br><sub><b>Periodic table.</b> 118 elements; the card shows the electron configuration, physical properties and a thumbnail of the electron cloud</sub></td>
 </tr>
 <tr>
-<td><img src="docs/en/library-panel.png" alt="Library panel"><br><sub><b>Chemistry tab.</b> Reaction switches, the event log and the structure library</sub></td>
+<td><img src="docs/en/scene-editor.png" alt="Scene editor"><br><sub><b>The Scene tab.</b> Box faces of different kinds: sticky, thermal at 300 K, absorbing, mirror</sub></td>
 <td><img src="docs/en/field-objects.png" alt="Field objects"><br><sub><b>Field objects and measurements.</b> A heater, a barrier, a selection and an angle</sub></td>
 </tr>
 <tr>
-<td><img src="docs/en/settings.png" alt="Settings"><br><sub><b>Settings (F8).</b> Interface, graphics, camera, simulation, files and window</sub></td>
+<td><img src="docs/en/settings.png" alt="Settings"><br><sub><b>Settings (F8).</b> Interface, molecule model and font, graphics, camera, simulation, files and window</sub></td>
 <td><img src="docs/en/help.png" alt="Help"><br><sub><b>Cheat sheet (H).</b> Every key and mouse action on one page</sub></td>
 </tr>
 </table>
 
 ## Quick start
 
-1. Download `atoms-windows-x64.zip` from [Releases](https://github.com/felixxxrrr8-afk/atoms-md/releases/latest).
-2. Unzip it anywhere and run `atoms.exe`. Nothing to install.
-3. <kbd>Tab</kbd> opens the scene menu, <kbd>E</kbd> the periodic table, <kbd>H</kbd> a cheat sheet, <kbd>F8</kbd> the settings. `MANUAL.html` next to the program is the full manual (<kbd>F1</kbd>).
+1. From [Releases](https://github.com/felixxxrrr8-afk/atoms-md/releases/latest), download **`AtomsSetup.exe`** — a one-file installer: pick a folder, and it creates shortcuts on the desktop and in the Start menu and registers the program in the list of installed apps (uninstall it from there). No administrator rights needed.
+2. Or download `atoms-windows-x64.zip`, unzip it anywhere and run `atoms.exe` — nothing to install.
+3. <kbd>Tab</kbd> opens the scene menu, <kbd>E</kbd> the periodic table, <kbd>F7</kbd> the atom structure, <kbd>H</kbd> a cheat sheet, <kbd>F8</kbd> the settings, <kbd>F1</kbd> the full manual.
 
 Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn that the program is unsigned: "More info" → "Run anyway".
+
+The installer takes command-line switches: `/S` for no window, `/D=folder`, `/nodesktop`, `/nostartmenu`, `/norun`; `uninstall.exe /S` removes the program without questions.
 
 ## Scenes
 
@@ -230,30 +267,81 @@ Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn that the
 
 | Key | Scene | What to watch |
 |---|---|---|
-| <kbd>6</kbd> | NaCl in water | salt dissolving, hydration shells |
-| <kbd>7</kbd> | Hydrogen combustion | 2H₂ + O₂ → 2H₂O from a spark; variant: H₂ + Cl₂ |
-| <kbd>0</kbd> | Chemical equilibrium | Cl₂ ⇌ 2Cl under a piston, Le Chatelier's principle |
-| <kbd>Shift</kbd>+<kbd>2</kbd> | Iron oxidation | Fe + O₂ → oxide that flakes off |
-| <kbd>Shift</kbd>+<kbd>3</kbd> | Sodium in chlorine | 2Na + Cl₂ → 2NaCl |
+| <kbd>6</kbd> | NaCl in hot water | ions from corners and edges go into solution, hydration shells |
+| <kbd>7</kbd> | Hydrogen combustion | 2H₂ + O₂ → 2H₂O from a spark, the gas heats up to thousands of kelvins; variant: H₂ + Cl₂ |
+| <kbd>0</kbd> | Chemical equilibrium | Cl₂ ⇌ 2Cl at 5500 K under a piston, Le Chatelier's principle |
+| <kbd>Shift</kbd>+<kbd>2</kbd> | Iron oxidation | O₂ splits on hot iron, an oxide layer grows |
+| <kbd>Shift</kbd>+<kbd>3</kbd> | Sodium in chlorine | 2Na + Cl₂ → 2NaCl without a barrier, the metal glows |
 | <kbd>Shift</kbd>+<kbd>4</kbd> | Methane combustion | CH₄ + 2O₂ → CO₂ + 2H₂O |
-| <kbd>Shift</kbd>+<kbd>5</kbd> | Electrophoresis | ions in water in an electric field, current I |
+| <kbd>Shift</kbd>+<kbd>5</kbd> | Electrophoresis | ions in water in a 0.5 V/nm field, current I |
 | menu | Acid in water | HCl + H₂O → H₃O⁺ + Cl⁻, Grotthuss mechanism, pH |
 | menu | Neutralization | H₃O⁺ + OH⁻ → 2H₂O; variant: titration |
 | menu | Ethanol combustion | C₂H₅OH + 3O₂ from a spark |
-| menu | Oxyhydrogen | 2H₂ + O₂ in a closed vessel: a jump in T and P |
-| menu | Platinum catalysis | the reaction runs only on the Pt surface |
-| menu | Methane chlorination | a radical chain started by UV light |
-| menu | Equilibrium H₂ + I₂ ⇌ 2HI | Bodenstein's experiment, K<sub>c</sub> |
+| menu | Oxyhydrogen | 2H₂ + O₂ in a closed vessel: the gas reaches ~4000 K, the pressure grows tens of times |
+| menu | Platinum catalysis | H₂ and O₂ split on the Pt surface, and water assembles from the atoms |
+| menu | Methane chlorination | a radical chain started by UV light at 700 K |
+| menu | Equilibrium H₂ + I₂ ⇌ 2HI | Bodenstein's experiment at 3500 K, K<sub>c</sub> |
 | menu | Hydrogenation on nickel | C₂H₄ + H₂ → C₂H₆ |
-| menu | Peroxide decomposition | 2H₂O₂ → 2H₂O + O₂ |
+| menu | Peroxide decomposition | 2H₂O₂ → 2H₂O + O₂ on platinum |
 | menu | Acetylene combustion | 2C₂H₂ + 5O₂ → 4CO₂ + 2H₂O |
 | menu | H₂ + Br₂ in light | a slower chain: Br + H₂ is endothermic |
 | menu | Chlorine displaces bromine | Cl + HBr → HCl + Br |
-| menu | Hydrogen and fluorine | H₂ + F₂ → 2HF without a spark |
-| menu | Ozone decomposition | 2O₃ → 3O₂ on heating |
+| menu | Hydrogen and fluorine | H₂ + F₂ → 2HF without a spark: stray light is enough |
+| menu | Ozone decomposition | O₃ → O₂ + O on heating |
 | menu | Propane combustion | C₃H₈ + 5O₂ → 3CO₂ + 4H₂O |
 | menu | NCl₃ explosion | weak N–Cl bonds give way to the very strong N≡N |
 | menu | Autoignition | heating without a spark up to the ignition point; variant: H₂ + Cl₂ |
+
+</details>
+
+<details>
+<summary><b>Nuclei</b> — 5 scenes</summary>
+
+| Scene | What to watch |
+|---|---|
+| Half-life | nuclei decay at random, yet their number falls exactly as N₀·2<sup>−t/T½</sup>; isotopes from F-18 to uranium-238 |
+| Radon decay chain | Rn-222 → … → Pb-206: α and β decays, periods from microseconds to years |
+| Critical mass | does the number of neutrons grow in a uranium-235 sphere: in the model the sphere becomes critical at a radius of ≈ 9 cm (the Godiva assembly: 8.7 cm) |
+| Nuclear reactor | water slows the neutrons, boron rods keep k ≈ 1; without water the reactor dies out |
+| Nuclear explosion | a supercritical assembly: an avalanche of fissions, energy in TNT equivalent |
+
+</details>
+
+<details>
+<summary><b>Quarks</b> — 5 scenes</summary>
+
+| Scene | What to watch |
+|---|---|
+| Inside a proton | three colored quarks on a Y-string; variant: a neutron |
+| String breaking | the antiquark is pulled harder than 0.9 GeV/fm — the string breaks and creates a new pair; the V(r) plot |
+| Proton collision | strings break into chains of mesons — hadron jets |
+| Hadron builder | assemble a particle from quarks: baryons and mesons with masses from the PDG tables |
+| Neutron decay from the inside | d → u + W⁻ → electron + antineutrino |
+
+</details>
+
+<details>
+<summary><b>Semiconductors</b> — 4 scenes</summary>
+
+| Scene | What to watch |
+|---|---|
+| Diode | a p–n junction, the depletion layer, the current–voltage curve against the Shockley formula |
+| LED and solar cell | recombination gives photons of the band-gap color; light creates pairs and current |
+| MOSFET | the gate gathers an electron channel, drain current, saturation |
+| Bipolar transistor | the base current controls a collector current tens of times larger, β |
+
+</details>
+
+<details>
+<summary><b>Quantum waves</b> — 5 scenes</summary>
+
+| Scene | What to watch |
+|---|---|
+| Tunneling | the transmitted share of the wave against theory; a click on the wave is a position measurement |
+| Double slit | interference one electron at a time; a detector at the slits erases it |
+| Quantum oscillator | coherent and squeezed states, ⟨x⟩(t) against the classical ball |
+| Quantum carpet | a packet in a box spreads and revives after T = 4mL²/(πħ) |
+| Electron diffraction | the Davisson–Germer experiment: beams at the angles d·sin θ = nλ |
 
 </details>
 
@@ -261,19 +349,21 @@ Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn that the
 
 | | |
 |---|---|
-| <kbd>Tab</kbd> · <kbd>E</kbd> · <kbd>F8</kbd> | scene menu · periodic table · settings |
+| <kbd>Tab</kbd> · <kbd>E</kbd> · <kbd>F7</kbd> · <kbd>F8</kbd> | scene menu · periodic table · atom structure · settings |
 | <kbd>H</kbd> · <kbd>F1</kbd> · <kbd>Ctrl</kbd>+<kbd>L</kbd> | cheat sheet · manual · interface language |
 | <kbd>Space</kbd> · <kbd>S</kbd> · <kbd>R</kbd> | pause · single step · reset scene |
 | <kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>0</kbd>, <kbd>Alt</kbd>+<kbd>F</kbd> | tools and field objects |
 | LMB · RMB · <kbd>Shift</kbd>+RMB | tool · heat · cool |
 | <kbd>Ctrl</kbd>+LMB, wheel | camera: rotate and zoom; <kbd>V</kbd> fly mode, <kbd>X</kbd> cross-section |
 | <kbd>C</kbd> · <kbd>B</kbd> · <kbd>T</kbd> | atom coloring · bonds · trails |
-| <kbd>L</kbd> · <kbd>K</kbd> · <kbd>U</kbd> | flash of light · catalyst zone · reverse time |
+| <kbd>L</kbd> · <kbd>K</kbd> · <kbd>U</kbd> | flash of light (wavelength in the Chemistry tab) · catalyst zone · reverse time |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> | undo |
 | <kbd>F5</kbd> / <kbd>F9</kbd>, <kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Ctrl</kbd>+<kbd>O</kbd> | quick and regular save and load of `.atoms` files |
 | <kbd>F12</kbd> · <kbd>Ctrl</kbd>+<kbd>F12</kbd> · <kbd>Ctrl</kbd>+<kbd>E</kbd> | PNG snapshot · frame recording · export plots to CSV |
 
-Every key, tool and the physics behind them: [MANUAL.html](docs/MANUAL.html) in English and [ИНСТРУКЦИЯ.html](docs/ИНСТРУКЦИЯ.html) in Russian. Both are in the release archive.
+In the Scene tab, turn on "exactly on grid": a click with the add tool puts one molecule at a grid node on the working plane, and <kbd>Shift</kbd>+drag lays down a row.
+
+Every key, tool and the physics behind them: [MANUAL.html](docs/MANUAL.html) in English and [ИНСТРУКЦИЯ.html](docs/ИНСТРУКЦИЯ.html) in Russian. Both are installed with the program and included in the release archive.
 
 ## Settings
 
@@ -281,8 +371,8 @@ Every key, tool and the physics behind them: [MANUAL.html](docs/MANUAL.html) in 
 
 | Section | What you can change |
 |---|---|
-| Interface | language, interface scale (auto or 100–300%), tooltips, the atom card under the cursor, the clock in the top bar, how long notifications stay |
-| Graphics | vertical sync, scene background, depth dimming, highlights on atoms, box outline, bond thickness |
+| Interface | language, interface scale (auto or 100–300%), font, tooltips, the atom card under the cursor, the clock in the top bar, how long notifications stay |
+| Graphics | molecule model (ball-and-stick, van der Waals, sticks or auto), vertical sync, scene background, depth dimming, highlights on atoms, glow of red-hot atoms, box outline, bond thickness |
 | Camera and mouse | rotation sensitivity, inverted vertical axis, wheel step, camera smoothing, auto-rotation speed |
 | Simulation | number of worker threads, undo depth, pause while the window is inactive, what to open on startup — the ideal gas, the last scene or the whole previous session |
 | Files and window | where snapshots, frames and CSV go (next to the program or in Pictures), which frames to record, remembering the window position, starting in full screen |
@@ -293,8 +383,9 @@ One simulation step (`mdStep` in [`src/physics.inl`](src/physics.inl)):
 
 ```mermaid
 flowchart LR
-    A["Half kick and drift<br>velocity Verlet"] --> B["Forces<br>LJ · Coulomb · Morse · angles<br>H-bonds · metal"]
-    B --> C["Half kick"]
+    A["Half kick and drift<br>velocity Verlet"] --> B["Slow forces<br>LJ · DSF Coulomb · H-bonds<br>metal · walls"]
+    B --> R["Fast forces<br>bonds and angles<br>in inner steps"]
+    R --> C["Half kick"]
     C --> D["Thermostat<br>Bussi · Langevin ·<br>Nosé–Hoover · Berendsen"]
     D --> E["Chemistry<br>bonds break, form<br>and hop; ΔE → motion"]
     E --> F["C-rescale barostat<br>field objects"]
@@ -302,11 +393,13 @@ flowchart LR
     G --> A
 ```
 
-**Interactions.** Van der Waals forces use the Lennard-Jones potential with Lorentz–Berthelot mixing. Electrostatics is a screened Coulomb interaction with charges derived from electronegativities. Covalent bonds use the Morse potential, VSEPR bond angles (tetrahedral for sp³ carbon, NH₄⁺ and BH₄⁻, pyramidal for NH₃ and H₃O⁺, flat for BF₃) and multiple bonds. Hydrogen bonds use the directional DREIDING term, and water also gets a three-body tetrahedral term, as in the mW model. Metals use the many-body Gupta (Cleri–Rosato) potential.
+**Interactions.** Energies are on the real scale: 1 eV = 83.0ε. Van der Waals forces use the Lennard-Jones potential with Lorentz–Berthelot mixing. Electrostatics is full Coulomb by the damped shifted force method (DSF, α = 0.23 Å⁻¹, cutoff 9.5 Å) from a table; charged fragments also get their self-energy. Ions use Joung–Cheatham parameters, and water is a flexible SPC/Fw-type model (at 300 K its density is 0.96 g/cm³ and diffusion 2.5·10⁻⁹ m²/s; real water has 0.997 and 2.3·10⁻⁹). Covalent bonds use the Morse potential with reference energies, lengths and stiffnesses from vibrational spectra; angles come from VSEPR domains in which lone pairs push the bonds apart; a double bond resists twisting (π torsion). Metals use the many-body Gupta (Cleri–Rosato) potential. Fast bond vibrations run in RESPA inner steps.
 
-**Chemistry.** Reactions are events inside the same molecular dynamics. A bond forms when two approaching atoms both have a free valence, breaks when it is overstretched, and an atom switches partners when it overcomes a barrier. The energy of every event is accounted for exactly, so combustion heats the mixture by itself. Bond energies and lengths come from reference tables for about 70 atom pairs (H–F, N–F, P–F, Si–F, B–F, S–Cl, interhalogens and others) and from Pauling's rules for the rest. Barriers follow the Evans–Polanyi rule.
+**Chemistry.** Reactions are events inside the same molecular dynamics. Valence is counted by electrons: sulfur, phosphorus, chlorine and xenon with electronegative neighbors become hypervalent (SF₆, PCl₅, H₂SO₄, XeF₄), with up to six bonds per atom. A bond forms when two approaching atoms both have a free valence, breaks when it is overstretched, and an atom switches partners when it overcomes a barrier. The barrier follows Marcus: E = E₀(1 + ΔH/4E₀)² from the reaction's intrinsic barrier E₀ and its heat ΔH, so the barrier multiplier changes rates but not equilibria. The energy of every event is accounted for exactly, so combustion heats the mixture by itself. Proton transfer includes the rearrangement of water around the ions, and metals catalyze the splitting of molecules on their surface (Langmuir–Hinshelwood). Light of wavelength λ breaks a bond with a quantum hν = hc/λ only if the quantum is enough both to break it and to be absorbed: Cl₂ splits in blue light, while methane is transparent down to 144 nm.
 
-**Units.** The model is calibrated to argon: σ = 0.3405 nm, and ε/k = 139.8 K is chosen so that the model's critical point matches argon's (150.7 K). The triple point then comes out at ≈ 87 K against the measured 83.8 K, and the liquid density near it at 1.39 g/cm³ against 1.41.
+**Worlds of other scales.** Nuclei: real half-lives (NUBASE 2020) and Monte Carlo neutron transport with cross sections of uranium, hydrogen and boron. Quarks: the Cornell potential (σ = 0.9 GeV/fm, αs = 0.3), a Y-string through the Fermat point, relativistic dynamics, string breaking with pair creation, hadron masses from the PDG tables. Semiconductors: a two-dimensional drift–diffusion model (the Poisson and continuity equations, the Scharfetter–Gummel scheme) with silicon parameters: the diode current matches the Shockley formula and the MOSFET current matches theory. The electron wave: the Schrödinger equation on a 256×256 grid by the split-step FFT method.
+
+**Units.** Lengths and temperatures are calibrated to argon: σ = 0.3405 nm, ε/k = 139.8 K — the model's critical point matches argon's (150.7 K), and the triple point comes out at ≈ 87 K against the measured 83.8 K.
 
 **Robustness.** A stability guard keeps state snapshots and, if the simulation blows up, rolls back and continues with a smaller step. Everything the user does is counted as external work W, so E − W is conserved and its drift shows how honest the integration is.
 
@@ -318,7 +411,12 @@ atoms.exe --gradcheck K N            # forces against −∇U by numerical diffe
 atoms.exe --evcheck K N              # exact energy balance of every reaction
 atoms.exe --kin K N T V              # long run of a scene: phase, reactions, live measurement
 atoms.exe --phystest MODE K N        # coex, melt, triple, npt, vir, fo, guard
+atoms.exe --water T P N              # the water model: density, energy, diffusion
 atoms.exe --chemtest lib             # insert every library structure and check it stays intact
+atoms.exe --nuck                     # criticality of a uranium sphere and of the reactor
+atoms.exe --semi                     # current–voltage curves of the diode and the transistors
+atoms.exe --walltest                 # Scene tab walls: mirror, thermal, absorbing, vessel
+atoms.exe --lighttest                # photodissociation threshold for light of different wavelengths
 atoms.exe --uitest [--langcheck]     # click through the whole interface; list untranslated strings
 atoms.exe --lang en --shot K N png   # render scene K and save a window snapshot
 ```
@@ -333,14 +431,14 @@ No external libraries: MSVC from Visual Studio or Build Tools is enough.
 build.bat
 ```
 
-`build.bat` finds Visual Studio by itself; `build.bat asan` builds a debug version with AddressSanitizer. By hand, from an x64 Native Tools Command Prompt:
+`build.bat` finds Visual Studio by itself; `build.bat asan` builds a debug version with AddressSanitizer, and `build.bat setup` also builds the installer `AtomsSetup.exe` (the program, manuals, license and the OpenMP runtime inside). By hand, from an x64 Native Tools Command Prompt:
 
 ```bash
 rc /nologo /fo res\atoms.res res\atoms.rc
 cl /O2 /openmp /utf-8 /EHsc /std:c++17 /fp:fast main.cpp res\atoms.res /Fe:atoms.exe /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib opengl32.lib comdlg32.lib shell32.lib
 ```
 
-Every push to `main` is built by [GitHub Actions](https://github.com/felixxxrrr8-afk/atoms-md/actions); a new `ProductVersion` in `res/atoms.rc` publishes a new release.
+Every push to `main` is built by [GitHub Actions](https://github.com/felixxxrrr8-afk/atoms-md/actions); a new `ProductVersion` in `res/atoms.rc` publishes a new release with the archive and the installer.
 
 ### Layout
 
@@ -349,17 +447,20 @@ One translation unit: `main.cpp` includes the modules from `src/` in order. Comm
 | Path | Contents |
 |---|---|
 | [`main.cpp`](main.cpp) | entry point and the list of headless modes |
-| [`src/core.inl`](src/core.inl) | constants, elements and their properties, system state |
+| [`src/core.inl`](src/core.inl) | constants and units, elements and their properties, system state |
 | [`src/settings.inl`](src/settings.inl) | program settings and `atoms.ini` |
-| [`src/physics.inl`](src/physics.inl) | forces, neighbor lists, integrator, thermostats, barostat, field objects, stability guard |
-| [`src/chemistry.inl`](src/chemistry.inl) | reactions, charges and ions, pH, bond table, the structure library |
+| [`src/physics.inl`](src/physics.inl) | forces, DSF Coulomb, neighbor lists, RESPA, walls and vessels, thermostats, barostat, field objects, stability guard |
+| [`src/chemistry.inl`](src/chemistry.inl) | reactions and barriers, valence, proton transfer, catalysis, light, pH, bond table, the structure library |
 | [`src/analysis.inl`](src/analysis.inl) | measurements for plots, local structure, per-atom phase |
 | [`src/presets.inl`](src/presets.inl) | scenes, their live measurements, undo |
-| [`src/render.inl`](src/render.inl) | OpenGL rendering and the camera |
+| [`src/render.inl`](src/render.inl) | OpenGL rendering: the ball-and-stick model, glow, box faces and vessels, the camera |
 | [`src/ui.inl`](src/ui.inl) | panels, tools, plots, periodic table, scene menu |
-| [`src/panel_phys.inl`](src/panel_phys.inl), [`src/panel_chem.inl`](src/panel_chem.inl), [`src/panel_settings.inl`](src/panel_settings.inl) | the Physics and Chemistry tabs, the settings window |
+| [`src/panel_phys.inl`](src/panel_phys.inl), [`src/panel_chem.inl`](src/panel_chem.inl), [`src/panel_scene.inl`](src/panel_scene.inl), [`src/panel_settings.inl`](src/panel_settings.inl) | the Physics, Chemistry and Scene tabs, the settings window |
+| [`src/orbitals.inl`](src/orbitals.inl) | atom structure: electron clouds and orbital shapes |
+| [`src/world_nuclear.inl`](src/world_nuclear.inl), [`src/world_quark.inl`](src/world_quark.inl), [`src/world_semi.inl`](src/world_semi.inl), [`src/world_wave.inl`](src/world_wave.inl), [`src/worlds.inl`](src/worlds.inl) | the worlds of nuclei, quarks, semiconductors and the electron wave; their panels |
 | [`src/app.inl`](src/app.inl) | window and main loop, input, saving, PNG, self-tests |
 | [`src/lang.inl`](src/lang.inl), [`src/lang_table.inl`](src/lang_table.inl) | language switching and the Russian → English string table |
+| [`installer/`](installer) | the one-file installer and the uninstaller |
 | [`res/`](res) | icon and version resource |
 | [`docs/`](docs) | manuals in two languages, screenshots and animations (`docs/en`, `docs/ru`) |
 | [`tools/`](tools) | the translation table checker and the scripts that make pictures for this page |
@@ -368,7 +469,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed between versions.
 
 ## Simplifications
 
-The mechanics are classical, with no quantum effects. Each atom pair has a single bond curve, and electron transfer is not modeled explicitly: oxidation happens through bonds. Hypervalent molecules (SO₂, SF₆, PCl₅, HNO₃) are out of reach of the valence model. Bond energies are scaled down (1 eV = 4ε) and reactions are sped up, otherwise nothing would happen within a reachable simulation time. Water autoionization is left out: in a box of ~10⁻²³ L its equilibrium is zero ions.
+Atoms move by classical mechanics; quantum effects are shown where they cannot be avoided: electron clouds, the electron wave in its own scenes, the absorption threshold of light. Each atom pair has a single bond curve, and electron transfer is not modeled explicitly: oxidation happens through bonds. The simulation covers picoseconds, so reactions that are slow at room temperature run in the scenes at high temperatures or from a spark or light. Water autoionization is left out: in a box of ~10⁻²³ L its equilibrium is zero ions. Quarks are a string model rather than quantum chromodynamics; nuclei are point-like with Monte Carlo neutron transport; the semiconductor is two-dimensional.
 
 ## License
 
