@@ -363,7 +363,7 @@ static void qkPanel(float x, float y, float w, float h) {
         row("родилось адронов", fmt("%d", (int)out.size())); row("разрывов струн", fmt("%d", breaks));
         int ch = 0; for (auto& o : out) ch += o.q3; row("заряд адронов", fmt("%+d", ch / 3));
     } else {
-        std::string comp; for (int v : build) { comp += v >= 10 ? std::string("анти-") + FNAME[v % 10] : std::string(FNAME[v]); comp += " "; }
+        std::string comp; for (int v : build) { comp += v >= 10 ? std::string(T("анти-")) + FNAME[v % 10] : std::string(FNAME[v]); comp += " "; }
         row("состав", comp.empty() ? std::string("—") : comp);
         const HadInfo hi = qkIdentify(build);
         row("частица", hi.name[0] ? hi.name : (build.empty() ? "—" : "не бывает"));
@@ -389,7 +389,7 @@ static void qkPanel(float x, float y, float w, float h) {
         const float bw = std::floor((cw - 4 * uiPx(4)) / 5);
         for (int a = 0; a < 2; a++) {
             for (int f = 0; f < FN; f++) {
-                const std::string lab = a ? std::string("анти-") + FNAME[f] : FNAME[f];
+                const std::string lab = a ? std::string(T("анти-")) + FNAME[f] : FNAME[f];
                 if (uiButton(1910 + a * 5 + f, cx + f * (bw + uiPx(4)), yy, bw, bh, lab, false, false, "Добавить кварк (до трёх)") && build.size() < 3) { build.push_back(f + 10 * a); qkReset(3); }
             }
             yy += bh + uiPx(4);

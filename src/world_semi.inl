@@ -90,7 +90,7 @@ static void scBuild() {
             contact[id(i, NY - 1)] = 2;
         }
         Cox = 3.9 * EPS0 / 20e-7; mun = 600;   // у поверхности подвижность электронов меньше, чем в объёме
-        nContacts = 3; CNAME[0] = "исток"; CNAME[1] = "сток"; CNAME[2] = "подложка";
+        nContacts = 3; CNAME[0] = "исток S"; CNAME[1] = "сток D"; CNAME[2] = "подложка B";   // буквы — как на схемах (и «сток» не путается со стоком атомов)
         break; }
     case 3: {   // биполярный n–p–n: эмиттер n+ | база p (0.3 мкм) | коллектор n. Вывод базы — сверху, над островком p+:
         // скачок легирования p+/p отталкивает электроны, и они не уходят в вывод базы, а пролетают к коллектору
@@ -461,7 +461,7 @@ static void scDraw() {
         scToPx(1.65e-4, 0, x0, y0); scToPx(2e-4, 0, x1, y1); metal(x0, y0 - mt, x1 - x0, mt); label((x0 + x1) / 2, y0 - mt - fontXS.h - uiPx(4), fmt("%s %+.2f В", T(CNAME[1]), Vc[1]));
         scToPx(0.55e-4, 0, x0, y0); scToPx(1.45e-4, 0, x1, y1);
         rectFill(x0, y0 - uiPx(5), x1 - x0, uiPx(5), hexc(0x5A5A5A));   // окисел SiO2
-        metal(x0, y0 - uiPx(5) - mt * 1.4f, x1 - x0, mt * 1.4f); label((x0 + x1) / 2, y0 - uiPx(5) - mt * 1.4f - fontXS.h - uiPx(4), fmt("затвор %+.2f В", Vg));
+        metal(x0, y0 - uiPx(5) - mt * 1.4f, x1 - x0, mt * 1.4f); label((x0 + x1) / 2, y0 - uiPx(5) - mt * 1.4f - fontXS.h - uiPx(4), fmt("затвор G %+.2f В", Vg));
         metal(scArea.x, scArea.y + scArea.h, scArea.w, mt); label(scArea.x + scArea.w / 2, scArea.y + scArea.h + mt + uiPx(4), fmt("%s 0 В", T(CNAME[2])));
     }
     // масштаб
