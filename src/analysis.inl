@@ -19,6 +19,8 @@ static const int GR_BINS = 120; static const double GR_RMAX = 5.0;
 static std::vector<double> gr(GR_BINS, 0.0); static bool grInit = false;
 static const int VH_BINS = 40; static std::vector<double> vh(VH_BINS, 0.0); static int vhType = E_AR; static double vhMax = 1;
 static std::vector<float> ordMag, ordHue; static std::vector<unsigned char> coord, stype;
+static std::vector<float> qIce;   // тетраэдрический порядок молекулы воды, усреднённый по времени (~1 пс); −1 — не вода
+static std::vector<unsigned char> qIceN;   // сколько замеров уже в среднем (первые — простое среднее)
 static double q6Mean = 0, fCryst = 0, fGas = 0, meanCoord = 0; static int stCount[ST_N] = {0};
 static Series sT, sP, sEk, sEp, sEt, sTime;
 static std::vector<float> msdT, msdV, msdBig; static std::vector<double> x0, y0, z0; static double t0 = 0; static int msdN = -1;
@@ -43,7 +45,7 @@ static void resetPhaseTracking();
 static void sceneMeasure();   // presets.inl: измерения, специфичные для сцены (A::sceneNote)
 static void resetAnalysis() {
     resetPhaseTracking();
-    A::grInit = false; std::fill(A::gr.begin(), A::gr.end(), 0.0); std::fill(A::vh.begin(), A::vh.end(), 0.0);
+    A::grInit = false; std::fill(A::gr.begin(), A::gr.end(), 0.0); std::fill(A::vh.begin(), A::vh.end(), 0.0); A::qIce.clear(); A::qIceN.clear();
     std::fill(A::tprof.begin(), A::tprof.end(), 0.0);
     for (auto& d : A::dprof) std::fill(d.begin(), d.end(), 0.0);
     A::dprofN = 0; A::dprofType[0] = A::dprofType[1] = -1; A::profInit = false; A::sceneNote.clear();
@@ -176,8 +178,14 @@ static void computeOrder() {
             if (S.ty[i] != E_H) { sm += qb6; sc += k; nm++; if (k <= gasCut) ngas++; }
         }
         // Лёд: тетраэдрический порядок кислородов воды (Эррингтон–Дебенедетти)
-        //   q = 1 − 3/8·Σ_{j<k}(cosψ_jk + 1/3)² по 4 ближайшим O; q ≈ 1 во льду, ≈ 0.5–0.6 в жидкой воде
+        //   q = 1 − 3/8·Σ_{j<k}(cosψ_jk + 1/3)² по 4 ближайшим O; q ≈ 1 во льду, ≈ 0.5–0.7 в жидкой воде.
+        //   В жидкости у многих молекул q мгновенно бывает выше 0.8 (соседи случайно встали тетраэдром) — горячий
+        //   раствор выглядел «кристаллизацией». Поэтому льдом считается молекула, у которой высок q, усреднённый
+        //   по времени (около пикосекунды): в жидкости сетка водородных связей за это время перестраивается,
+        //   и среднее падает, а во льду порядок держится
         if (present[E_O]) {
+            std::vector<float> qT(n, -1.0f);
+            if ((int)A::qIce.size() != n) { A::qIce.assign(n, -1.0f); A::qIceN.assign(n, 0); }
 #pragma omp parallel for schedule(dynamic, 64)
             for (int i = 0; i < n; i++) {
                 if (S.ty[i] != E_O || S.nbc[i] != 2) continue;
@@ -193,9 +201,14 @@ static void computeOrder() {
                 for (int q = 0; q < 4; q++) { double dx, dy, dz; dvec(i, best[q].second, dx, dy, dz); double r = std::sqrt(dx * dx + dy * dy + dz * dz); v[q][0] = dx / r; v[q][1] = dy / r; v[q][2] = dz / r; }
                 double s = 0;
                 for (int a = 0; a < 4; a++) for (int b = a + 1; b < 4; b++) { double c = v[a][0] * v[b][0] + v[a][1] * v[b][1] + v[a][2] * v[b][2] + 1.0 / 3; s += c * c; }
-                double qt = 1 - 3.0 / 8 * s;
-                A::ordMag[i] = (float)qt;
-                if (qt > 0.8) A::stype[i] = ST_ICE;
+                qT[i] = (float)(1 - 3.0 / 8 * s);
+                A::ordMag[i] = qT[i];
+            }
+            for (int i = 0; i < n; i++) {
+                if (qT[i] < 0) { A::qIce[i] = -1; A::qIceN[i] = 0; continue; }
+                const int c = A::qIceN[i]; A::qIceN[i] = (unsigned char)std::min(c + 1, 200);
+                A::qIce[i] = c == 0 ? qT[i] : A::qIce[i] + std::max(0.06f, 1.0f / (c + 1)) * (qT[i] - A::qIce[i]);
+                if (A::qIce[i] > 0.74f && qT[i] > 0.6f) A::stype[i] = ST_ICE;
             }
             for (int i = 0; i < n; i++) if (S.ty[i] == E_H && S.nbc[i] == 1 && S.ty[S.nb[i][0]] == E_O) A::stype[i] = A::stype[S.nb[i][0]];
         }
