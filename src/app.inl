@@ -505,6 +505,10 @@ static void handleMouse(double frameDt) {
         lMode = LM_NONE; rubberOn = throwDrag = foPlacing = false;
         return;
     }
+    if (world == W_WAVE || world == W_SEMI) {   // плоские картины: камеры нет; у волны щелчок — измерение положения электрона
+        if (world == W_WAVE && sceneHit(mouseX, mouseY)) wvMouse();
+        in.wheel = 0; in.lPress = in.lRel = in.mPress = in.rPress = in.dbl = false; heatBrush = 0; return;
+    }
     const bool over = sceneHit(mouseX, mouseY);
     int part = 0;
     foHover = over && lMode != LM_FOMOVE ? foHitTest((float)mouseX, (float)mouseY, part) : (lMode == LM_FOMOVE ? foDragIdx : -1);
@@ -1364,6 +1368,36 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         fclose(f); return 0;
     }
     // --nuck: k-эффективный голого шара урана по радиусу и реактора по положению стержней → nuck.log
+    // --semi: вольт-амперные характеристики диода и МОП-транзистора (дрейфово-диффузионная модель) → semi.log
+    if (cmd && wcsstr(cmd, L"--semi")) {
+        FILE* f = fopen("semi.log", "w"); if (!f) return 1;
+        const int steps = argInt(cmd, L"steps=", 3000);
+        auto t0 = std::chrono::high_resolution_clock::now();
+        for (double v : {-1.0, 0.0, 0.3, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8}) {
+            sc::V1 = v; scReset(0);
+            for (int s = 0; s < steps; s++) scStep1();
+            // Шокли для короткого диода: Is = q·A·nᵢ²·(Dn/(N_A·Wp) + Dp/(N_D·Wn)), Wp, Wn ≈ 1 мкм минус обеднённый слой
+            const double Is = sc::Q * 1e-8 * 1e20 * (1400 * sc::VT / (1e16 * 0.8e-4) + 450 * sc::VT / (1e16 * 0.8e-4));
+            fprintf(f, "диод V=%+.2f В: I(анод)=%.3e А  I(катод)=%.3e А  Шокли %.3e А\n", v, sc::Ic[0], sc::Ic[1], Is * (std::exp(v / sc::VT) - 1)); fflush(f);
+        }
+        for (double vg : {0.0, 0.5, 1.0, 2.0}) for (double vd : {0.1, 1.0, 2.0}) {
+            sc::V1 = vg; sc::V2 = vd; scReset(2);
+            for (int s = 0; s < steps; s++) scStep1();
+            fprintf(f, "МОП Vg=%.1f Vd=%.1f: Id(сток)=%.3e А  исток %.3e  подложка %.3e\n", vg, vd, sc::Ic[1], sc::Ic[0], sc::Ic[2]); fflush(f);
+        }
+        for (double v : {1.4, 1.6, 1.8, 1.9, 2.0}) {
+            sc::V1 = v; sc::mode121 = 0; sc::ledColor = 0; scReset(1);
+            for (int s = 0; s < steps; s++) scStep1();
+            fprintf(f, "светодиод V=%.2f: I=%.3e А, фотонов %.3e/с (на электрон %.2f)\n", v, sc::Ic[0], sc::photonsPerS, sc::Ic[0] > 0 ? sc::photonsPerS * sc::Q / sc::Ic[0] : 0.0); fflush(f);
+        }
+        for (double v : {0.55, 0.6, 0.65, 0.7}) {
+            sc::V1 = v; sc::V2 = 2.0; scReset(3);
+            for (int s = 0; s < steps; s++) scStep1();
+            fprintf(f, "биполярный Vбэ=%.2f Vкэ=2: Iэ=%.3e Iб=%.3e Iк=%.3e β=%.1f\n", v, sc::Ic[0], sc::Ic[1], sc::Ic[2], sc::Ic[1] != 0 ? sc::Ic[2] / sc::Ic[1] : 0.0); fflush(f);
+        }
+        fprintf(f, "время %.1f с\n", std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count());
+        fclose(f); return 0;
+    }
     if (cmd && wcsstr(cmd, L"--nuck")) {
         initBondTable(); FILE* f = fopen("nuck.log", "w"); if (!f) return 1;
         for (double e : {0.9, 0.2}) for (double R : {5.0, 7.0, 8.0, 8.7, 9.5, 10.5, 12.0, 14.0}) {
@@ -1393,7 +1427,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         worldReset(L, L, L, B_PERIODIC);
         const int placed = fillGrid(palette[findPal("H2O")], N, 0, 0, 0, L, L, L, TK / cfg::U_T_K);
         P.Tset = TK / cfg::U_T_K; P.thermostat = TH_BUSSI; P.tauT = 0.1; P.npt = Pa > 0; P.pExt = Pa / cfg::U_P_ATM; P.tauP = 2.0; P.chemistry = false;
-        respaOn = argInt(cmd, L"respa=", 1) != 0;
+        respaOn = argInt(cmd, L"respa=", 1) != 0; slowStepA = argDbl(cmd, L"al=", slowStepA);
         finishPreset();
         if (wcsstr(cmd, L" nve")) {   // сначала 2000 шагов с термостатом, затем без него — проверка сохранения энергии
             for (int s = 0; s < 2000; s++) mdStep();
@@ -1426,8 +1460,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     if (cmd && wcsstr(cmd, L"--kin")) {
         wchar_t* p = wcsstr(cmd, L"--kin") + 5;
         int K = (int)wcstol(p, &p, 10), steps = (int)wcstol(p, &p, 10); double T = wcstod(p, &p); int var = (int)wcstol(p, &p, 10);
-        initBondTable(); initKlm(); rebuildTables(); loadPreset(K, var); if (T > 0) P.Tset = T;
-        FILE* f = fopen(fmt("kin_%d_%.2f_v%d.log", K, T, var).c_str(), "w"); if (!f) return 1;
+        initBondTable(); initKlm(); rebuildTables(); loadPreset(K, var);
+        if (T > 0) { P.Tset = T; measure(); if (EN.T > 1e-9) scaleVel(std::sqrt(T / EN.T)); resetEnergyRef(); }   // и начальные скорости — под эту T
+        P.eaScale = argDbl(cmd, L"ea=", P.eaScale); sparkR = argDbl(cmd, L"sr=", sparkR); sparkTK = argDbl(cmd, L"st=", sparkTK);
+        std::string tag; if (const wchar_t* tp = wcsstr(cmd, L"tag=")) for (tp += 4; *tp && *tp != L' '; tp++) tag += (char)*tp;
+        FILE* f = fopen(fmt("kin_%d_%.2f_v%d%s.log", K, T, var, tag.c_str()).c_str(), "w"); if (!f) return 1;
         fprintf(f, "%s  N=%d\n", presetTitle.c_str(), S.n);
         auto t0 = std::chrono::high_resolution_clock::now();
         for (int s = 0; s <= steps; s++) {
@@ -1453,6 +1490,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
                 fprintf(f, "\n");
                 fflush(f);
             }
+        }
+        // перенос протона: сколько попыток дошло до каждого фильтра и ΔU по классам донор×основание (эВ)
+        if (ptGate[0]) {
+            fprintf(f, "PT: кандидатов %lld, по расстоянию %lld, по сближению %lld, по барьеру %lld\n", ptGate[0], ptGate[1], ptGate[2], ptGate[3]);
+            for (int c = 0; c < 12; c++) if (ptDbgN[c]) fprintf(f, "   донор %d × основание %d: попыток %lld, принято %lld, ΔU средн. %.2f мин. %.2f эВ\n", c / 3, c % 3, ptDbgN[c], ptDbgOk[c], rxEV(ptDbgSum[c] / ptDbgN[c]), rxEV(ptDbgMin[c]));
         }
         fclose(f); return 0;
     }
@@ -1586,7 +1628,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         const bool idle = !uiTestMode && opt.bgPause && (minimized || GetForegroundWindow() != hwnd);
         if (!P.paused && !idle) {
             if (!md) worldStep(automation ? 1.0 / 60 : frameDt);   // снимки и автотест — ровный шаг, как 60 к/с
-            else { runScript(); for (int s = 0; s < P.substeps; s++) mdStep(); }
+            else if (automation) { runScript(); for (int s = 0; s < P.substeps; s++) mdStep(); }
+            else {
+                // «скорость» — время модели за кадр (substeps обычных шагов): если шаг dt укоротился (раскалённые лёгкие
+                // атомы в пламени), шагов за кадр больше — пока расчёт кадра укладывается в ~14 мс
+                runScript();
+                const double tGoal = S.t + P.substeps * P.dtBase - 1e-9; const auto c0 = std::chrono::high_resolution_clock::now();
+                for (int s = 1; s <= 400; s++) {
+                    mdStep();
+                    if (S.t >= tGoal) break;
+                    if (s >= P.substeps && std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - c0).count() > 0.014) break;
+                }
+            }
         }
         if (minimized || idle) Sleep(15);   // свёрнутое или фоновое окно не грузит процессор отрисовкой
         { static bool wasOpen = false; if (wasOpen && !settingsOn) settingsSave(); wasOpen = settingsOn; }

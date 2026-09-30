@@ -4,13 +4,13 @@
 //   • обмен        X· + A–B → X–A + B·    (перенос одной единицы валентности A от B к X)
 //   • диссоциация  A–B → A· + B·          (связь растянута дальше r0 + R_BREAK)
 //   • перенос протона  D–H + :A → D⁻ + H–A⁺  (кислоты и основания: H3O+, OH−, NH4+, HCl; механизм Гроттгуса)
-// Барьер: энергия удара по линии центров ½μv_n² ≥ Ea, Ea = max(0, E0 + α·ΔH, ΔH) (Эванс–Поляни).
+// Барьер: энергия удара по линии центров ½μv_n² ≥ Ea, Ea — по модели пересекающихся парабол (rxBarrier).
 // Закон сохранения энергии точный: ΔU события либо поглощается сдвигом новой связи (и затем за ~τ_heat
 // переходит в кинетическую энергию пары — это и есть выделение теплоты реакции), либо сразу компенсируется
 // кинетической энергией участников в системе их центра масс (импульс сохраняется).
 //
-// Ионы. Отдельного «формального заряда» у атома не хранится: заряд молекулы Q = Σq / 0.8 (однозарядный ион в модели
-// несёт ±0.8e — масштабированные заряды, как у Na+ и Cl−), а места зарядов восстанавливаются по топологии:
+// Ионы. Отдельного «формального заряда» у атома не хранится: заряд молекулы Q = Σq (в зарядах электрона, у Na+ и Cl−
+// полный ±1, как в модели Джунга — Чиэтэма), а места зарядов восстанавливаются по топологии:
 // O с тремя связями — оксоний (H3O+), N с четырьмя — аммоний (NH4+), отрицательный заряд — на самом
 // электроотрицательном атоме со свободной валентностью (OH−). Заряд иона распределяется по атомам пропорционально
 // мягкости 1/η, η = I − A (упрощённое выравнивание электроотрицательностей, EEM); нейтральная часть — инкременты
@@ -41,8 +41,23 @@ constexpr int MOL_CAP = 64;           // молекулы крупнее — «�
 // теплота/энтальпия реакции (ε) → эВ и кДж/моль
 static inline double rxEV(double e) { return e / cfg::EV; }
 static inline double rxKJ(double e) { return e / cfg::EV * chem::KJ_PER_EV; }
-// наклон правила Семёнова — Поляни: у экзотермических стадий барьер почти не зависит от теплоты, у эндотермических — растёт с ней
-static inline double epAlpha(double dH) { return dH < 0 ? cfg::EP_ALPHA_EXO : cfg::EP_ALPHA_ENDO; }
+// Барьер стадии с теплотой ΔH и собственным барьером E0 (Маркус): Ea = E0·(1 + ΔH/4E0)²; при ΔH ≤ −4E0 барьера нет,
+// при ΔH ≥ 4E0 он равен ΔH. Прямой и обратный барьеры всегда отличаются ровно на ΔH, поэтому катализатор и множитель
+// «барьеры реакций ×» (они умножают E0) ускоряют реакции, но не сдвигают равновесие
+static inline double rxBarrier(double E0, double dH) {
+    if (E0 <= 1e-12) return std::max(0.0, dH);
+    const double x = dH / (4 * E0);
+    if (x <= -1) return 0;
+    if (x >= 1) return dH;
+    return E0 * (1 + x) * (1 + x);
+}
+// собственный барьер переноса атома от B к радикалу i — среднее «половинок» концов (перекрёстное правило Маркуса):
+// у атомов галогенов вдвое меньше, чем у H, C, N, O. Так Cl + CH4 → HCl + CH3 получает 0.17 эВ (опыт 0.11),
+// Cl + H2 — 0.27 (0.2), а Br + H2 по-прежнему 0.74 (0.78)
+static inline double rxIntrinsic(int i, int B) {
+    auto g = [](int a) { const int z = EL[S.ty[a] == E_CLM ? E_CL : S.ty[a]].Z; return (z == 9 || z == 17 || z == 35 || z == 53) ? 0.5 : 1.0; };
+    return cfg::EA_EXCH * 0.5 * (g(i) + g(B));
+}
 
 // ---- первые энергии ионизации I (эВ) для Z = 1…118 и сродство к электрону A (эВ): жёсткость η = I − A
 static const float IE_Z[119] = {0,
@@ -161,6 +176,10 @@ static void initChemTables() {
     sb(T(26), E_O, {4.17}, {1.62}, {1.8});             // FeO
     sb(T(29), E_O, {2.90}, {1.72}, {1.8});             // CuO
     sb(T(30), E_O, {2.80}, {1.70}, {1.8});             // ZnO
+    // атомы на поверхности катализаторов: за вычетом ослабления металлической связи (W_BOND) дают справочные
+    // энергии адсорбции — O на Pt(111) ≈ 4.3 эВ (мостик из двух связей), этилен на Ni(111) ≈ 0.8 эВ
+    sb(T(78), E_O, {3.10}, {1.80}, {1.8});             // Pt–O
+    sb(T(28), E_C, {2.50}, {1.90}, {1.7});             // Ni–C
     for (int t = 0; t < NEL; t++) {
         const int z = EL[t].Z;
         ETA[t] = z >= 1 && z <= 118 ? std::max(2.0, IE_Z[z] - eaOfZ(z)) : 10.0;
@@ -331,6 +350,21 @@ static double localEnergy(const std::vector<int>& Pset, const std::vector<int>& 
     E += metalEmbedLocal(centers);
     return E;
 }
+// собственная энергия ионов (ionSelfK, physics.inl) среди молекул, содержащих атомы P; «сетки» крупнее 64 атомов — нейтральны
+static void componentsIn(const std::vector<int>& M, std::vector<std::vector<int>>& comps);
+static double ionSelfOf(const std::vector<int>& P) {
+    if (!anyCharge || P.empty()) return 0;
+    static std::vector<int> M; static std::vector<std::vector<int>> comps;
+    if (!gatherMol(P.data(), (int)P.size(), M, 4 * chem::MOL_CAP)) return 0;
+    componentsIn(M, comps);
+    double E = 0;
+    for (auto& c : comps) {
+        if ((int)c.size() > 64) continue;
+        double q = 0; for (int a : c) q += S.q[a];
+        const long Q = std::lround(q); if (Q) E -= ionSelfK() * Q * Q;
+    }
+    return E;
+}
 // Состояние атома (для отката отклонённого события)
 struct TopoSave {
     int a; std::array<int, cfg::MAXB> nb; std::array<unsigned char, cfg::MAXB> bo; std::array<double, cfg::MAXB> bc;
@@ -366,7 +400,7 @@ static bool tryEvent(const int* Sa, int ns, F apply, int absA, int absB, double&
     for (size_t k = 0; k < V.size(); k++) { int a = V[k]; sv[k] = {a, S.nb[a], S.bo[a], S.bc[a], S.nbc[a], S.gh[a], S.ghc[a], S.q[a], S.ty[a]}; }
     auto rollback = [&] { for (auto& t : sv) { S.nb[t.a] = t.nb; S.bo[t.a] = t.bo; S.bc[t.a] = t.bc; S.nbc[t.a] = t.nbc; S.gh[t.a] = t.gh; S.ghc[t.a] = t.ghc; S.q[t.a] = t.q; S.ty[t.a] = t.ty; } };
 
-    double E0 = localEnergy(Pset, C) + (extE ? (*extE)() : 0.0);
+    double E0 = localEnergy(Pset, C) + ionSelfOf(Pset) + (extE ? (*extE)() : 0.0);
     // энергия «особых состояний» (расширенный октет) меняется вместе со связями: сдвиги связей центров
     // сразу переводятся к новым целям, и ΔU события её учитывает (у ионных событий это делает ionicCore)
     struct TRec { int a, b; double tg; };   // связь (a < b) и её цель
@@ -394,7 +428,7 @@ static bool tryEvent(const int* Sa, int ns, F apply, int absA, int absB, double&
         double s = 1.1225 * 0.5 * (EL[S.ty[pr.first]].sig + EL[S.ty[pr.second]].sig);
         if (dist2(pr.first, pr.second) < s * s) addGhost(pr.first, pr.second);
     }
-    double E1 = localEnergy(Pset, C) + (extE ? (*extE)() : 0.0);
+    double E1 = localEnergy(Pset, C) + ionSelfOf(Pset) + (extE ? (*extE)() : 0.0);
     double dE = E1 - E0;
     dEout = dE;
     if (!std::isfinite(dE)) { rollback(); return false; }   // не-конечная энергия (перекрытие, NaN) — событие отклоняется
@@ -658,7 +692,7 @@ static double extEnergyOf(int i) {
     return E;
 }
 static bool ptListFresh = false;
-// табличная энтальпия кислотно-основной стадии в водном растворе (ε; 1 эВ = 4ε) — для журнала. Сама динамика идёт с точным ΔU:
+// табличная энтальпия кислотно-основной стадии в водном растворе (ε) — для журнала. Сама динамика идёт с точным ΔU:
 // энергия ионов в модели (кулон + «энергия иона» в сдвигах связей) подобрана так, чтобы HCl диссоциировал, а нейтрализация шла с выделением тепла
 //   H3O+ + OH− → 2H2O: −56 кДж/моль; HCl + H2O → H3O+ + Cl−: −75; H3O+ + NH3 → NH4+ + H2O: −52; прыжки Гроттгуса: 0
 static double ptRefDH(int D, int A, int dc, int bc, double dHbond) {
@@ -699,8 +733,9 @@ static bool tryProton(int D, int h, int A) {
     const double mh = EL[E_H].m, ma = EL[S.ty[A]].m, mu = mh * ma / (mh + ma), Eapp = 0.5 * mu * vn * vn;
     const double dH = (D >= 0 ? BT[S.ty[D]][E_H].D[1] : 0.0) - bt.D[1];   // ΔH по энергиям связей (без сольватации)
     double mx = S.x[h] + 0.5 * dx, my = S.y[h] + 0.5 * dy, mz = S.z[h] + 0.5 * dz;
-    // к сильному основанию (OH−) — почти без барьера: нейтрализация лимитирована диффузией (k ≈ 1.4·10¹¹ л/(моль·с))
-    const double Ea = std::max(std::max(0.0, chem::EA_PT * (bc == 2 ? 0.2 : 1.0) + epAlpha(dH) * dH) * catalystFactor(mx, my, mz) * P.eaScale, dH);
+    // барьер — по теплоте стадии в растворе (ptRefDH); к сильному основанию (OH−) — почти без барьера:
+    // нейтрализация лимитирована диффузией (k ≈ 1.4·10¹¹ л/(моль·с))
+    const double Ea = rxBarrier(chem::EA_PT * (bc == 2 ? 0.2 : 1.0) * catalystFactor(mx, my, mz) * P.eaScale, ptRefDH(D, A, dc, bc, dH));
     if (Eapp < Ea) return false;
     ptGate[3]++;
     if (dc == 2 && bc == 1 && S.ty[A] == E_O && (polarNeighbors(A, 1.3) < 2 || polarNeighbors(D, 1.35) < 2)) return false;   // HCl + H2O — только в растворе
@@ -717,9 +752,13 @@ static bool tryProton(int D, int h, int A) {
     };
     auto fcAdj = [&](std::vector<int>& fc, const std::vector<int>& M) { int kd = idxIn(M, D >= 0 ? D : h), ka = idxIn(M, A); if (kd >= 0) fc[kd]--; if (ka >= 0) fc[ka]++; };
     const std::function<double()> ext = [h] { return extEnergyOf(h); };
-    if (!ptListFresh) { buildNeighborList(); ptListFresh = true; }   // протон сдвигается до 0.3σ: список соседей — от текущих положений
+    // протон сдвигается до 0.3σ: «кожи» списка соседей (0.4σ) хватает, если атомы с его сборки сместились не больше чем на 0.05σ
+    if (!ptListFresh) { if (nlMaxDisp2() > 0.05 * 0.05) buildNeighborList(); ptListFresh = true; }
+    // Протон перескакивает мгновенно, а вода вокруг ещё повёрнута «под старые» заряды и геометрия ионов не подстроилась:
+    // энергия сразу после прыжка выше, чем после перестройки (~0.1 пс). Этот временный избыток (до 5 эВ) не запрещает
+    // прыжок — он записывается в сдвиг новой связи O–H и возвращается, когда вода и ионы подстроятся (энергия сохраняется)
     double dE = NAN;
-    const bool ok = ionicCore(Sa, ns, topo, fcAdj, A, h, Eapp + 0.05 * cfg::EV, dE, false, &ext);
+    const bool ok = ionicCore(Sa, ns, topo, fcAdj, A, h, Eapp + 5.0 * cfg::EV, dE, false, &ext);
     if (std::isfinite(dE)) { int c = std::min(3, dc) * 3 + std::min(2, bc); ptDbgN[c]++; ptDbgSum[c] += dE; ptDbgMin[c] = std::min(ptDbgMin[c], dE); if (ok) ptDbgOk[c]++; }
     if (!ok) { S.x[h] = hx; S.y[h] = hy; S.z[h] = hz; S.ux[h] = hux; S.uy[h] = huy; S.uz[h] = huz; return false; }
     chemPT++; CH.exch++;
@@ -800,6 +839,89 @@ static bool onCatSurface(int a) {
     return false;
 }
 
+// ---- Поверхность металла-катализатора (механизм Ленгмюра — Хиншелвуда): молекула X–Y, коснувшись поверхности
+// обоими концами, распадается на атомы, связанные с металлом (H2 и O2 на Pt, Ni), а два атома на поверхности
+// соединяются друг с другом и уходят (H + O → OH, OH + H → H2O, этилен + H → этан). Каждая такая стадия —
+// четыре атома сразу; барьер — собственный барьер переноса атома, сниженный поверхностью (CAT_SURF)
+static int catPartner(int a, int ex) {   // ближайший касающийся атома a металл со свободной валентностью, кроме ex
+    const int ta = S.ty[a]; int best = -1; double bd = 1e30;
+    for (int p = nlStart[a]; p < nlStart[a + 1]; p++) {
+        const int m = nlIdx[p]; if (m == ex || usedFlag[m] || !CATMETAL[S.ty[m]] || freeVal(m) <= 0 || bonded(a, m)) continue;
+        const BondT& bt = BT[ta][S.ty[m]]; if (bt.maxOrder == 0 || S.nbc[m] >= cfg::MAXB) continue;
+        const double r2 = dist2(a, m), rf = bt.r0[1] + cfg::R_FORM;
+        if (r2 > rf * rf || r2 < 0.49 * bt.r0[1] * bt.r0[1]) continue;
+        if (r2 < bd) { bd = r2; best = m; }
+    }
+    return best;
+}
+// «напряжение» связи a–b порядка o в текущей геометрии: насколько её энергия Морзе выше дна ямы (0 — нет связи).
+// Событие меняет порядки связей мгновенно, а атомы ещё стоят по-старому; этот избыток вернётся, когда геометрия
+// подстроится, поэтому в допустимый рост энергии события он не входит
+static inline double morseStrain(int a, int b, int o) {
+    if (o <= 0) return 0;
+    const BondT& bt = BT[S.ty[a]][S.ty[b]]; if (o > bt.maxOrder) return 0;
+    return morseU(bt, o, std::sqrt(dist2(a, b))) + bt.D[o];
+}
+static inline double approachE(int a, int b) {   // энергия сближения пары по линии центров (0, если расходятся)
+    double dx, dy, dz; dvec(a, b, dx, dy, dz); const double r = std::sqrt(dx * dx + dy * dy + dz * dz); if (r < 1e-9) return 0;
+    const double vn = -((S.vx[b] - S.vx[a]) * dx + (S.vy[b] - S.vy[a]) * dy + (S.vz[b] - S.vz[a]) * dz) / r;
+    const double ma = EL[S.ty[a]].m, mb = EL[S.ty[b]].m;
+    return vn > 0 ? 0.5 * ma * mb / (ma + mb) * vn * vn : 0;
+}
+// во сколько обходится металлу одна связь с неметаллом (для оценки теплоты поверхностной стадии): доля W_BOND/val
+// его зонной энергии, а она у потенциала Гупты около 1.6 энергии когезии
+static inline double metalBondCost(int m) { const Element& e = EL[S.ty[m]]; return e.val > 0 ? W_BOND / e.val * 1.6 * e.ecoh * cfg::EV : 0; }
+static bool surfaceStep() {
+    bool any = false; const int n = S.n;
+    const double E0 = cfg::EA_EXCH * chem::CAT_SURF * P.eaScale;
+    for (int x = 0; x < n; x++) {
+        if (usedFlag[x] || CATMETAL[S.ty[x]] || EL[S.ty[x]].val <= 0) continue;
+        // а) диссоциативная адсорбция: связь x–y рвётся, оба атома садятся на соседние атомы металла
+        for (int k = 0; k < S.nbc[x] && !usedFlag[x]; k++) {
+            const int y = S.nb[x][k]; if (y < x || usedFlag[y] || CATMETAL[S.ty[y]]) continue;
+            const int m1 = catPartner(x, -1); if (m1 < 0) continue;
+            const int m2 = catPartner(y, m1); if (m2 < 0) continue;
+            const int o = S.bo[x][k]; const BondT& b = BT[S.ty[x]][S.ty[y]];
+            const double dH = (b.D[o] - b.D[o - 1]) - BT[S.ty[x]][S.ty[m1]].D[1] - BT[S.ty[y]][S.ty[m2]].D[1] + metalBondCost(m1) + metalBondCost(m2);
+            const double ea = approachE(x, m1) + approachE(y, m2);
+            if (ea < rxBarrier(E0, dH)) continue;
+            if (!plainMol(x)) continue;
+            const std::string before = molFormula(x);
+            const double strain = morseStrain(x, y, o - 1) - morseStrain(x, y, o) + morseStrain(x, m1, 1) + morseStrain(y, m2, 1);
+            int Sa[4] = {x, y, m1, m2}; double dE;
+            if (tryEvent(Sa, 4, [&] { changeBond(x, y, -1); changeBond(x, m1, +1); changeBond(y, m2, +1); }, x, m1, dE, ea + 0.2 * cfg::EV + std::max(0.0, strain))) {
+                CH.exch++; CH.heat -= dH; usedFlag[x] = usedFlag[y] = usedFlag[m1] = usedFlag[m2] = 1; any = true;
+                double mx, my, mz; midpoint(x, y, mx, my, mz); addFlash(mx, my, mz, dH);
+                logReaction({before, EL[S.ty[m1]].sym}, {molFormula(x), molFormula(y)}, dH);
+            }
+        }
+        if (usedFlag[x]) continue;
+        // б) рекомбинация на поверхности: x и y сидят на металле, сближаются и связываются друг с другом
+        int m1 = -1; for (int k = 0; k < S.nbc[x]; k++) if (CATMETAL[S.ty[S.nb[x][k]]]) { m1 = S.nb[x][k]; break; }
+        if (m1 < 0 || usedFlag[m1]) continue;
+        for (int p = nlStart[x]; p < nlStart[x + 1]; p++) {
+            const int y = nlIdx[p]; if (y == m1 || usedFlag[y] || CATMETAL[S.ty[y]] || EL[S.ty[y]].val <= 0) continue;
+            const BondT& b = BT[S.ty[x]][S.ty[y]]; const int o = bondOrder(x, y);
+            if (b.maxOrder == 0 || o + 1 > b.maxOrder || (o == 0 && (S.nbc[x] > cfg::MAXB - 1 || S.nbc[y] > cfg::MAXB - 1))) continue;
+            int m2 = -1; for (int k = 0; k < S.nbc[y]; k++) if (CATMETAL[S.ty[S.nb[y][k]]] && !usedFlag[S.nb[y][k]]) { m2 = S.nb[y][k]; break; }
+            if (m2 < 0) continue;
+            const double rf = b.r0[o + 1] + cfg::R_FORM, r2 = dist2(x, y); if (r2 > rf * rf || r2 < 0.49 * b.r0[1] * b.r0[1]) continue;
+            const double dH = -(b.D[o + 1] - b.D[o]) + BT[S.ty[x]][S.ty[m1]].D[1] + BT[S.ty[y]][S.ty[m2]].D[1] - metalBondCost(m1) - metalBondCost(m2);
+            const double ea = approachE(x, y); if (ea < rxBarrier(E0, dH)) continue;
+            if (!plainMol(x) || !plainMol(y)) continue;
+            const double strain = morseStrain(x, y, o + 1) - morseStrain(x, y, o) - morseStrain(x, m1, 1) - morseStrain(y, m2, 1);
+            int Sa[4] = {x, y, m1, m2}; double dE;
+            if (tryEvent(Sa, m1 == m2 ? 3 : 4, [&] { changeBond(x, m1, -1); changeBond(y, m2, -1); changeBond(x, y, +1); }, x, y, dE, ea + 0.2 * cfg::EV + std::max(0.0, strain))) {
+                CH.assoc++; CH.heat -= dH; usedFlag[x] = usedFlag[y] = usedFlag[m1] = usedFlag[m2] = 1; any = true;
+                double mx, my, mz; midpoint(x, y, mx, my, mz); addFlash(mx, my, mz, dH);
+                logReaction({EL[S.ty[x]].sym, EL[S.ty[y]].sym}, {molFormula(x)}, dH);
+                break;
+            }
+        }
+    }
+    return any;
+}
+
 // ===================================== ШАГ ХИМИИ =========================================
 static bool chemistryStep() {
     const int n = S.n; bool any = false;
@@ -859,8 +981,8 @@ static bool chemistryStep() {
             int o = bondOrder(i, j);
             if (o + 1 > bt.maxOrder) continue;
             if (o == 0 && (S.nbc[i] >= cfg::MAXB || S.nbc[j] >= cfg::MAXB)) continue;
-            // металлическая поверхность снижает кинетическую часть барьера (проверяется, только если это что-то решает)
-            auto barrier = [&](double E0, double dH, double c) { return std::max(std::max(0.0, E0 + epAlpha(dH) * dH) * c * P.eaScale, dH); };
+            // металлическая поверхность снижает собственный барьер (проверяется, только если это что-то решает)
+            auto barrier = [&](double E0, double dH, double c) { return rxBarrier(E0 * c * P.eaScale, dH); };
             auto passes = [&](double E0, double dH) {
                 if (Eapp >= barrier(E0, dH, cat)) return true;
                 return catMetal && Eapp >= barrier(E0, dH, cat * chem::CAT_SURF) && (onCatSurface(i) || onCatSurface(j));
@@ -869,7 +991,6 @@ static bool chemistryStep() {
             if (freeVal(j) > 0 || (o == 0 && canExpand(j, i))) {
                 // ΔH по энергиям связей + промотирование электронов, если атом уходит за обычную валентность
                 double dH = -(bt.D[o + 1] - bt.D[o]) + promDelta(i, +1) + promDelta(j, +1);
-                // Эванс–Поляни; катализатор и множитель барьера снижают только кинетическую часть — не ниже ΔH
                 if (!passes(cfg::EA_ASSOC, dH)) continue;
                 if (!plainMol(i) || !plainMol(j)) continue;   // заряженные частицы реагируют переносом протона
                 int Sa[2] = {i, j}; double dE;
@@ -880,15 +1001,17 @@ static bool chemistryStep() {
                     if (one) logReaction({ri}, {molFormula(i)}, dH); else logReaction({ri, rj}, {molFormula(i)}, dH);
                 }
             } else {
-                int best = -1; double bestH = 1e30;
+                // из связей атома j уступает ту, где барьер ниже: кратная связь (присоединение) или простая (перенос атома)
+                int best = -1; double bestH = 0, bestE0 = 0, bestEa = 1e30;
                 for (int q = 0; q < S.nbc[j]; q++) {
                     int B = S.nb[j][q]; if (B == i || usedFlag[B]) continue;
                     int oB = S.bo[j][q]; const BondT& b2 = BT[tj][S.ty[B]];
                     double dH = (b2.D[oB] - b2.D[oB - 1]) - (bt.D[o + 1] - bt.D[o]) + promDelta(i, +1) + promDelta(B, -1);
-                    if (dH < bestH) { bestH = dH; best = B; }
+                    const double E0 = oB >= 2 ? cfg::EA_ADD : rxIntrinsic(i, B), ea = barrier(E0, dH, cat);
+                    if (ea < bestEa) { bestEa = ea; bestH = dH; bestE0 = E0; best = B; }
                 }
                 if (best < 0) continue;
-                if (!passes(cfg::EA_EXCH, bestH)) continue;   // Эванс–Поляни
+                if (!passes(bestE0, bestH)) continue;
                 if (!plainMol(i) || !plainMol(j)) continue;
                 int B = best; int Sa[3] = {i, j, B}; double dE;
                 bool one = sameMolecule(i, j);
@@ -902,7 +1025,9 @@ static bool chemistryStep() {
             if (done) break;
         }
     }
-    // 3) кислоты и основания: перенос протона
+    // 3) поверхность металла-катализатора: распад молекул на атомы и сборка атомов в молекулы
+    if (catMetal && surfaceStep()) any = true;
+    // 4) кислоты и основания: перенос протона
     if (P.acidBase && protonStep()) any = true;
     return any;
 }
@@ -1035,11 +1160,13 @@ static bool overlaps(int t, double x, double y, double z, double fac) {
     for (int j = 0; j < S.n; j++) {
         double dx = S.x[j] - x, dy = S.y[j] - y, dz = S.z[j] - z;
         if (per) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz); }
-        double s2 = PT[t][S.ty[j]].sig2 * fac * fac;   // σ_ij с учётом NBFIX
+        // σ_ij с учётом NBFIX, но не ближе 1.5 Å: у водорода и ядра WCA σ мало, а вплотную к чужому атому — огромная энергия
+        double s2 = std::max(PT[t][S.ty[j]].sig2 * fac * fac, 0.44 * 0.44);
         if (dx * dx + dy * dy + dz * dz < s2) return true;
     }
     return false;
 }
+static void thermalVel(int t, double T, double& vx, double& vy, double& vz);
 // Поставить молекулу по шаблону; возвращает false при перекрытии или выходе за стенки.
 // Заряды: инкременты связей + заряд иона (формальные заряды шаблона) по мягкости атомов; сдвиги связей ионов — их энергия.
 static bool placeMol(const Tmpl& m, double cx, double cy, double cz, double T, double fac = 0.8) {
@@ -1055,12 +1182,11 @@ static bool placeMol(const Tmpl& m, double cx, double cy, double cz, double T, d
         if (overlaps(a.t, x, y, z, fac)) return false;
         pos.push_back({x, y, z});
     }
-    double M = 0; for (auto& a : m.a) M += EL[a.t].m;
-    double sv = std::sqrt(T / M), vc[3] = {grand() * sv, grand() * sv, grand() * sv};
+    // скорости — тепловые у каждого атома: поступательное, вращательное и колебательное движение сразу при температуре T
     int base = S.n;
     for (size_t k = 0; k < m.a.size(); k++) {
-        double sm = std::sqrt(T / EL[m.a[k].t].m) * 0.3;
-        addAtom(m.a[k].t, pos[k][0], pos[k][1], pos[k][2], vc[0] + grand() * sm, vc[1] + grand() * sm, vc[2] + grand() * sm);
+        double vx, vy, vz; thermalVel(m.a[k].t, T, vx, vy, vz);
+        addAtom(m.a[k].t, pos[k][0], pos[k][1], pos[k][2], vx, vy, vz);
     }
     for (auto& b : m.b) for (int o = 0; o < b[2]; o++) changeBond(base + b[0], base + b[1], +1);
     bool ionic = false; for (auto& a : m.a) if (a.fc) ionic = true;
@@ -1116,6 +1242,20 @@ static int fillGrid(const Tmpl& m, int count, double x0, double y0, double z0, d
 static int waterMolecules(double V) { return (int)std::lround(V * 39.476 / 29.915); }
 static void thermalVel(int t, double T, double& vx, double& vy, double& vz) {
     double s = std::sqrt(T / EL[t].m); vx = grand() * s; vy = grand() * s; vz = grand() * s;
+}
+// Искра разряда: в шаре радиуса R газ превращается в плазму — связи рвутся (каждая получает D + 0.3 эВ, как при
+// фотодиссоциации), атомы получают добавочные тепловые скорости при температуре Tk. Вся энергия — внешняя работа
+static void spark(const double* c, double R, double Tk) {
+    lightFlash(c, nullptr, R);
+    for (int i = 0; i < S.n; i++) {
+        if (frozenAt(i)) continue;
+        const double dx = S.x[i] - c[0], dy = S.y[i] - c[1], dz = S.z[i] - c[2];
+        if (dx * dx + dy * dy + dz * dz > R * R) continue;
+        const double m = EL[S.ty[i]].m, k0 = S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i];
+        double vx, vy, vz; thermalVel(S.ty[i], Tk, vx, vy, vz);
+        S.vx[i] += vx; S.vy[i] += vy; S.vz[i] += vz;
+        Wext += 0.5 * m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i] - k0);
+    }
 }
 // решётки Браве и ГПУ: элементарная ячейка + базис (дробные координаты)
 enum { L_FCC, L_HCP, L_BCC, L_SC, L_NACL, L_ICE };

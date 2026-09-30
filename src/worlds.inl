@@ -7,7 +7,15 @@ static int worldToolSaved = -1;
 static void worldLoad(int k, int variant) {
     (void)variant;
     const int prev = world;
-    if (k >= 100 && k < 110) { world = W_NUC; nucReset(k - 100); }
+    if (k >= 100 && k < 105) { world = W_NUC; nucReset(k - 100); }
+    else if (k >= 120 && k < 124) {   // повтор той же сцены (R) сохраняет напряжения
+        if (prev != W_SEMI || currentPreset != k) scDefaults(k - 120);
+        world = W_SEMI; scReset(k - 120);
+    }
+    else if (k >= 130 && k < 135) {   // повтор той же сцены (R) сохраняет настройки ползунков
+        if (prev != W_WAVE || currentPreset != k) wvDefaults(k - 130);
+        world = W_WAVE; wvReset(k - 130);
+    }
     else { world = W_MD; loadPreset(1, 0); return; }
     static const char* TITLES[] = {
         "Радиоактивный распад: каждое ядро распадается случайно, а их число падает по закону N = N0·2^(−t/T½)",
@@ -15,7 +23,7 @@ static void worldLoad(int k, int variant) {
         "Критическая масса: в шаре урана-235 нейтроны деления вызывают новые деления — растёт ли их число?",
         "Ядерный реактор: вода замедляет нейтроны, стержни с бором поглощают лишние — цепная реакция идёт ровно",
         "Ядерный взрыв: сверхкритическая сборка — число делений растёт экспоненциально, пока шар не разлетится"};
-    presetTitle = TITLES[clampv(nuc::scene, 0, 4)];
+    presetTitle = world == W_WAVE ? WV_TITLES[wv::scene] : (world == W_SEMI ? SC_TITLES[sc::scene] : TITLES[clampv(nuc::scene, 0, 4)]);
     currentPreset = k; presetVariant = 0; presetLoaded = false;
     if (prev == W_MD) worldToolSaved = lmbTool;
     lmbTool = TOOL_CAMERA; P.paused = false; viewFitPending = true; followAtom = -1; flashes.clear();
@@ -25,10 +33,10 @@ static void worldLoad(int k, int variant) {
 // выход в молекулярную динамику: вернуть инструмент
 static void worldLeave() { if (worldToolSaved >= 0) { lmbTool = worldToolSaved; worldToolSaved = -1; } }
 static void worldStep(double frameDt) {
-    switch (world) { case W_NUC: nucStep(frameDt); break; }
+    switch (world) { case W_NUC: nucStep(frameDt); break; case W_WAVE: wvStep(frameDt); break; case W_SEMI: scStep(frameDt); break; }
 }
 static void worldDraw() {
-    switch (world) { case W_NUC: nucDraw(); break; }
+    switch (world) { case W_NUC: nucDraw(); break; case W_WAVE: wvDraw(); return; case W_SEMI: scDraw(); return; }
     // масштаб и подпись мира в левом нижнем углу
     const float x = sceneX + uiPx(12), y = sceneY + sceneH - uiPx(22);
     const double pps = pxPerSigma();
@@ -40,7 +48,7 @@ static void worldDraw() {
     } else if (world == W_NUC) drawText(fontXS, x, y - fontXS.h, "ядра увеличены: на самом деле между ними в 100 000 раз больше места", C_DIM);
 }
 static std::string worldClock() {
-    switch (world) { case W_NUC: return nucWorldTime(); }
+    switch (world) { case W_NUC: return nucWorldTime(); case W_WAVE: return wvTimeStr(); case W_SEMI: return scTimeStr(); }
     return "";
 }
 
@@ -139,7 +147,7 @@ static void nucPanel(float x, float y, float w, float h) {
     scrollEnd(6, yy);
 }
 static void worldPanel(float x, float y, float w, float h) {
-    switch (world) { case W_NUC: nucPanel(x, y, w, h); break; }
+    switch (world) { case W_NUC: nucPanel(x, y, w, h); break; case W_WAVE: wvPanel(x, y, w, h); break; case W_SEMI: scPanel(x, y, w, h); break; }
 }
 // ---- полоса под сценой: легенда цветов мира
 static void worldStrip(float x, float y, float w, float h) {
@@ -148,7 +156,7 @@ static void worldStrip(float x, float y, float w, float h) {
     float bx = x + uiPx(12); const float cy = y + h / 2;
     auto sw = [&](const char* label, RGBA c, bool line = false) {
         { MonoAtoms colored; if (line) rectFill(bx, cy - uiPx(1), uiPx(14), uiPx(2), c); else { col(c); discPx(bx + uiPx(5), cy, uiPx(5), 16); } }
-        bx += uiPx(line ? 20 : 14); bx += drawText(fontXS, bx, cy - fontXS.h / 2, label, C_TEXT) + uiPx(16);
+        bx += uiPx(line ? 20.0f : 14.0f); bx += drawText(fontXS, bx, cy - fontXS.h / 2, label, C_TEXT) + uiPx(16);
     };
     if (world == W_NUC) {
         bx += drawText(fontXS, bx, cy - fontXS.h / 2, "цвет:", C_DIM) + uiPx(10);
@@ -157,18 +165,37 @@ static void worldStrip(float x, float y, float w, float h) {
         sw("электрон β−", {0.4f, 0.6f, 1.0f, 1}, true); sw("позитрон β+", {1.0f, 0.45f, 0.8f, 1}, true);
         sw("гамма-квант", {1.0f, 0.95f, 0.4f, 1}, true); sw("антинейтрино", {0.5f, 0.5f, 0.5f, 1}, true);
     }
+    if (world == W_SEMI) {
+        bx += drawText(fontXS, bx, cy - fontXS.h / 2, "цвет:", C_DIM) + uiPx(10);
+        sw("электрон", {0.45f, 0.80f, 1.0f, 1}); sw("дырка", {1.0f, 0.55f, 0.25f, 1});
+        sw("n-область, ионы доноров +", {0.25f, 0.4f, 0.85f, 1}); sw("p-область, ионы акцепторов −", {0.85f, 0.35f, 0.25f, 1});
+        if (sc::Brad > 0 || (sc::scene == 1 && sc::mode121 == 1)) sw("фотон", {1.0f, 0.9f, 0.3f, 1}, true);
+    }
+    if (world == W_WAVE) {
+        if (wv::scene == 3) bx += drawText(fontXS, bx, cy - fontXS.h / 2, "яркость — плотность вероятности |ψ(x, t)|²: по горизонтали — ящик, сверху вниз — время", C_DIM);
+        else {
+            bx += drawText(fontXS, bx, cy - fontXS.h / 2, "яркость — вероятность |ψ|², цвет — фаза ψ:", C_DIM) + uiPx(10);
+            for (int q = 0; q < 4; q++) { float r, g, b; wvHue(q * PI / 2, r, g, b); static const char* PH[4] = {"0", "π/2", "π", "3π/2"}; sw(PH[q], {r, g, b, 1}); }
+            sw("барьер, стенка", {0.6f, 0.6f, 0.6f, 1});
+            bx += drawText(fontXS, bx, cy - fontXS.h / 2, "щелчок по волне — измерение положения", C_DIM);
+        }
+    }
     popClip();
 }
 static std::string worldSubtitle() {
     switch (world) {
     case W_NUC: return nuc::scene <= 1 ? "мир ядер · время — реальные периоды полураспада, ускорено ползунком справа · мышь: вращать, колесо — масштаб"
                                        : "мир ядер · перенос нейтронов Монте-Карло: реальные сечения и плотности · размеры — в сантиметрах";
+    case W_WAVE: return "квантовый мир · уравнение Шрёдингера для электрона на сетке 256×256 · единицы: нм, фс, эВ";
+    case W_SEMI: return "полупроводник · дрейф и диффузия носителей, уравнение Пуассона; параметры кремния при 300 K · размеры — микрометры";
     }
     return "";
 }
 // краткий отчёт для самопроверки (--selftest)
 static std::string worldReport() {
     using namespace nuc;
+    if (world == W_WAVE) return wvReport();
+    if (world == W_SEMI) return scReport();
     if (world != W_NUC) return "";
     if (scene <= 1) {
         const int iso = scene == 0 ? isoPick : 7; int left = 0; for (auto& n : nuclei) if (n.iso == iso) left++;

@@ -246,10 +246,12 @@ static void seriesRange(const std::vector<float>& v, double& lo, double& hi) {
     for (float f : v) { if (!std::isfinite(f)) continue; lo = std::min(lo, (double)f); hi = std::max(hi, (double)f); }
 }
 static void niceRange(double& lo, double& hi) { if (hi - lo < 1e-6) { hi += 0.5; lo -= 0.5; } double m = 0.08 * (hi - lo); lo -= m; hi += m; }
-static void drawSeries(const PR& in, const std::vector<float>& v, double lo, double hi, RGBA c, float w = 1.2f, int style = LS_SOLID) {
+// ряд значений; span — сколько точек занимает вся ширина (0 — окно истории cfg::HIST, −1 — ровно размер ряда)
+static void drawSeries(const PR& in, const std::vector<float>& v, double lo, double hi, RGBA c, float w = 1.2f, int style = LS_SOLID, int span = 0) {
     if (v.size() < 2) return;
+    const double last = span > 0 ? span - 1 : (span < 0 ? (double)v.size() - 1 : cfg::HIST - 1);
     glLineWidth(w); glEnable(GL_LINE_SMOOTH); lineStyle(style); col(c); glBegin(GL_LINE_STRIP);
-    for (size_t k = 0; k < v.size(); k++) glVertex2f(mapX(in, (double)k, 0, cfg::HIST - 1), mapY(in, v[k], lo, hi));
+    for (size_t k = 0; k < v.size(); k++) glVertex2f(mapX(in, (double)k, 0, last), mapY(in, v[k], lo, hi));
     glEnd(); lineStyle(LS_SOLID); glDisable(GL_LINE_SMOOTH); glLineWidth(1);
 }
 static void hline(const PR& in, double y, double lo, double hi, RGBA c) {
@@ -942,6 +944,8 @@ static const char* TOOL_STATUS[TOOL_N] = {
     "щелчки по атомам: расстояние → угол → двугранный · по пустому — сброс",
     "ЛКМ — поставить/двигать · колесо — R · Shift+колесо — сила · N — вкл/выкл · Del/ПКМ — удалить"};
 static void setTool(int t) {
+    if (world == W_WAVE) { lmbTool = TOOL_CAMERA; showToast("Здесь щелчок по волне — измерение: электрон найдётся в этом месте или волна там исчезнет"); return; }
+    if (world == W_SEMI) { lmbTool = TOOL_CAMERA; showToast("Прибором управляют ползунки напряжений справа"); return; }
     if (world != W_MD) { lmbTool = TOOL_CAMERA; showToast("Здесь мышь управляет только камерой: ЛКМ — вращать, Shift+ЛКМ — сдвиг, колесо — масштаб"); return; }
     t = clampv(t, 0, TOOL_N - 1); lmbTool = t;
     showToast(std::string(T("Инструмент: ")) + T(TOOL_NAMES[t]));
@@ -1064,7 +1068,7 @@ static float drawReadouts(float x, float y, float w) {
         static double Iavg = 0; double I = 0;
         for (int i = 0; i < S.n; i++) I += S.q[i] * S.vx[i];
         I /= S.Lx; Iavg += (I - Iavg) * 0.03;
-        cell(0, "поле E", fmt("%+.2f", P.efield), "ε/(σe)"); cell(1, "ток I", fmt("%+.4f", Iavg), "e/τ"); yy += rh;
+        cell(0, "поле E", fmt("%+.2f", P.efield * cfg::U_E_VNM), "В/нм"); cell(1, "ток I", fmt("%+.4f", Iavg), "e/τ"); yy += rh;
     }
     if (EN.capped) { cell(0, "огр. F", fmt("%d", EN.capped), "случаев", C_TEXT_HI, VS_WARN); yy += rh; }
     if (physAlertActive()) {   // тревога устойчивости (физика)
@@ -1117,8 +1121,9 @@ static void drawCtrlTab(float x, float y, float w, float h) {
       if (sliderReleased == 103) { sliderReleased = -1; adjustCount((int)sliderN); } }
     if (slider(101, "ε притяжение ×", &P.epsScale, 0.2, 3.0, false, fmt("%.2f", P.epsScale), "Множитель притяжения (LJ и металлической связи):\nбольше — вещество «липче», выше T плавления и кипения")) {
         buildPairTables(); updatePresence(); computeForces(); resetEnergyRef(); }
-    if (slider(112, "электрическое поле E", &P.efield, -3, 3, false, fmt("%+.2f ε/(σe)", P.efield), "Поле вдоль x: сила qE на заряженные атомы.\nИоны дрейфуют, вода поворачивается диполями. Работа поля — внешняя")) {
-        if (std::fabs(P.efield) < 0.04) P.efield = 0; }
+    { double e = P.efield * cfg::U_E_VNM;   // в вольтах на нанометр: в воде ионы заметно дрейфуют при ~0.3–1 В/нм
+      if (slider(112, "электрическое поле E", &e, -1, 1, false, fmt("%+.2f В/нм", e), "Поле вдоль x: сила qE на заряженные атомы.\nИоны дрейфуют, вода поворачивается диполями. Работа поля — внешняя")) {
+          P.efield = std::fabs(e) < 0.015 ? 0 : e / cfg::U_E_VNM; } }
     uiSection(x, yy, W, "Химия");
     {
         float w1 = std::floor((W - g) / 2);
@@ -1127,9 +1132,9 @@ static void drawCtrlTab(float x, float y, float w, float h) {
             P.catalyst = !P.catalyst; P.catX = S.Lx / 2; P.catY = S.Ly / 2; P.catZ = S.Lz / 2; }
         yy += bh + g;
     }
-    slider(114, "барьеры реакций ×", &P.eaScale, 0, 3, false, fmt("%.2f", P.eaScale), "Множитель энергий активации (кинетическая часть барьера).\n0 — реакции идут при любом столкновении, но не ниже ΔH");
+    slider(114, "барьеры реакций ×", &P.eaScale, 0, 3, false, fmt("%.2f", P.eaScale), "Множитель собственных барьеров реакций (1 — как в природе).\nМеняет скорости, но не равновесие; ниже ΔH барьер не опускается");
     uiSection(x, yy, W, "Интегрирование и инструменты");
-    { double v = P.substeps; if (slider(104, "скорость, шагов/кадр", &v, 1, 60, true, fmt("%d", P.substeps), "Шагов интегрирования за кадр: ускорение времени\n(точность не меняется — шаг dt тот же)")) P.substeps = std::max(1, (int)std::lround(v)); }
+    { double v = P.substeps; if (slider(104, "скорость, шагов/кадр", &v, 1, 60, true, fmt("%d", P.substeps), "Шагов интегрирования за кадр: ускорение времени\n(точность не меняется — шаг dt тот же). Если шаг укоротился\n(раскалённые атомы), шагов за кадр больше, пока хватает процессора")) P.substeps = std::max(1, (int)std::lround(v)); }
     slider(107, "кисть R", &P.brushR, 0.5, 14, true, fmt("%.1fσ · %.2f нм", P.brushR, realNm(P.brushR)), "Радиус кисти: добавление, ластик, нагрев, охлаждение, толчок, удар (×2.5), вспышка L");
     slider(116, "сила инструментов", &toolPower, 0.1, 10, true, fmt("%.2f×", toolPower), "Сила толчка, ударной волны и броска выделения");
     uiSection(x, yy, W, "Отображение");
@@ -1440,6 +1445,16 @@ static void drawStatusBar(float x, float y, float w, float h) {
     if (!right.empty()) rx -= drawTextR(fontS, rx, y + (h - fontS.h) / 2, right, C_DIM) + uiPx(14);
     // слева: инструмент и подсказка по мыши (или тревога физики)
     pushClip(x, y, rx - x, h);
+    if (world == W_WAVE) {   // у волны нет камеры: мышь — прибор, измеряющий положение электрона
+        xx += drawText(fontUB, xx, y + (h - fontUB.h) / 2, "Измерение", C_TEXT_HI) + uiPx(10);
+        drawText(fontXS, xx, ty, "щелчок по волне — найти электрон в этом месте: с вероятностью |ψ|² он там, иначе волна там исчезает", C_DIM);
+        popClip(); return;
+    }
+    if (world == W_SEMI) {
+        xx += drawText(fontUB, xx, y + (h - fontUB.h) / 2, "Прибор", C_TEXT_HI) + uiPx(10);
+        drawText(fontXS, xx, ty, "напряжения на выводах — ползунками справа; точки вольт-амперной характеристики ставятся сами", C_DIM);
+        popClip(); return;
+    }
     xx += drawText(fontUB, xx, y + (h - fontUB.h) / 2, TOOL_NAMES[clampv(lmbTool, 0, TOOL_N - 1)], C_TEXT_HI) + uiPx(10);
     if (physAlertActive()) drawText(fontXS, xx, ty, physAlert, C_WARN);
     else {

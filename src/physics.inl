@@ -11,6 +11,7 @@ struct Energies {
 struct ChemStats { long long assoc = 0, exch = 0, diss = 0; double heat = 0; } CH;   // счётчики реакций
 static double Wext = 0, Eref = 0;     // работа внешних сил/термостатов и опорная энергия для дрейфа
 static double heatWallQ[2] = {0, 0};  // теплота, переданная веществу горячей [0] и холодной [1] тепловыми стенками (ε, нарастающим итогом)
+constexpr int OMP_MIN = 500;          // простые циклы короче идут в одном потоке: запуск потоков дороже самой работы
 static bool energyRefValid = false;
 static bool conserving = true;        // false в режиме NPT (баростат не сохраняет энергию)
 
@@ -115,12 +116,38 @@ static inline double erfcE(double x, double e2) {
     return t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * e2;
 }
 static double dsfA = cfg::DSF_A, kappaQ = cfg::KAPPA_Q;   // меняются только в проверочных режимах (--water)
-// Кулон DSF для пары с произведением зарядов qq: энергия и ff = −(dU/dr)/r
-static inline double coulDSF(double qq, double r2, double& ff) {
-    const double r = std::sqrt(r2), x = dsfA * r, e2 = std::exp(-x * x), ec = erfcE(x, e2), ir = 1.0 / r, k = cfg::K_COUL * qq;
-    ff = k * ((ec * ir + 1.1283791670955126 * dsfA * e2) * ir - coulFs) * ir;
-    return k * (ec * ir - coulShift + coulFs * (r - rcCoul));
+// DSF на единичные заряды (U/K) и dU/ds, s = r² — по формуле
+static inline double coulDSFexact(double r2, double& dUds) {
+    const double r = std::sqrt(r2), x = dsfA * r, e2 = std::exp(-x * x), ec = erfcE(x, e2), ir = 1.0 / r;
+    dUds = -0.5 * ((ec * ir + 1.1283791670955126 * dsfA * e2) * ir - coulFs) * ir;
+    return ec * ir - coulShift + coulFs * (r - rcCoul);
 }
+// Кулон считается для сотен тысяч пар за шаг, поэтому — по таблице: значения U и dU/ds в узлах равномерной сетки по s,
+// между узлами — кубический сплайн Эрмита. Сила — производная того же сплайна, то есть точно консервативна
+// (ошибка самой кривой < 10⁻⁸); ближе 0.3σ — по формуле
+namespace dsfT { constexpr int N = 4096; constexpr double S0 = 0.09; struct Node { double u, d; }; static Node T[N + 1]; static double ds = 1, ids = 1; }
+static void buildDsfTable() {
+    dsfT::ds = (rcCoul * rcCoul - dsfT::S0) / dsfT::N; dsfT::ids = 1 / dsfT::ds;
+    for (int k = 0; k <= dsfT::N; k++) dsfT::T[k].u = coulDSFexact(dsfT::S0 + k * dsfT::ds, dsfT::T[k].d);
+}
+// Кулон DSF для пары с произведением зарядов qq (r < r_c): энергия и ff = −(dU/dr)/r = −2·dU/ds
+static inline double coulDSF(double qq, double r2, double& ff) {
+    const double k = cfg::K_COUL * qq;
+    if (r2 < dsfT::S0) { double d; const double u = coulDSFexact(r2, d); ff = -2 * k * d; return k * u; }
+    double t = (r2 - dsfT::S0) * dsfT::ids; int i = (int)t; if (i >= dsfT::N) i = dsfT::N - 1; t -= i;
+    const dsfT::Node& a = dsfT::T[i]; const dsfT::Node& b = dsfT::T[i + 1];
+    const double d0 = a.d * dsfT::ds, d1 = b.d * dsfT::ds, t2 = t * t, t3 = t2 * t;
+    const double u = (2 * t3 - 3 * t2 + 1) * a.u + (t3 - 2 * t2 + t) * d0 + (3 * t2 - 2 * t3) * b.u + (t3 - t2) * d1;
+    const double du = ((6 * t2 - 6 * t) * (a.u - b.u) + (3 * t2 - 4 * t + 1) * d0 + (3 * t2 - 2 * t) * d1) * dsfT::ids;
+    ff = -2 * k * du; return k * u;
+}
+// Собственная энергия заряда в методе DSF (Вольф): −K·(erfc(αr_c)/2r_c + α/√π)·Q². Затухание erfc(αr) ослабляет
+// кулон на малых расстояниях, а эта поправка возвращает иону энергию его экранирующего окружения (в воде — гидратацию).
+// Считается для полного заряда ионов (H3O+, Cl−, Na+…), а не для частичных зарядов нейтральных молекул:
+// перенос протона HCl + H2O → H3O+ + Cl− без неё обходился бы на ~3.7 эВ дороже, чем на самом деле
+static inline double ionSelfK() { return cfg::K_COUL * (std::erfc(dsfA * rcCoul) / (2 * rcCoul) + dsfA / std::sqrt(PI)); }
+// ближайший образ по одной оси: d — разность координат, L — период, iL = 1/L (быстрее std::nearbyint)
+static inline double minImg(double d, double L, double iL) { const double s = d * iL; return d - L * (double)(long long)(s + (s >= 0 ? 0.5 : -0.5)); }
 static bool present[NEL];
 static bool nlValid = false;          // список Верле действителен
 
@@ -225,6 +252,7 @@ static void buildPairTables() {
     const double x = dsfA * rcCoul, e2 = std::exp(-x * x), ec = erfcE(x, e2);
     coulShift = ec / rcCoul;
     coulFs = ec / (rcCoul * rcCoul) + 1.1283791670955126 * dsfA * e2 / rcCoul;
+    buildDsfTable();
     nlValid = false;
 }
 // Пересчитать, какие типы присутствуют, радиус обрезки и базовый шаг
@@ -304,11 +332,11 @@ static inline int freeVal(int i) {
     return u < valMax(t) ? ((VE[t] - u) & 1) : v - u + (valMax(t) - v);
 }
 // насыщенный атом j может «распарить» неподелённую пару и принять связь от радикала-партнёра (SF2 + F· → SF3·):
-// только p-элементы 3-го периода и ниже, только с электроотрицательным партнёром и если уже связанные соседи тоже
-// электроотрицательны (SF4, PCl5, H2SO4 существуют, а H2SF, PH3Cl2 — нет: водород отдаёт атом F, а не присоединяет)
+// только p-элементы 3-го периода и ниже, только с партнёром электроотрицательнее самого атома и если уже связанные
+// соседи тоже электроотрицательны (SF4, PCl5, ClO2, ICl3, H2SO4 существуют, а H2SF, PH3Cl2 и цепочки Cl3, Br3 — нет)
 static inline bool canExpand(int j, int partner) {
-    const int t = S.ty[j], u = usedVal(j);
-    if (!HYPER[t] || u < EL[t].val || u >= valMax(t) || ((VE[t] - u) & 1) != 0 || S.nbc[j] >= cfg::MAXB || EL[S.ty[partner]].chi < 2.9) return false;
+    const int t = S.ty[j], u = usedVal(j); const double cp = EL[S.ty[partner]].chi;
+    if (!HYPER[t] || u < EL[t].val || u >= valMax(t) || ((VE[t] - u) & 1) != 0 || S.nbc[j] >= cfg::MAXB || cp < 2.9 || cp < EL[t].chi + 0.25) return false;
     for (int k = 0; k < S.nbc[j]; k++) if (EL[S.ty[S.nb[j][k]]].chi < 2.5) return false;
     return true;
 }
@@ -345,9 +373,7 @@ static void removeAllBonds(int i) {
 // вектор r_j − r_i с минимальным образом (периодические границы)
 static inline void dvec(int i, int j, double& dx, double& dy, double& dz) {
     dx = S.x[j] - S.x[i]; dy = S.y[j] - S.y[i]; dz = S.z[j] - S.z[i];
-    if (P.boundary == B_PERIODIC) {
-        dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz);
-    }
+    if (P.boundary == B_PERIODIC) { dx = minImg(dx, S.Lx, 1.0 / S.Lx); dy = minImg(dy, S.Ly, 1.0 / S.Ly); dz = minImg(dz, S.Lz, 1.0 / S.Lz); }
 }
 static inline double dist2(int i, int j) { double dx, dy, dz; dvec(i, j, dx, dy, dz); return dx * dx + dy * dy + dz * dz; }
 
@@ -409,36 +435,17 @@ static void removeMolecule(int i) {
 }
 
 // ===================================== CELL LIST + VERLET LIST ==========================
-// Сетка ячеек (размер ≥ r_c + skin) → список соседей Верле для каждого атома.
-// Список пересобирается, только когда какой-то атом сместился больше чем на skin/2 — это в разы быстрее
-// (27 соседних ячеек против ~80 реальных соседей).
-static std::vector<int> cellStart, cellAtoms, cellOf, neighList, neighCnt;
-static int cnx = 0, cny = 0, cnz = 0; static bool cper = false;
+// Сетка ячеек (размер ≥ половины r_c + skin, соседи — в кубе 5×5×5 ячеек) → список соседей Верле для каждого атома.
+// Список пересобирается, только когда какой-то атом сместился больше чем на skin/2.
+static std::vector<int> cellStart, cellAtoms, cellOf;
+static int cnx = 1, cny = 1, cnz = 1;
 static void buildCells(double cs) {
-    const bool per = isPer();
     int nx = std::max(1, (int)(S.Lx / cs)), ny = std::max(1, (int)(S.Ly / cs)), nz = std::max(1, (int)(S.Lz / cs));
-    if (per) { if (nx < 3) nx = 1; if (ny < 3) ny = 1; if (nz < 3) nz = 1; }
-    nx = std::min(nx, 200); ny = std::min(ny, 200); nz = std::min(nz, 200);
-    if (nx != cnx || ny != cny || nz != cnz || per != cper) {
-        cnx = nx; cny = ny; cnz = nz; cper = per;
-        size_t nc = (size_t)nx * ny * nz;
-        neighList.assign(nc * 27, 0); neighCnt.assign(nc, 0);
-        for (int iz = 0; iz < nz; iz++) for (int iy = 0; iy < ny; iy++) for (int ix = 0; ix < nx; ix++) {
-            int c = (iz * ny + iy) * nx + ix, cnt = 0;
-            for (int dz = -1; dz <= 1; dz++) for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
-                int jx = ix + dx, jy = iy + dy, jz = iz + dz;
-                if (per) { jx = (jx + nx) % nx; jy = (jy + ny) % ny; jz = (jz + nz) % nz; }
-                else if (jx < 0 || jy < 0 || jz < 0 || jx >= nx || jy >= ny || jz >= nz) continue;
-                int id = (jz * ny + jy) * nx + jx; bool dup = false;
-                for (int k = 0; k < cnt; k++) if (neighList[(size_t)c * 27 + k] == id) dup = true;
-                if (!dup) neighList[(size_t)c * 27 + cnt++] = id;
-            }
-            neighCnt[c] = cnt;
-        }
-    }
-    int nc = nx * ny * nz, n = S.n;
+    nx = std::min(nx, 120); ny = std::min(ny, 120); nz = std::min(nz, 120);
+    cnx = nx; cny = ny; cnz = nz;
+    const int nc = nx * ny * nz, n = S.n;
     cellStart.assign(nc + 1, 0); cellAtoms.resize(n); cellOf.resize(n);
-    double sx = nx / S.Lx, sy = ny / S.Ly, sz = nz / S.Lz;
+    const double sx = nx / S.Lx, sy = ny / S.Ly, sz = nz / S.Lz;
     for (int i = 0; i < n; i++) {
         int ix = clampv((int)(S.x[i] * sx), 0, nx - 1), iy = clampv((int)(S.y[i] * sy), 0, ny - 1);
         int iz = clampv((int)(S.z[i] * sz), 0, nz - 1);
@@ -454,27 +461,56 @@ static int nlN = -1, nlRebuilds = 0;
 static double nlAffine = 1.0;   // накопленное аффинное масштабирование (баростат) со времени сборки списка
 static void buildNeighborList() {
     const double rl = rcMax + cfg::SKIN, rl2 = rl * rl;
-    buildCells(rl);
-    const int n = S.n;
+    buildCells(0.5 * rl);
+    const int n = S.n, nx = cnx, ny = cny, nz = cnz; const bool per = isPer();
+    const double Lx = S.Lx, Ly = S.Ly, Lz = S.Lz, iLx = 1 / Lx, iLy = 1 / Ly, iLz = 1 / Lz;
     nlCnt.assign(n, 0); nlStart.assign(n + 1, 0);
-    auto scan = [&](int i, int* out) {
-        int cnt = 0; const bool fi = EL[S.ty[i]].fixed; const int c = cellOf[i];
-        for (int kk = 0; kk < neighCnt[c]; kk++) {
-            const int cc = neighList[(size_t)c * 27 + kk];
-            for (int p = cellStart[cc]; p < cellStart[cc + 1]; p++) {
-                int j = cellAtoms[p]; if (j == i || (fi && EL[S.ty[j]].fixed)) continue;
-                if (dist2(i, j) < rl2) { if (out) out[cnt] = j; cnt++; }
-            }
-        }
-        return cnt;
+    // ячейки-соседи по одной оси: ±2 от своей; в периодическом ящике меньше пяти ячеек — все (без повторов)
+    auto around = [per](int ic, int nn, int* out) {
+        int m = 0;
+        if (per && nn < 5) { for (int k = 0; k < nn; k++) out[m++] = k; return m; }
+        for (int d = -2; d <= 2; d++) { int j = ic + d; if (per) j = (j + nn) % nn; else if (j < 0 || j >= nn) continue; out[m++] = j; }
+        return m;
     };
-#pragma omp parallel for schedule(dynamic, 64)
-    for (int i = 0; i < n; i++) nlCnt[i] = scan(i, nullptr);
+    // один проход: каждый поток собирает соседей своего куска атомов, затем куски склеиваются по порядку
+    const int nt = std::max(1, omp_get_max_threads());
+    static std::vector<std::vector<int>> part; if ((int)part.size() < nt) part.resize(nt);
+#pragma omp parallel for schedule(static, 1)
+    for (int t = 0; t < nt; t++) {
+        const int a0 = (int)((long long)n * t / nt), a1 = (int)((long long)n * (t + 1) / nt);
+        std::vector<int>& out = part[t]; out.clear();
+        for (int i = a0; i < a1; i++) {
+            const size_t before = out.size();
+            const bool fi = EL[S.ty[i]].fixed; const double xi = S.x[i], yi = S.y[i], zi = S.z[i];
+            const int c = cellOf[i], cx = c % nx, cy = (c / nx) % ny, cz = c / (nx * ny);
+            int ox[5], oy[5], oz[5]; const int mx = around(cx, nx, ox), my = around(cy, ny, oy), mz = around(cz, nz, oz);
+            for (int a = 0; a < mz; a++) for (int b = 0; b < my; b++) for (int d = 0; d < mx; d++) {
+                const int cc = (oz[a] * ny + oy[b]) * nx + ox[d];
+                for (int p = cellStart[cc]; p < cellStart[cc + 1]; p++) {
+                    const int j = cellAtoms[p]; if (j == i || (fi && EL[S.ty[j]].fixed)) continue;
+                    double dx = S.x[j] - xi, dy = S.y[j] - yi, dz = S.z[j] - zi;
+                    if (per) { dx = minImg(dx, Lx, iLx); dy = minImg(dy, Ly, iLy); dz = minImg(dz, Lz, iLz); }
+                    if (dx * dx + dy * dy + dz * dz < rl2) out.push_back(j);
+                }
+            }
+            nlCnt[i] = (int)(out.size() - before);
+        }
+    }
     for (int i = 0; i < n; i++) nlStart[i + 1] = nlStart[i] + nlCnt[i];
     nlIdx.resize(std::max(1, nlStart[n]));
-#pragma omp parallel for schedule(dynamic, 64)
-    for (int i = 0; i < n; i++) scan(i, nlIdx.data() + nlStart[i]);
+#pragma omp parallel for schedule(static, 1)
+    for (int t = 0; t < nt; t++) {
+        const int a0 = (int)((long long)n * t / nt);
+        if (!part[t].empty()) memcpy(nlIdx.data() + nlStart[a0], part[t].data(), part[t].size() * sizeof(int));
+    }
     nlRX = S.ux; nlRY = S.uy; nlRZ = S.uz; nlN = n; nlValid = true; nlRebuilds++; nlAffine = 1.0;
+}
+// наибольшее смещение атома (в квадрате) со времени сборки списка соседей
+static double nlMaxDisp2() {
+    if (!nlValid || nlN != S.n) return 1e30;
+    double m = 0;
+    for (int i = 0; i < S.n; i++) { const double dx = S.ux[i] - nlRX[i], dy = S.uy[i] - nlRY[i], dz = S.uz[i] - nlRZ[i]; m = std::max(m, dx * dx + dy * dy + dz * dz); }
+    return m;
 }
 static void ensureNeighborList() {
     bool need = !nlValid || nlN != S.n;
@@ -483,7 +519,7 @@ static void ensureNeighborList() {
     if (half <= 0.02) need = true;
     if (!need) {
         const double lim = half * half; int bad = 0;
-#pragma omp parallel for reduction(| : bad)
+#pragma omp parallel for reduction(| : bad) if (S.n > OMP_MIN)
         for (int i = 0; i < S.n; i++) {
             double dx = S.ux[i] - nlRX[i], dy = S.uy[i] - nlRY[i], dz = S.uz[i] - nlRZ[i];
             if (dx * dx + dy * dy + dz * dz > lim) bad = 1;
@@ -693,8 +729,13 @@ static double vseprAt(int c, bool addForce, int iters) {
     const int k = S.nbc[c], nd = vsSetup(c, r, w, wl, key), nl = (key - 1) / 2;
     const bool trans = vsTransPair(k, nl);
     double (*L)[3] = reinterpret_cast<double (*)[3]>(S.lp[c].data());
-    if (S.lpk[c] != key) { if (nd) vsInitLP(k, r, w, nd, wl, L, trans); S.lpk[c] = (unsigned char)key; iters = std::max(iters, 30); }
-    const double E = vsEnergy(k, r, w, nd, wl, L, iters, addForce ? g : nullptr, trans) - vsEnergyMin(k, w, nd, wl);
+    double Emin;
+#pragma omp critical(vsepr)   // кэш идеальных фигур и генератор случайных чисел — общие для потоков
+    {
+        if (S.lpk[c] != key) { if (nd) vsInitLP(k, r, w, nd, wl, L, trans); S.lpk[c] = (unsigned char)key; iters = std::max(iters, 30); }
+        Emin = vsEnergyMin(k, w, nd, wl);
+    }
+    const double E = vsEnergy(k, r, w, nd, wl, L, iters, addForce ? g : nullptr, trans) - Emin;
     if (addForce) for (int a = 0; a < k; a++) {
         const int j = S.nb[c][a];
         S.bx[j] -= g[a][0]; S.by[j] -= g[a][1]; S.bz[j] -= g[a][2];
@@ -772,9 +813,14 @@ static inline int hbDonor(int h) {   // атом D, к которому кова
 static inline bool isWaterO(int i) {
     return S.ty[i] == E_O && S.nbc[i] == 2 && S.ty[S.nb[i][0]] == E_H && S.ty[S.nb[i][1]] == E_H;
 }
-// ---- металлическая связь (Гупта): доля «металличности» атома и силы
+// ---- металлическая связь (Гупта): доля «металличности» атома и силы.
+// Атом металла, связанный с неметаллом, отдаёт этой связи часть электронов: его металлическая связь слабеет на
+// W_BOND·(занятая валентность)/(валентность). Полная потеря (W_BOND = 1) делала бы хемосорбцию невыгодной: у платины
+// зонная энергия ~9 эВ на атом, и одна связь Pt–H (3.8 эВ) стоила бы ~5.8 эВ металлической связи; с 0.2 атом H
+// садится на Pt с выигрышем ~2.7 эВ, как в опыте
+constexpr double W_BOND = 0.2;
 static std::vector<double> gRho, gW;
-static inline double metalW(int i) { const Element& e = EL[S.ty[i]]; if (e.val <= 0) return 1.0; return std::max(0.0, 1.0 - (double)usedVal(i) / e.val); }
+static inline double metalW(int i) { const Element& e = EL[S.ty[i]]; if (e.val <= 0) return 1.0; return std::max(0.0, 1.0 - W_BOND * usedVal(i) / e.val); }
 static double metalForces(double& vir) {
     const int n = S.n; gRho.assign(n, 0.0); gW.assign(n, 0.0);
     for (int i = 0; i < n; i++) if (isMetalT(S.ty[i])) gW[i] = metalW(i);
@@ -967,11 +1013,37 @@ static void fieldObjForces() {
 // а дорогие парные силы считает раз за внешний шаг. Медленные — в S.fx, быстрые — в S.bx.
 static std::vector<double> tbuf;   // силы и энергии пар по потокам: fx | fy | fz | ep для каждого потока
 static double virFast = 0;
+// Связи, углы и π-члены не выходят за пределы молекулы, поэтому быстрые силы считаются по молекулам параллельно:
+// потоки, занятые разными молекулами, не пишут в один атом. Состав молекул пересобирается при каждом полном
+// расчёте сил (он идёт после любой смены связей), внутренние шаги RESPA берут его готовым.
+static std::vector<int> fgStart, fgAtoms, fgPar; static int fgN = -1;
+static void fastGroups() {
+    const int n = S.n; fgPar.resize(n);
+    for (int i = 0; i < n; i++) fgPar[i] = i;
+    auto root = [&](int a) { while (fgPar[a] != a) { fgPar[a] = fgPar[fgPar[a]]; a = fgPar[a]; } return a; };
+    for (int i = 0; i < n; i++) for (int k = 0; k < S.nbc[i]; k++) { const int a = root(i), b = root(S.nb[i][k]); if (a != b) fgPar[a] = b; }
+    for (int i = 0; i < n; i++) fgPar[i] = root(i);
+    fgStart.assign(n + 1, 0);
+    for (int i = 0; i < n; i++) if (S.nbc[i]) fgStart[fgPar[i] + 1]++;   // одиночные атомы быстрых сил не имеют
+    for (int i = 0; i < n; i++) fgStart[i + 1] += fgStart[i];
+    fgAtoms.resize(fgStart[n]);
+    std::vector<int> fill(fgStart.begin(), fgStart.end() - 1);
+    for (int i = 0; i < n; i++) if (S.nbc[i]) fgAtoms[fill[fgPar[i]]++] = i;
+    // пустые группы убираются: fgStart — начала непустых молекул
+    int m = 0;
+    for (int r = 0; r < n; r++) if (fgStart[r + 1] > fgStart[r]) fgStart[m++] = fgStart[r];
+    fgStart[m] = (int)fgAtoms.size(); fgStart.resize(m + 1);
+    fgN = n;
+}
 static void computeFast(bool withEp) {
     const int n = S.n;
+    if (withEp || fgN != n) fastGroups();
     std::fill(S.bx.begin(), S.bx.begin() + n, 0.0); std::fill(S.by.begin(), S.by.begin() + n, 0.0); std::fill(S.bz.begin(), S.bz.begin() + n, 0.0);
-    double eb = 0, vir = 0;
-    for (int i = 0; i < n; i++) {
+    double eb = 0, vir = 0; int capped = 0;
+    const int ng = (int)fgStart.size() - 1;
+#pragma omp parallel for schedule(dynamic, 16) reduction(+ : eb, vir) if (ng > 32)
+    for (int g = 0; g < ng; g++) for (int p = fgStart[g]; p < fgStart[g + 1]; p++) {
+        const int i = fgAtoms[p];
         for (int k = 0; k < S.nbc[i]; k++) {
             int j = S.nb[i][k]; if (j < i) continue;
             const BondT& bt = BT[S.ty[i]][S.ty[j]]; int o = S.bo[i][k];
@@ -987,11 +1059,12 @@ static void computeFast(bool withEp) {
         }
         if (S.nbc[i] >= 2) { double U = angleEnergyAt(i, true); eb += U; if (withEp) S.ep[i] += U; }
     }
+#pragma omp parallel for reduction(+ : capped) if (n > OMP_MIN)
     for (int i = 0; i < n; i++) {   // аварийное ограничение
         double f2 = S.bx[i] * S.bx[i] + S.by[i] * S.by[i] + S.bz[i] * S.bz[i];
-        if (f2 > cfg::F_CAP * cfg::F_CAP) { double s = cfg::F_CAP / std::sqrt(f2); S.bx[i] *= s; S.by[i] *= s; S.bz[i] *= s; EN.capped++; }
+        if (f2 > cfg::F_CAP * cfg::F_CAP) { double s = cfg::F_CAP / std::sqrt(f2); S.bx[i] *= s; S.by[i] *= s; S.bz[i] *= s; capped++; }
     }
-    EN.ebond = eb; virFast = vir;
+    EN.ebond = eb; virFast = vir; EN.capped += capped;
 }
 static void computeSlow() {
     ensureNeighborList();
@@ -1004,7 +1077,19 @@ static void computeSlow() {
     auto root = [&](int a) { while (molId[a] != a) { molId[a] = molId[molId[a]]; a = molId[a]; } return a; };
     for (int i = 0; i < n; i++) for (int k = 0; k < S.nbc[i]; k++) { const int a = root(i), b = root(S.nb[i][k]); if (a != b) molId[a] = b; }
     for (int i = 0; i < n; i++) molId[i] = root(i);
-    // --- парные силы: каждая пара — один раз (j > i), силы копятся в буфере своего потока, затем складываются
+    // --- собственная энергия ионов в методе DSF (сил не даёт, меняется только при переносе заряда)
+    if (anyCharge) {
+        static std::vector<double> qs; static std::vector<int> cnt; qs.assign(n, 0.0); cnt.assign(n, 0);
+        for (int i = 0; i < n; i++) { qs[molId[i]] += S.q[i]; cnt[molId[i]]++; }
+        for (int i = 0; i < n; i++) if (cnt[i] > 0 && cnt[i] <= 64) { const long Q = std::lround(qs[i]); if (Q) enb -= ionSelfK() * Q * Q; }
+    }
+    // --- парные силы: каждая пара — один раз (j > i), силы копятся в буфере своего потока, затем складываются.
+    // Всё, что нужно о соседе j, упаковано в одну запись (одна строка кэша вместо шести массивов)
+    struct PackA { double x, y, z, q; int ty, mol, flags; };   // flags: 1 — есть связи, 2 — есть «призраки»
+    static std::vector<PackA> pk; pk.resize(n);
+#pragma omp parallel for schedule(static) if (n > OMP_MIN)
+    for (int i = 0; i < n; i++) pk[i] = {S.x[i], S.y[i], S.z[i], S.q[i], S.ty[i], molId[i], (S.nbc[i] ? 1 : 0) | (S.ghc[i] ? 2 : 0)};
+    const double iLx = 1 / Lx, iLy = 1 / Ly, iLz = 1 / Lz;
     const int nt = std::max(1, omp_get_max_threads());
     tbuf.assign((size_t)nt * 4 * n, 0.0);
 #pragma omp parallel reduction(+ : enb, vir)
@@ -1014,25 +1099,26 @@ static void computeSlow() {
 #pragma omp for schedule(dynamic, 64)
         for (int i = 0; i < n; i++) {
             double fxi = 0, fyi = 0, fzi = 0, ei = 0;
-            const int ti = S.ty[i];
-            const double xi = S.x[i], yi = S.y[i], zi = S.z[i], qi = S.q[i];
-            const bool bi = S.nbc[i] != 0, gi = S.ghc[i] != 0;
+            const PackA& A = pk[i]; const PairP* PTi = PT[A.ty];
+            const double xi = A.x, yi = A.y, zi = A.z, qi = A.q;
+            const bool bi = (A.flags & 1) != 0, gi = (A.flags & 2) != 0;
             for (int p = nlStart[i]; p < nlStart[i + 1]; p++) {
                 const int j = nlIdx[p]; if (j < i) continue;
-                double dx = S.x[j] - xi, dy = S.y[j] - yi, dz = S.z[j] - zi;
-                if (per) { dx -= Lx * std::nearbyint(dx / Lx); dy -= Ly * std::nearbyint(dy / Ly); dz -= Lz * std::nearbyint(dz / Lz); }
+                const PackA& Bj = pk[j];
+                double dx = Bj.x - xi, dy = Bj.y - yi, dz = Bj.z - zi;
+                if (per) { dx = minImg(dx, Lx, iLx); dy = minImg(dy, Ly, iLy); dz = minImg(dz, Lz, iLz); }
                 const double r2 = dx * dx + dy * dy + dz * dz;
                 if (r2 > rcMax2 || r2 < 1e-12) continue;
-                const bool same = bi && S.nbc[j] && molId[i] == molId[j];
-                if ((gi || S.ghc[j] || same) && excluded(i, j)) continue;
-                const PairP& pp = PT[ti][S.ty[j]];
+                const bool same = bi && (Bj.flags & 1) && A.mol == Bj.mol;
+                if ((gi || (Bj.flags & 2) || same) && excluded(i, j)) continue;
+                const PairP& pp = PTi[Bj.ty];
                 double ff = 0, e = 0;   // ff = −(dU/dr)/r
                 if (r2 < pp.rc2) {      // Леннард-Джонс: U = 4ε[(σ/r)^12 − (σ/r)^6] − U(rc)
                     double sr2 = pp.sig2 / r2, sr6 = sr2 * sr2 * sr2;
                     e += pp.eps4 * (sr6 * sr6 - sr6) - pp.shift;
                     ff += pp.eps4 * (12 * sr6 * sr6 - 6 * sr6) / r2;
                 }
-                const double qq = qi * S.q[j];
+                const double qq = qi * Bj.q;
                 if (qq != 0 && r2 < rcc2) { double fc; e += coulDSF(qq, r2, fc); ff += fc; }
                 if (same && pair14(i, j)) { e *= SCALE14; ff *= SCALE14; }
                 fxi -= ff * dx; fyi -= ff * dy; fzi -= ff * dz;
@@ -1052,7 +1138,7 @@ static void computeSlow() {
     double ewall = 0, egrav = 0, fw = 0, fp = 0;
     const double g = P.gravity;
     if (!per) {
-#pragma omp parallel for reduction(+ : ewall, egrav, fw, fp)
+#pragma omp parallel for reduction(+ : ewall, egrav, fw, fp) if (n > OMP_MIN)
         for (int i = 0; i < n; i++) {
             const Element& e = EL[S.ty[i]]; if (e.fixed) continue;
             double U, F, s = e.sig, eu = 0;
@@ -1106,7 +1192,7 @@ static void computeForces() {
 // ===================================== INTEGRATOR / THERMOSTATS =========================
 static double kinetic(int* nmob = nullptr) {
     double K = 0; int m = 0;
-#pragma omp parallel for reduction(+ : K, m)
+#pragma omp parallel for reduction(+ : K, m) if (S.n > OMP_MIN)
     for (int i = 0; i < S.n; i++) {
         if (frozenAt(i)) continue;
         K += 0.5 * EL[S.ty[i]].m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]); m++;
@@ -1121,7 +1207,7 @@ static int dofCount(int nmob) {
     return std::max(1, DIM * nmob - (momentum ? DIM : 0));
 }
 static void scaleVel(double s) {
-#pragma omp parallel for
+#pragma omp parallel for if (S.n > OMP_MIN)
     for (int i = 0; i < S.n; i++) { S.vx[i] *= s; S.vy[i] *= s; S.vz[i] *= s; }
 }
 // Нозе–Гувер (разбиение Троттера): dξ/dt = (2K − N_f kT0)/Q, dv/dt = F/m − ξv
@@ -1154,11 +1240,12 @@ static double guardDtScale = 1.0;   // временное ограничение
 static int baroCount = 0;
 
 static bool respaOn = true;          // многошаговый интегратор для веществ со связями (переключатель во вкладке «Физика»)
+static double slowStepA = 0.012;     // внешний шаг RESPA: смещение от медленных сил a·dt² не больше этого (σ)
 static std::vector<double> stepUx, stepUy, stepUz, stepFx, stepFy, stepFz;   // начало шага: положения и силы ветра — для работы внешних сил
 // полушаг быстрых сил (связи, углы)
 static void kickFast(double h) {
     const int n = S.n;
-#pragma omp parallel for
+#pragma omp parallel for if (n > OMP_MIN)
     for (int i = 0; i < n; i++) {
         if (frozenAt(i)) continue;
         const double im = h / EL[S.ty[i]].m;
@@ -1167,7 +1254,7 @@ static void kickFast(double h) {
 }
 static void drift(double h) {
     const int n = S.n;
-#pragma omp parallel for
+#pragma omp parallel for if (n > OMP_MIN)
     for (int i = 0; i < n; i++) {
         if (frozenAt(i)) continue;
         S.x[i] += h * S.vx[i]; S.y[i] += h * S.vy[i]; S.z[i] += h * S.vz[i];
@@ -1186,7 +1273,7 @@ static void mdStep() {
     if (nc) { stepFx = foFx; stepFy = foFy; stepFz = foFz; }
     // Velocity Verlet (с RESPA — внешний полушаг медленных сил): v += dt/2·F/m
     double kpin = 0;
-#pragma omp parallel for reduction(+ : kpin)
+#pragma omp parallel for reduction(+ : kpin) if (n > OMP_MIN)
     for (int i = 0; i < n; i++) {
         if (frozenAt(i)) {   // закреплённый атом стоит; если ему только что задали скорость — она гасится (внешняя работа)
             if (S.pin[i] && (S.vx[i] != 0 || S.vy[i] != 0 || S.vz[i] != 0)) {
@@ -1213,7 +1300,7 @@ static void mdStep() {
         if (respa) { computeFast(false); kickFast(0.5 * h); }
     }
     // границы
-#pragma omp parallel for
+#pragma omp parallel for if (n > OMP_MIN)
     for (int i = 0; i < n; i++) {
         if (per) {
             if (S.x[i] < 0 || S.x[i] >= S.Lx) S.x[i] -= S.Lx * std::floor(S.x[i] / S.Lx);
@@ -1231,7 +1318,7 @@ static void mdStep() {
     computeForces();
     if (track) {
         double wq = 0, wnc = 0; const bool ncNow = nc && (int)foFx.size() == n;
-#pragma omp parallel for reduction(+ : wq, wnc)
+#pragma omp parallel for reduction(+ : wq, wnc) if (n > OMP_MIN)
         for (int i = 0; i < n; i++) {
             if (frozenAt(i)) continue;
             const double dx = S.ux[i] - stepUx[i], dy = S.uy[i] - stepUy[i], dz = S.uz[i] - stepUz[i];
@@ -1240,7 +1327,7 @@ static void mdStep() {
         }
         Wext += P.efield * wq + wnc;
     }
-#pragma omp parallel for
+#pragma omp parallel for if (n > OMP_MIN)
     for (int i = 0; i < n; i++) {
         if (frozenAt(i)) continue;
         const double im = 0.5 * dt / EL[S.ty[i]].m;
@@ -1357,7 +1444,7 @@ static void mdStep() {
     double vmax = std::sqrt(vmax2);
     // с RESPA ускорение от связей ограничивает внутренний шаг dt/n, а внешний — только столкновения и медленные силы
     const bool respaNow = respaOn && anyBondable;
-    const double aLim = respaNow ? std::min(amaxSlow > 0 ? std::sqrt(0.012 / amaxSlow) : 1e9, amaxFast > 0 ? cfg::RESPA_N * std::sqrt(0.003 / amaxFast) : 1e9)
+    const double aLim = respaNow ? std::min(amaxSlow > 0 ? std::sqrt(slowStepA / amaxSlow) : 1e9, amaxFast > 0 ? cfg::RESPA_N * std::sqrt(0.003 / amaxFast) : 1e9)
                                  : (EN.amax > 0 ? std::sqrt(0.003 / EN.amax) : 1e9);
     // смещение самого быстрого атома за внешний шаг: 0.02σ, а с RESPA — 0.05σ (лёгкие атомы H колеблются внутри своих
     // связей, и это ведёт внутренний шаг; внешнему достаточно не проскакивать столкновения)
