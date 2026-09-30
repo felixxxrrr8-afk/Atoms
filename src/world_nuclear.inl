@@ -51,7 +51,6 @@ static const Iso ISO[] = {
     {"Zr-100", 40, 100, 7.1, D_BETAM, 3.3, -1},
 };
 constexpr int NISO = (int)(sizeof(ISO) / sizeof(ISO[0]));
-static const char* ELSYM(int Z) { return Z >= 1 && Z <= 118 ? ZD[Z].sym : "?"; }
 // ---- ядра на сцене
 struct Nuc { double x, y, z, vx, vy, vz; int iso; int Z, A; float split = -1; float glow = 0; bool alive = true; };
 enum { P_N, P_ALPHA, P_EM, P_EP, P_NU, P_GAMMA, P_FRAG };
