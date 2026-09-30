@@ -53,6 +53,7 @@ static void worldReset(double Lx, double Ly, double Lz, int boundary) {
     grabbed = -1; followAtom = -1; flashes.clear(); CH = ChemStats(); script.clear(); trailsOn = false; P.substeps = 8;
     pistonGrab = false; nlValid = false; fieldObjs.clear(); selFieldObj = -1; heatWallQ[0] = heatWallQ[1] = 0;
     sparkR = 5.0; sparkTK = 3000;
+    guardSnap[0].ok = guardSnap[1].ok = false; guardDtScale = 1.0;   // снимки стража и ограничение шага — от прошлой сцены
     buildPairTables();
 }
 static void finishPreset() {

@@ -1720,11 +1720,12 @@ static void physGuard(double K, double T) {
     const char* why = nullptr;
     if (!std::isfinite(K) || !std::isfinite(Ep) || !std::isfinite(S.Lx * S.Ly * S.Lz)) why = "не-конечные числа";
     else {
+        // сравнение — только со снимком той же опорной энергии: после новой сцены или правки пользователя снимок ещё
+        // старый (холодная сцена → горячая выглядела бы как нагрев в 50 раз и откатывалась бы на каждом шаге)
         const PhysSnap& r = guardSnap[0];
-        if (r.ok && T > 2.0 && T > 50 * std::max(0.05, r.T)) {
+        if (r.ok && r.epoch == energyEpoch && T > 2.0 && T > 50 * std::max(0.05, r.T)) {
             // резкий нагрев: настоящий (внешний) или численный? численный нарушает баланс E − W
-            bool energyBad = r.epoch != energyEpoch || std::fabs((energyForGuard(K) - Wext) - (r.E - r.Wext)) > 0.3 * K;
-            if (energyBad) why = "температура выросла в 50 раз";
+            if (std::fabs((energyForGuard(K) - Wext) - (r.E - r.Wext)) > 0.3 * K) why = "температура выросла в 50 раз";
         }
     }
     if (!why) {

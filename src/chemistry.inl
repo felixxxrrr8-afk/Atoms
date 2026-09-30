@@ -1246,6 +1246,7 @@ static void thermalVel(int t, double T, double& vx, double& vy, double& vz) {
 // фотодиссоциации), атомы получают добавочные тепловые скорости при температуре Tk. Вся энергия — внешняя работа
 static void spark(const double* c, double R, double Tk) {
     lightFlash(c, nullptr, R);
+    double v2max = 0;
     for (int i = 0; i < S.n; i++) {
         if (frozenAt(i)) continue;
         const double dx = S.x[i] - c[0], dy = S.y[i] - c[1], dz = S.z[i] - c[2];
@@ -1253,8 +1254,11 @@ static void spark(const double* c, double R, double Tk) {
         const double m = EL[S.ty[i]].m, k0 = S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i];
         double vx, vy, vz; thermalVel(S.ty[i], Tk, vx, vy, vz);
         S.vx[i] += vx; S.vy[i] += vy; S.vz[i] += vz;
-        Wext += 0.5 * m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i] - k0);
+        const double k1 = S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i];
+        Wext += 0.5 * m * (k1 - k0); v2max = std::max(v2max, k1);
     }
+    // шаг — сразу под раскалённые атомы (как в mdStep): иначе первые шаги после искры идут с «холодным» dt и теряют энергию
+    if (v2max > 0) P.dt = std::min(P.dt, std::max(P.dtBase / 64, 0.85 * (respaOn && anyBondable ? 0.05 : 0.02) / std::sqrt(v2max)));
 }
 // решётки Браве и ГПУ: элементарная ячейка + базис (дробные координаты)
 enum { L_FCC, L_HCP, L_BCC, L_SC, L_NACL, L_ICE };
