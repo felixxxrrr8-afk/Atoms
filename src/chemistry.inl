@@ -1029,11 +1029,41 @@ static bool chemistryStep() {
     if (P.acidBase && protonStep()) any = true;
     return any;
 }
-// «Вспышка света / искра»: каждая связь вблизи луча (d != nullptr) или точки o (d == nullptr)
-// получает энергию D + 0.3 эВ вдоль оси связи (фотодиссоциация); энергия учитывается как внешняя работа
-static void photoKick(int i, int k) {   // связь i–(k-й сосед) получает энергию D + 0.3 эВ вдоль своей оси
+// Свет и искра рвут связи. Квант света hν = hc/λ рвёт связь, только если его хватает и на разрыв (hν ≥ D), и на
+// поглощение: у галогенов полоса поглощения начинается сразу от энергии связи, а у большинства молекул — далеко в
+// ультрафиолете (метан прозрачен до 145 нм, хотя связь C–H рвётся уже квантом 275 нм). Более длинные волны молекула
+// пропускает, сколько ни свети, — важна частота, а не яркость (как порог фотоэффекта). Энергия кванта уходит вдоль
+// оси связи; поступательная — не больше D + 1 эВ, остальное уносят возбуждённые осколки и их свечение.
+// Искра (разряд) — не свет одной частоты: каждая связь в её шаре получает D + 0.3 эВ. Всё это — внешняя работа
+static double lightNm = 122;   // длина волны вспышки L, нм (по умолчанию — лайман-альфа водородной лампы)
+static inline double photonEV(double nm) { return 1239.84 / nm; }
+// начало полосы поглощения связи, эВ (0 — от самой энергии связи): по справочным УФ-спектрам молекул, приближённо
+static double absOnsetEV(int za, int zb, int order) {
+    if (za > zb) std::swap(za, zb);
+    auto is = [&](int a, int b) { return za == a && zb == b; };
+    if (is(1, 1)) return 11.1;                                        // H2: 112 нм
+    if (is(1, 6)) return 8.6;                                         // C–H, метан: 144 нм
+    if (is(1, 7)) return 5.8;                                         // N–H, аммиак: 216 нм
+    if (is(1, 8)) return 7.0;                                         // O–H, вода: 177 нм
+    if (is(1, 9)) return 7.8;                                         // HF: 160 нм
+    if (is(1, 17)) return 5.6;                                        // HCl: 220 нм
+    if (is(1, 35)) return 5.0;                                        // HBr: 250 нм
+    if (is(1, 53)) return 4.1;                                        // HI: 300 нм
+    if (is(6, 6)) return order == 1 ? 8.5 : order == 2 ? 6.9 : 6.2;   // этан 146, этилен 180, ацетилен 200 нм
+    if (is(6, 8)) return order == 1 ? 6.7 : order == 2 ? 7.3 : 8.0;   // спирты 185, CO2 170, CO 155 нм
+    if (is(6, 17)) return 6.5;                                        // C–Cl: 190 нм
+    if (is(7, 7)) return order == 3 ? 12.4 : 0;                       // N2: 100 нм
+    if (is(8, 8)) return order == 2 ? 5.1 : 4.1;                      // O2: 242 нм (континуум Герцберга); H2O2: 300 нм
+    if (is(9, 9)) return 3.1;                                         // F2: 400 нм
+    return 0;                                                         // Cl2, Br2, I2, NCl3…
+}
+static const char* lightBand(double nm) {
+    return nm < 200 ? "вакуумный УФ" : nm < 280 ? "УФ-C" : nm < 315 ? "УФ-B" : nm < 400 ? "УФ-A" : nm < 450 ? "фиолетовый" : nm < 495 ? "синий"
+         : nm < 570 ? "зелёный" : nm < 590 ? "жёлтый" : nm < 620 ? "оранжевый" : nm < 750 ? "красный" : "инфракрасный";
+}
+static void photoKick(int i, int k, double Eph = 0) {   // связь i–(k-й сосед) получает энергию Eph (0 — D + 0.3 эВ) вдоль своей оси
     const int j = S.nb[i][k];
-    const BondT& bt = BT[S.ty[i]][S.ty[j]]; double Eph = bt.D[S.bo[i][k]] + 0.3 * cfg::EV;
+    const BondT& bt = BT[S.ty[i]][S.ty[j]]; if (Eph <= 0) Eph = bt.D[S.bo[i][k]] + 0.3 * cfg::EV;
     double dx, dy, dz; dvec(i, j, dx, dy, dz); double r = std::sqrt(dx * dx + dy * dy + dz * dz); if (r < 1e-9) return;
     double nx = dx / r, ny = dy / r, nz = dz / r;
     double mi = EL[S.ty[i]].m, mj = EL[S.ty[j]].m, mu = mi * mj / (mi + mj);
@@ -1044,14 +1074,25 @@ static void photoKick(int i, int k) {   // связь i–(k-й сосед) по
     Wext += Eph;
     double mx, my, mz; midpoint(i, j, mx, my, mz); addFlash(mx, my, mz, -Eph);
 }
-static void lightFlash(const double* o, const double* d, double R) {
+// связи вблизи луча (d != nullptr) или точки o (d == nullptr). Eph > 0 — квант света: рвутся только связи, которым
+// его хватает на поглощение и разрыв; в *hit — сколько связей было в зоне, в *dMin — самый низкий из их порогов (ε).
+// Возвращает число разорванных
+static int lightFlash(const double* o, const double* d, double R, double Eph = 0, int* hit = nullptr, double* dMin = nullptr) {
+    int c = 0, h = 0; double dm = 1e30;
     for (int i = 0; i < S.n; i++) for (int k = 0; k < S.nbc[i]; k++) {
         int j = S.nb[i][k]; if (j < i) continue;
         double mx, my, mz; midpoint(i, j, mx, my, mz);
         double r2 = d ? rayDist2(mx, my, mz, o, d) : (mx - o[0]) * (mx - o[0]) + (my - o[1]) * (my - o[1]) + (mz - o[2]) * (mz - o[2]);
         if (r2 > R * R) continue;
-        photoKick(i, k);
+        const int o2 = S.bo[i][k]; const double D = BT[S.ty[i]][S.ty[j]].D[o2];
+        const double need = std::max(D, absOnsetEV(EL[S.ty[i]].Z, EL[S.ty[j]].Z, o2) * cfg::EV);
+        h++; dm = std::min(dm, need);
+        if (Eph > 0 && Eph < need) continue;   // квант не поглощается этой связью
+        photoKick(i, k, Eph > 0 ? std::min(Eph, D + 1.0 * cfg::EV) : 0); c++;
     }
+    if (hit) *hit = h;
+    if (dMin) *dMin = dm;
+    return c;
 }
 // Избирательный фотолиз: свет поглощают только связи ta–tb (Cl2 — в ближнем УФ, а CH4 и HCl для него прозрачны;
 // пероксид-инициатор — по слабой связи O–O). Каждая такая связь возбуждается с вероятностью frac; возвращает их число

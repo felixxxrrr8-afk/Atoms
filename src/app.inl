@@ -450,7 +450,13 @@ static void handleKeys() {
             bool same = P.catalyst && std::hypot(std::hypot(P.catX - x, P.catY - y), P.catZ - z) < 1;
             P.catalyst = !same; P.catX = x; P.catY = y; P.catZ = z; P.catR = std::max(3.0, P.brushR * 1.5);
             showToast(P.catalyst ? "Катализатор: Ea×0.25 внутри" : "Катализатор убран"); break; }
-        case 'L': lightFlash(o, d, P.brushR); break;
+        case 'L': {   // вспышка света длины волны lightNm вдоль луча под курсором
+            const double E = photonEV(lightNm); int hit = 0; double dMin = 0;
+            const int c = lightFlash(o, d, P.brushR, E * cfg::EV, &hit, &dMin);
+            if (!hit) showToast(fmt("Свет %.0f нм (%.2f эВ): под курсором нет связей", lightNm, E));
+            else if (!c) showToast(fmt("Свет %.0f нм (%.2f эВ) прошёл насквозь: здесь его ничто не поглощает (нужно от %.2f эВ) — ярче светить бесполезно", lightNm, E, dMin / cfg::EV));
+            else showToast(fmt("Свет %.0f нм (%.2f эВ): разорвано связей — %d из %d", lightNm, E, c, hit));
+            break; }
         case VK_OEM_4: case VK_OEM_6:   // шар и цилиндр вписаны в ящик: одноосная деформация вытолкнула бы атомы за их стенку
             if (P.container != CT_BOX) { showToast("Сжатие и растяжение по x — только без сосуда (вкладка «Сцена»)"); break; }
             pushUndo(); strainX(k == VK_OEM_4 ? 1.0 / 1.02 : 1.02); showToast(k == VK_OEM_4 ? "Сжатие по x −2%" : "Растяжение по x +2%"); break;
@@ -1432,6 +1438,24 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
             setAxisPeriodic(0, false); P.thermostat = TH_NVE; run(4000);
             double worst = 0; for (int i = 0; i < S.n; i++) for (int p = 0; p < S.nbc[i]; p++) worst = std::max(worst, std::sqrt(dist2(i, S.nb[i][p])));
             fprintf(f, "вода, ось x → стенки: убрано %d атомов из %d, T %.0f → %.0f K, дрейф %.4f%%, самая длинная связь %.2f Å\n", n0 - S.n, n0, toKelvin(T0), toKelvin(EN.T), driftPct(), worst * 3.405);
+        }
+        fclose(f); return 0;
+    }
+    // --lighttest: порог фотодиссоциации — смеси CH4 + Cl2 и H2 + O2 под вспышками разной длины волны → lighttest.log
+    if (cmd && wcsstr(cmd, L"--lighttest")) {
+        initBondTable(); initKlm(); initPalette(); rebuildTables();
+        FILE* f = fopen("lighttest.log", "w"); if (!f) return 1;
+        for (int scene : {31, 7}) for (double nm : {800.0, 650.0, 520.0, 450.0, 300.0, 200.0, 150.0, 122.0, 105.0}) {
+            loadPreset(scene, 0);
+            const double o[3] = {S.Lx / 2, S.Ly / 2, -5}, d[3] = {0, 0, 1};
+            std::map<std::string, int> before; for (int i = 0; i < S.n; i++) for (int k = 0; k < S.nbc[i]; k++) if (S.nb[i][k] > i) before[std::string(EL[S.ty[i]].sym) + "–" + EL[S.ty[S.nb[i][k]]].sym]++;
+            int hit = 0; double dMin = 0; const double E = photonEV(nm);
+            const int c = lightFlash(o, d, 1e9, E * cfg::EV, &hit, &dMin);
+            for (int s = 0; s < 400; s++) mdStep();   // осколки разлетаются, связи рвутся событиями
+            std::map<std::string, int> after; for (int i = 0; i < S.n; i++) for (int k = 0; k < S.nbc[i]; k++) if (S.nb[i][k] > i) after[std::string(EL[S.ty[i]].sym) + "–" + EL[S.ty[S.nb[i][k]]].sym]++;
+            fprintf(f, "λ = %4.0f нм, hν = %.2f эВ: получили квант %d связей из %d;", nm, E, c, hit);
+            for (auto& kv : before) fprintf(f, "  %s %d→%d", kv.first.c_str(), kv.second, after[kv.first]);
+            fprintf(f, "\n"); fflush(f);
         }
         fclose(f); return 0;
     }

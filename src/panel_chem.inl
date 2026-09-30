@@ -76,6 +76,16 @@ static void drawChemPanel(float x, float y, float w, float h) {
         kv("теплота", fmt("%+.2f эВ", rxEV(CH.heat)), fmt("%+.1f ε выделено всего", CH.heat), CH.heat > 0 ? C_WARN : C_TEXT_HI);
         yy += g;
     }
+    // ---------------- свет: длина волны вспышки L
+    uiSection(x, yy, W, "Свет (клавиша L)");
+    {
+        const double E = photonEV(lightNm);
+        uiSlider(1207, x, yy, W, sh - uiPx(4), "длина волны λ", &lightNm, 100, 1000, true, fmt("%.0f нм · %s", lightNm, T(lightBand(lightNm))),
+                 "L — вспышка вдоль луча под курсором (ширина — как у кисти).\nКвант hν = hc/λ рвёт связь, только если молекула его поглощает и его хватает на разрыв:\nкрасный свет Cl2 не разложит, сколько ни свети, а синий — разложит");
+        yy += sh;
+        kv("квант hν", fmt("%.2f эВ", E));
+        yy += drawWrapped(fontXS, x, yy, W, "Распадаются от света короче: I2 805 нм, Br2 630, Cl2 495, F2 400, H2O2 300, O2 243, H2O 177, CH4 144, H2 112 нм", C_DIM) + g;
+    }
     // ---------------- кислотность
     uiSection(x, yy, W, "Кислотность (pH)");
     {
