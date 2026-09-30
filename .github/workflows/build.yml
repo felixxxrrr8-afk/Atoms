@@ -16,9 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build with MSVC
+      - name: Build with MSVC (program and installer)
         shell: cmd
-        run: .\build.bat release ci
+        run: .\build.bat setup ci
 
       - name: Package for Windows
         shell: pwsh
@@ -36,8 +36,13 @@ jobs:
           name: atoms-windows-x64
           path: dist/
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AtomsSetup
+          path: AtomsSetup.exe
+
       # A new version in atoms.rc (ProductVersion) gets a new release.
-      # Builds of the same version refresh that release: notes, archive, and the tag moves to the built commit.
+      # Builds of the same version refresh that release: notes, archive, installer, and the tag moves to the built commit.
       - name: Release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         shell: pwsh
@@ -49,7 +54,7 @@ jobs:
           $title = "Atoms $ver"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag atoms-windows-x64.zip --target $env:GITHUB_SHA --title $title --notes-file .github/release-notes.md
+            gh release create $tag atoms-windows-x64.zip AtomsSetup.exe --target $env:GITHUB_SHA --title $title --notes-file .github/release-notes.md
             exit $LASTEXITCODE
           }
           git tag -f $tag
@@ -57,4 +62,4 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           gh release edit $tag --title $title --notes-file .github/release-notes.md
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          gh release upload $tag atoms-windows-x64.zip --clobber
+          gh release upload $tag atoms-windows-x64.zip AtomsSetup.exe --clobber
