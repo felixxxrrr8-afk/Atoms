@@ -781,8 +781,9 @@ static float segDistPx(float px, float py, float ax, float ay, float bx, float b
 // экранные концы связи i–j (с учётом минимального образа); false — связь не видна или идёт через границу
 static bool bondScreen(int i, int j, float& ax, float& ay, float& bx, float& by) {
     if (i >= (int)pvis.size() || j >= (int)pvis.size() || !pvis[i] || !pvis[j]) return false;
-    double dx, dy, dz; dvec(i, j, dx, dy, dz); float dd, s;
-    if (!project(S.x[i] + dx, S.y[i] + dy, S.z[i] + dz, bx, by, dd, s)) return false;
+    if (!gValid()) return false;
+    double dx, dy, dz; dvecG(i, j, dx, dy, dz); float dd, s;
+    if (!project(gX[i] + dx, gY[i] + dy, gZ[i] + dz, bx, by, dd, s)) return false;
     if (std::fabs(bx - psx[j]) > 2 || std::fabs(by - psy[j]) > 2) return false;
     ax = psx[i]; ay = psy[i]; return true;
 }

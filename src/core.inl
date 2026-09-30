@@ -407,6 +407,24 @@ static std::mt19937_64 rng(12345);
 static inline double urand() { return std::uniform_real_distribution<double>(0.0, 1.0)(rng); }
 static inline double grand() { return std::normal_distribution<double>(0.0, 1.0)(rng); }
 template <class T> static inline T clampv(T v, T a, T b) { return v < a ? a : (v > b ? b : v); }
+// собственные значения d и векторы (столбцы V) симметричной матрицы N×N — метод вращений Якоби; A портится
+template <int N> static void jacobiEigen(double A[N][N], double V[N][N], double d[N]) {
+    for (int p = 0; p < N; p++) for (int q = 0; q < N; q++) V[p][q] = p == q ? 1 : 0;
+    for (int sweep = 0; sweep < 20; sweep++) {
+        double off = 0, diag = 0;
+        for (int p = 0; p < N; p++) { diag += A[p][p] * A[p][p]; for (int q = p + 1; q < N; q++) off += A[p][q] * A[p][q]; }
+        if (off <= 1e-28 * diag || off < 1e-300) break;
+        for (int p = 0; p < N; p++) for (int q = p + 1; q < N; q++) {
+            if (std::fabs(A[p][q]) < 1e-300) continue;
+            const double th = 0.5 * (A[q][q] - A[p][p]) / A[p][q];
+            const double t = (th >= 0 ? 1.0 : -1.0) / (std::fabs(th) + std::sqrt(th * th + 1)), c = 1 / std::sqrt(t * t + 1), s = t * c;
+            for (int k = 0; k < N; k++) { const double a = A[k][p], b = A[k][q]; A[k][p] = c * a - s * b; A[k][q] = s * a + c * b; }
+            for (int k = 0; k < N; k++) { const double a = A[p][k], b = A[q][k]; A[p][k] = c * a - s * b; A[q][k] = s * a + c * b; }
+            for (int k = 0; k < N; k++) { const double a = V[k][p], b = V[k][q]; V[k][p] = c * a - s * b; V[k][q] = s * a + c * b; }
+        }
+    }
+    for (int k = 0; k < N; k++) d[k] = A[k][k];
+}
 // форматирование строки (как printf); строка формата переводится (lang.inl: спецификаторы в переводе те же)
 static std::string fmt(const char* f, ...) {
     const char* tf = LANG == LANG_RU ? nullptr : langFind(f, strlen(f), "fmt");

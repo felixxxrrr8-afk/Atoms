@@ -748,9 +748,10 @@ static double atomDrawR(int i, int style) {
 static std::vector<float> psx, psy, pdep, pscl; static std::vector<char> pvis;
 static void projectAll() {
     int n = S.n; psx.resize(n); psy.resize(n); pdep.resize(n); pscl.resize(n); pvis.resize(n);
+    if (!gValid()) displayRaw();
     const bool cut = sliceOn; const float cd = (float)sliceDepth();   // разрез: ближе плоскости — не видно
 #pragma omp parallel for
-    for (int i = 0; i < n; i++) pvis[i] = project(S.x[i], S.y[i], S.z[i], psx[i], psy[i], pdep[i], pscl[i]) && !(cut && pdep[i] < cd) ? 1 : 0;
+    for (int i = 0; i < n; i++) pvis[i] = project(gX[i], gY[i], gZ[i], psx[i], psy[i], pdep[i], pscl[i]) && !(cut && pdep[i] < cd) ? 1 : 0;
 }
 static void line3(double x1, double y1, double z1, double x2, double y2, double z2) {
     float a, b, c, d, e, f, g, h;
@@ -898,10 +899,11 @@ static void drawMeasure() {
     if (measN <= 0) return;
     for (int k = 0; k < measN; k++) if (measIdx[k] < 0 || measIdx[k] >= S.n) return;
     float px[4], py[4];
-    // атомы цепочки «разворачиваем» по минимальному образу от первого
-    double cx = S.x[measIdx[0]], cy = S.y[measIdx[0]], cz = S.z[measIdx[0]];
+    // атомы цепочки «разворачиваем» по минимальному образу от первого (метки — там, где атомы нарисованы;
+    // числа в табличке — по настоящим положениям)
+    double cx = gX[measIdx[0]], cy = gY[measIdx[0]], cz = gZ[measIdx[0]];
     for (int k = 0; k < measN; k++) {
-        if (k > 0) { double dx, dy, dz; dvec(measIdx[k - 1], measIdx[k], dx, dy, dz); cx += dx; cy += dy; cz += dz; }
+        if (k > 0) { double dx, dy, dz; dvecG(measIdx[k - 1], measIdx[k], dx, dy, dz); cx += dx; cy += dy; cz += dz; }
         float dd, s; if (!project(cx, cy, cz, px[k], py[k], dd, s)) return;
     }
     glEnable(GL_LINE_SMOOTH); glEnable(GL_LINE_STIPPLE); glLineStipple(1, 0x0F0F); col(withA(C_MEAS, 0.85f));
@@ -1149,14 +1151,14 @@ static void drawScene() {
             if (opt.gloss && R > 2.0f && !e.fixed) quadSpec(psx[i], psy[i], R, 0.85f * f);
             continue;
         }
-        const int j = it.b; double dx, dy, dz; dvec(i, j, dx, dy, dz);
-        float x2, y2, dep2, s2; if (!project(S.x[i] + dx, S.y[i] + dy, S.z[i] + dz, x2, y2, dep2, s2)) continue;
+        const int j = it.b; double dx, dy, dz; dvecG(i, j, dx, dy, dz);
+        float x2, y2, dep2, s2; if (!project(gX[i] + dx, gY[i] + dy, gZ[i] + dz, x2, y2, dep2, s2)) continue;
         if (std::fabs(x2 - psx[j]) > 2 || std::fabs(y2 - psy[j]) > 2) continue;   // связь через периодическую границу не рисуем
         // граница цветов — посередине видимой части связи (между поверхностями шаров)
         const double d = std::sqrt(dx * dx + dy * dy + dz * dz); if (d < 1e-6) continue;
         const double Ri = atomDrawR(i, style) * coreK, Rj = atomDrawR(j, style) * coreK, gap = d - Ri - Rj;
         const double s = gap > 0 ? (Ri + 0.5 * gap) / d : Ri / std::max(1e-9, Ri + Rj);
-        float xm, ym, dm, sm; if (!project(S.x[i] + dx * s, S.y[i] + dy * s, S.z[i] + dz * s, xm, ym, dm, sm)) continue;
+        float xm, ym, dm, sm; if (!project(gX[i] + dx * s, gY[i] + dy * s, gZ[i] + dz * s, xm, ym, dm, sm)) continue;
         const int o = style == MS_STICK ? 1 : std::max(1, bondOrder(i, j));
         const float wk = o == 1 ? 1.0f : o == 2 ? 0.66f : 0.55f, sep = rb0 * (o == 2 ? 1.35f : 2.1f);
         const float sx = xm - psx[i], sy = ym - psy[i], sl = std::sqrt(sx * sx + sy * sy); if (sl < 0.5f) continue;
@@ -1207,12 +1209,12 @@ static void drawScene() {
             if (!pvis[i] || EL[S.ty[i]].fixed) continue;
             if (layerVel) {   // скорость: 0.5σ на единицу скорости, не длиннее 3σ
                 double vx = S.vx[i], vy = S.vy[i], vz = S.vz[i], v = std::sqrt(vx * vx + vy * vy + vz * vz), L = std::min(0.5 * v, 3.0);
-                if (v > 1e-6 && L * pscl[i] > 2) { float ex, ey, dd, s; if (project(S.x[i] + vx / v * L, S.y[i] + vy / v * L, S.z[i] + vz / v * L, ex, ey, dd, s)) {
+                if (v > 1e-6 && L * pscl[i] > 2) { float ex, ey, dd, s; if (project(gX[i] + vx / v * L, gY[i] + vy / v * L, gZ[i] + vz / v * L, ex, ey, dd, s)) {
                     col(withA(C_ACC, 0.75f)); arrowPx(psx[i], psy[i], ex, ey, uiPx(5)); } }
             }
             if (layerForce) { // сила: длина ∝ log(1 + |F|), не длиннее 3σ
                 double fx = S.fx[i], fy = S.fy[i], fz = S.fz[i], F = std::sqrt(fx * fx + fy * fy + fz * fz), L = std::min(0.6 * std::log1p(F / 5.0), 3.0);
-                if (F > 1e-6 && L * pscl[i] > 2) { float ex, ey, dd, s; if (project(S.x[i] + fx / F * L, S.y[i] + fy / F * L, S.z[i] + fz / F * L, ex, ey, dd, s)) {
+                if (F > 1e-6 && L * pscl[i] > 2) { float ex, ey, dd, s; if (project(gX[i] + fx / F * L, gY[i] + fy / F * L, gZ[i] + fz / F * L, ex, ey, dd, s)) {
                     col(withA(C_COLD, 0.9f)); arrowPx(psx[i], psy[i], ex, ey, uiPx(5)); } }   // сила — серая, скорость — белая
             }
         }
@@ -1240,8 +1242,8 @@ static void drawScene() {
     glDisable(GL_LINE_SMOOTH);
     // --- «ножницы»: связь под курсором
     if (cutHoverA >= 0 && cutHoverA < n && cutHoverB >= 0 && cutHoverB < n && pvis[cutHoverA]) {
-        double dx, dy, dz; dvec(cutHoverA, cutHoverB, dx, dy, dz); float bx, by, dd, s;
-        if (project(S.x[cutHoverA] + dx, S.y[cutHoverA] + dy, S.z[cutHoverA] + dz, bx, by, dd, s)) {
+        double dx, dy, dz; dvecG(cutHoverA, cutHoverB, dx, dy, dz); float bx, by, dd, s;
+        if (project(gX[cutHoverA] + dx, gY[cutHoverA] + dy, gZ[cutHoverA] + dz, bx, by, dd, s)) {
             glEnable(GL_LINE_SMOOTH); glLineWidth(2.5f); col(withA(C_ACC, 0.95f)); glBegin(GL_LINES); segPx(psx[cutHoverA], psy[cutHoverA], bx, by); glEnd(); glLineWidth(1); glDisable(GL_LINE_SMOOTH);
         }
     }
@@ -1253,7 +1255,7 @@ static void drawScene() {
     // --- пинцет
     if (grabbed >= 0 && grabbed < n) {
         col(grayc(1, 0.6f)); glEnable(GL_LINE_STIPPLE); glLineStipple(2, 0x0F0F);
-        glBegin(GL_LINES); line3(S.x[grabbed], S.y[grabbed], S.z[grabbed], grabX, grabY, grabZ); glEnd(); glDisable(GL_LINE_STIPPLE);
+        glBegin(GL_LINES); line3(gX[grabbed], gY[grabbed], gZ[grabbed], grabX, grabY, grabZ); glEnd(); glDisable(GL_LINE_STIPPLE);
     }
     // --- «бросок» выделения: стрелка от точки захвата к курсору
     if (throwDrag) {

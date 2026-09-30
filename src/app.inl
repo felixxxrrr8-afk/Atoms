@@ -1441,6 +1441,68 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         }
         fclose(f); return 0;
     }
+    // --jitter K [v=V] [frames=F]: плавность рисунка сцены K — на сколько атомы сдвигаются за кадр и насколько «дрожат»
+    // (вторая разность положений |x(f+1) − 2x(f) + x(f−1)|, Å) — у настоящих координат и у рисуемых; температура каждого
+    // элемента по скоростям (равнораспределение) и скорость центра масс всей системы → jitter_K.log
+    if (cmd && wcsstr(cmd, L"--jitter")) {
+        wchar_t* p = wcsstr(cmd, L"--jitter") + 8; const int K = (int)wcstol(p, &p, 10);
+        const int var = argInt(cmd, L"v=", 0), F = std::max(20, argInt(cmd, L"frames=", 240));
+        initBondTable(); initKlm(); rebuildTables(); loadPreset(K, var);
+        respaOn = argInt(cmd, L"respa=", 1) != 0; opt.smoothVib = argInt(cmd, L"smooth=", 1) != 0;
+        if (const double dt = argDbl(cmd, L"dt=", 0); dt > 0) { P.dtBase = P.dt = dt; }
+        if (argInt(cmd, L"nve=", 0)) { P.thermostat = TH_NVE; script.clear(); }
+        FILE* f = fopen(fmt("jitter_%d.log", K).c_str(), "w"); if (!f) return 1;
+        long long steps = 0;
+        auto frameStep = [&] {   // кадр — как в окне: время модели substeps·dt_base
+            runScript(); const double tGoal = S.t + P.substeps * P.dtBase - 1e-9;
+            for (int s = 0; s < 400 && S.t < tGoal; s++) { mdStep(); steps++; }
+            displayUpdate();
+        };
+        for (int w = argInt(cmd, L"warm=", 60); w > 0; w--) frameStep();
+        auto comV = [] { double px = 0, py = 0, pz = 0, M = 0; for (int i = 0; i < S.n; i++) { if (frozenAt(i)) continue; const double m = EL[S.ty[i]].m; px += m * S.vx[i]; py += m * S.vy[i]; pz += m * S.vz[i]; M += m; }
+                         return M > 0 ? std::sqrt(px * px + py * py + pz * pz) / M : 0.0; };
+        const double v0 = comV(), t0 = S.t; const int n = S.n; steps = 0;
+        std::vector<double> raw[3], shown[3];   // три последних кадра: x y z подряд
+        std::vector<double> d1r(NEL, 0), d2r(NEL, 0), d1s(NEL, 0), d2s(NEL, 0), kin[2] = {std::vector<double>(NEL, 0), std::vector<double>(NEL, 0)};
+        std::vector<long long> c1(NEL, 0), c2(NEL, 0), ck[2] = {std::vector<long long>(NEL, 0), std::vector<long long>(NEL, 0)};
+        int got = 0;
+        for (int fr = 0; fr < F && S.n == n; fr++) {
+            frameStep(); if (S.n != n) break;
+            for (int h = 2; h > 0; h--) { raw[h].swap(raw[h - 1]); shown[h].swap(shown[h - 1]); }
+            raw[0].resize(3 * n); shown[0].resize(3 * n);
+            const int half = fr < F / 2 ? 0 : 1;
+            for (int i = 0; i < n; i++) {
+                raw[0][3 * i] = S.ux[i]; raw[0][3 * i + 1] = S.uy[i]; raw[0][3 * i + 2] = S.uz[i];
+                shown[0][3 * i] = S.ux[i] + gX[i] - S.x[i]; shown[0][3 * i + 1] = S.uy[i] + gY[i] - S.y[i]; shown[0][3 * i + 2] = S.uz[i] + gZ[i] - S.z[i];
+                const int t = S.ty[i]; if (frozenAt(i)) continue;
+                kin[half][t] += EL[t].m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]) / 3; ck[half][t]++;
+            }
+            got++;
+            if (got < 3) continue;
+            for (int i = 0; i < n; i++) {
+                if (frozenAt(i)) continue; const int t = S.ty[i];
+                for (int c = 0; c < 3; c++) {
+                    const int q = 3 * i + c;
+                    const double a1 = raw[0][q] - raw[1][q], a2 = raw[0][q] - 2 * raw[1][q] + raw[2][q];
+                    const double b1 = shown[0][q] - shown[1][q], b2 = shown[0][q] - 2 * shown[1][q] + shown[2][q];
+                    d1r[t] += a1 * a1; d2r[t] += a2 * a2; d1s[t] += b1 * b1; d2s[t] += b2 * b2;
+                }
+                c1[t]++; c2[t]++;
+            }
+        }
+        const double A = 3.405;
+        fprintf(f, "%s\nN=%d, кадров %d, кадр = %.1f фс модели (%.1f шага), сглаживание рисунка: %s\n", presetTitle.c_str(), n, got,
+                got ? toPs(S.t - t0) / got * 1000 : 0.0, got ? (double)steps / got : 0.0, opt.smoothVib ? "да" : "нет");
+        fprintf(f, "элемент  T, K (1-я и 2-я половина)   сдвиг за кадр, Å (рисунок)   дрожь, Å (рисунок)\n");
+        for (int t = 0; t < NEL; t++) if (c2[t] > 0)
+            fprintf(f, "%-6s %7.0f %7.0f               %7.4f (%7.4f)           %7.4f (%7.4f)\n", EL[t].sym,
+                    toKelvin(kin[0][t] / std::max(1LL, ck[0][t])), toKelvin(kin[1][t] / std::max(1LL, ck[1][t])),
+                    A * std::sqrt(d1r[t] / c1[t]), A * std::sqrt(d1s[t] / c1[t]), A * std::sqrt(d2r[t] / c2[t]), A * std::sqrt(d2s[t] / c2[t]));
+        measure();
+        fprintf(f, "скорость центра масс: %.3f м/с в начале, %.3f м/с в конце; температура системы %.0f K; E − W − E0 = %.2f ε (%.4f kT на атом)\n", v0 * cfg::U_L_NM * 1000 / cfg::U_T_PS,
+                comV() * cfg::U_L_NM * 1000 / cfg::U_T_PS, toKelvin(EN.T), EN.total() - Wext - Eref, (EN.total() - Wext - Eref) / std::max(1, n) / std::max(1e-9, P.Tset));
+        fclose(f); return 0;
+    }
     // --lighttest: порог фотодиссоциации — смеси CH4 + Cl2 и H2 + O2 под вспышками разной длины волны → lighttest.log
     if (cmd && wcsstr(cmd, L"--lighttest")) {
         initBondTable(); initKlm(); initPalette(); rebuildTables();
@@ -1731,19 +1793,25 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
             else if (automation) { runScript(); for (int s = 0; s < P.substeps; s++) mdStep(); }
             else {
                 // «скорость» — время модели за кадр (substeps обычных шагов): если шаг dt укоротился (раскалённые лёгкие
-                // атомы в пламени), шагов за кадр больше — пока расчёт кадра укладывается в ~14 мс
+                // атомы в пламени), шагов за кадр больше — пока расчёт кадра укладывается в ~14 мс. Число шагов решается
+                // до начала кадра по среднему времени шага: если бы кадр обрывался по часам, соседние кадры проходили бы
+                // то 4, то 6 шагов, и движение шло бы рывками
+                static double stepCost = 0.002;   // время одного шага, с (скользящее среднее)
                 runScript();
-                const double tGoal = S.t + P.substeps * P.dtBase - 1e-9; const auto c0 = std::chrono::high_resolution_clock::now();
-                for (int s = 1; s <= 400; s++) {
-                    mdStep();
-                    if (S.t >= tGoal) break;
-                    if (s >= P.substeps && std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - c0).count() > 0.014) break;
+                const int need = (int)std::ceil(P.substeps * P.dtBase / std::max(P.dt, 1e-12) - 1e-6);
+                const int plan = clampv(need, 1, std::min(400, std::max(P.substeps, (int)(0.014 / std::max(stepCost, 1e-6)))));
+                const auto c0 = std::chrono::high_resolution_clock::now(); int done = 0;
+                while (done < plan) {
+                    mdStep(); done++;
+                    if (done >= P.substeps && std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - c0).count() > 0.05) break;   // не дольше 50 мс
                 }
+                stepCost += (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - c0).count() / done - stepCost) * 0.1;
             }
         }
         if (minimized || idle) Sleep(15);   // свёрнутое или фоновое окно не грузит процессор отрисовкой
         { static bool wasOpen = false; if (wasOpen && !settingsOn) settingsSave(); wasOpen = settingsOn; }
         frame++;
+        if (md) displayUpdate();
         if (md && ((!P.paused && frame % 4 == 0) || (P.paused && frame % 20 == 0))) analysisTick();
         if (md && trailsOn && !P.paused && frame % 2 == 0) trailsRecord();
         advanceFlashes((float)frameDt);

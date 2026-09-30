@@ -17,6 +17,7 @@
 //     --water T P N шагов   модель воды: плотность, энергия, диффузия, g(r)
 //     --nuck, --semi        критичность сборок урана; вольт-амперные характеристики диода и транзистора
 //     --walltest            стенки редактора сцены: зеркальные, тепловые, поглощающие, сосуд, ось → стенки
+//     --jitter K            плавность рисунка сцены K: сдвиг и «дрожь» атомов за кадр, температура каждого элемента
 //     --lang ru|en          язык интерфейса (иначе atoms.ini, затем язык Windows); Ctrl+L — на лету
 //
 // Единицы — приведённые LJ (σ, ε аргона, масса 10 а.е.м.). Для аргона: T[K] = 139.8·T*, L[нм] = 0.3405·L*,
@@ -68,6 +69,7 @@ static void drawChemPanel(float x, float y, float w, float h);   // src/panel_ch
 #include "src/chemistry.inl"
 #include "src/analysis.inl"
 #include "src/presets.inl"
+#include "src/smooth.inl"     // средняя форма молекул для рисования (без дрожи быстрых колебаний)
 #include "src/render.inl"
 #include "src/ui.inl"
 #include "src/panel_phys.inl"
