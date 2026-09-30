@@ -385,9 +385,17 @@ static bool tryEvent(const int* Sa, int ns, F apply, int absA, int absB, double&
     for (int s = 0; s < ns; s++) { C.push_back(Sa[s]); for (int k = 0; k < S.nbc[Sa[s]]; k++) C.push_back(S.nb[Sa[s]][k]); }
     if (cextra) C.insert(C.end(), cextra->begin(), cextra->end());
     std::sort(C.begin(), C.end()); C.erase(std::unique(C.begin(), C.end()), C.end());
+    // пары пересчитываются у участников и у всех их соседей по связям: новая или разорванная связь a–b меняет
+    // «расстояние по связям» и у пар соседей (x–a–b–y становится парой 1-4 с ослабленным кулоном, x–a–b — исключением);
+    // у заряженных атомов (металл, связанный с кислородом) это десятки ε на событие
     std::vector<int> Pset(Sa, Sa + ns);
+    Pset.insert(Pset.end(), C.begin(), C.end());
     if (qset) Pset.insert(Pset.end(), qset->begin(), qset->end());
     std::sort(Pset.begin(), Pset.end()); Pset.erase(std::unique(Pset.begin(), Pset.end()), Pset.end());
+    // заряд меняется только у молекул участников — собственная энергия ионов считается по ним
+    // (по всему Pset с соседними молекулами воды обход упирался бы в предел размера и терял энергию ионов)
+    std::vector<int> Iset(Sa, Sa + ns);
+    if (qset) Iset.insert(Iset.end(), qset->begin(), qset->end());
     // пары, исключённые до события: если исключение пропадёт на малом расстоянии — станут «призраками»
     std::vector<std::pair<int, int>> exb;
     for (int s = 0; s < ns; s++) {
@@ -400,7 +408,7 @@ static bool tryEvent(const int* Sa, int ns, F apply, int absA, int absB, double&
     for (size_t k = 0; k < V.size(); k++) { int a = V[k]; sv[k] = {a, S.nb[a], S.bo[a], S.bc[a], S.nbc[a], S.gh[a], S.ghc[a], S.q[a], S.ty[a]}; }
     auto rollback = [&] { for (auto& t : sv) { S.nb[t.a] = t.nb; S.bo[t.a] = t.bo; S.bc[t.a] = t.bc; S.nbc[t.a] = t.nbc; S.gh[t.a] = t.gh; S.ghc[t.a] = t.ghc; S.q[t.a] = t.q; S.ty[t.a] = t.ty; } };
 
-    double E0 = localEnergy(Pset, C) + ionSelfOf(Pset) + (extE ? (*extE)() : 0.0);
+    double E0 = localEnergy(Pset, C) + ionSelfOf(Iset) + (extE ? (*extE)() : 0.0);
     // энергия «особых состояний» (расширенный октет) меняется вместе со связями: сдвиги связей центров
     // сразу переводятся к новым целям, и ΔU события её учитывает (у ионных событий это делает ionicCore)
     struct TRec { int a, b; double tg; };   // связь (a < b) и её цель
@@ -428,7 +436,7 @@ static bool tryEvent(const int* Sa, int ns, F apply, int absA, int absB, double&
         double s = 1.1225 * 0.5 * (EL[S.ty[pr.first]].sig + EL[S.ty[pr.second]].sig);
         if (dist2(pr.first, pr.second) < s * s) addGhost(pr.first, pr.second);
     }
-    double E1 = localEnergy(Pset, C) + ionSelfOf(Pset) + (extE ? (*extE)() : 0.0);
+    double E1 = localEnergy(Pset, C) + ionSelfOf(Iset) + (extE ? (*extE)() : 0.0);
     double dE = E1 - E0;
     dEout = dE;
     if (!std::isfinite(dE)) { rollback(); return false; }   // не-конечная энергия (перекрытие, NaN) — событие отклоняется
@@ -1206,6 +1214,7 @@ static bool overlaps(int t, double x, double y, double z, double fac) {
     return false;
 }
 static void thermalVel(int t, double T, double& vx, double& vy, double& vz);
+static void thermalizeMol(const int* at, int k, double T);
 // Поставить молекулу по шаблону; возвращает false при перекрытии или выходе за стенки.
 // Заряды: инкременты связей + заряд иона (формальные заряды шаблона) по мягкости атомов; сдвиги связей ионов — их энергия.
 static bool placeMol(const Tmpl& m, double cx, double cy, double cz, double T, double fac = 0.8) {
@@ -1222,17 +1231,15 @@ static bool placeMol(const Tmpl& m, double cx, double cy, double cz, double T, d
         if (overlaps(a.t, x, y, z, fac)) return false;
         pos.push_back({x, y, z});
     }
-    // скорости — тепловые у каждого атома: поступательное, вращательное и колебательное движение сразу при температуре T
+    // скорости — тепловые: перенос, вращение и колебания каждой молекулы шаблона сразу при температуре T
     int base = S.n;
-    for (size_t k = 0; k < m.a.size(); k++) {
-        double vx, vy, vz; thermalVel(m.a[k].t, T, vx, vy, vz);
-        addAtom(m.a[k].t, pos[k][0], pos[k][1], pos[k][2], vx, vy, vz);
-    }
+    for (size_t k = 0; k < m.a.size(); k++) addAtom(m.a[k].t, pos[k][0], pos[k][1], pos[k][2], 0, 0, 0);
     for (auto& b : m.b) for (int o = 0; o < b[2]; o++) changeBond(base + b[0], base + b[1], +1);
-    bool ionic = false; for (auto& a : m.a) if (a.fc) ionic = true;
-    if (!ionic) { for (size_t k = 0; k < m.a.size(); k++) updateCharge(base + (int)k); return true; }
     std::vector<int> M2; for (size_t k = 0; k < m.a.size(); k++) M2.push_back(base + (int)k);
     std::vector<std::vector<int>> comps; componentsIn(M2, comps);
+    for (auto& c : comps) thermalizeMol(c.data(), (int)c.size(), T);
+    bool ionic = false; for (auto& a : m.a) if (a.fc) ionic = true;
+    if (!ionic) { for (size_t k = 0; k < m.a.size(); k++) updateCharge(base + (int)k); return true; }
     for (auto& c : comps) {
         int Q = 0; for (int a : c) Q += m.a[a - base].fc + typeFc(S.ty[a]);
         assignCharges(c, Q);
@@ -1283,23 +1290,72 @@ static int waterMolecules(double V) { return (int)std::lround(V * 39.476 / 29.91
 static void thermalVel(int t, double T, double& vx, double& vy, double& vz) {
     double s = std::sqrt(T / EL[t].m); vx = grand() * s; vy = grand() * s; vz = grand() * s;
 }
+// Тепловые скорости только что поставленной молекулы (атомы at[0…k−1], связаны друг с другом). Молекула стоит в минимуме
+// энергии, а в тепловом равновесии каждое колебание держит поровну кинетической и потенциальной энергии (по kT/2).
+// Если дать атомам просто случайные скорости при T, колебания за несколько периодов отдадут половину своей энергии
+// в потенциальную — молекулы остынут, а в газе, где столкновения редки, так и останутся холоднее соседей (водород
+// этанола — на сотню кельвинов). Поэтому скорости раскладываются на перенос, вращение и колебания, и колебательная
+// часть получает вдвое больше энергии; перенос и вращение — ровно при T
+static void thermalizeMol(const int* at, int k, double T) {
+    for (int q = 0; q < k; q++) { const int i = at[q]; thermalVel(S.ty[i], T, S.vx[i], S.vy[i], S.vz[i]); }
+    if (k < 2) return;
+    double M = 0, R[3] = {0, 0, 0}, V[3] = {0, 0, 0};
+    std::vector<std::array<double, 3>> r(k);
+    for (int q = 0; q < k; q++) {
+        const int i = at[q]; double dx = 0, dy = 0, dz = 0; if (q) dvec(at[0], i, dx, dy, dz);
+        r[q] = {dx, dy, dz}; const double m = EL[S.ty[i]].m; M += m;
+        R[0] += m * dx; R[1] += m * dy; R[2] += m * dz; V[0] += m * S.vx[i]; V[1] += m * S.vy[i]; V[2] += m * S.vz[i];
+    }
+    for (int c = 0; c < 3; c++) { R[c] /= M; V[c] /= M; }
+    // момент импульса и тензор инерции относительно центра масс; ω = I⁻¹L (у линейной молекулы — без оси: там I = 0)
+    double L[3] = {0, 0, 0}, I[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
+    for (int q = 0; q < k; q++) {
+        const int i = at[q]; const double m = EL[S.ty[i]].m;
+        const double p[3] = {r[q][0] - R[0], r[q][1] - R[1], r[q][2] - R[2]}, u[3] = {S.vx[i] - V[0], S.vy[i] - V[1], S.vz[i] - V[2]};
+        L[0] += m * (p[1] * u[2] - p[2] * u[1]); L[1] += m * (p[2] * u[0] - p[0] * u[2]); L[2] += m * (p[0] * u[1] - p[1] * u[0]);
+        const double p2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+        for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) I[a][b] += m * ((a == b ? p2 : 0) - p[a] * p[b]);
+    }
+    double E[3][3], d[3], w[3] = {0, 0, 0}; jacobiEigen<3>(I, E, d);
+    const double dmax = std::max({d[0], d[1], d[2]});
+    for (int e = 0; e < 3; e++) {
+        if (d[e] < 1e-6 * dmax) continue;
+        const double c = (L[0] * E[0][e] + L[1] * E[1][e] + L[2] * E[2][e]) / d[e];
+        for (int a = 0; a < 3; a++) w[a] += c * E[a][e];
+    }
+    for (int q = 0; q < k; q++) {
+        const int i = at[q]; const double p[3] = {r[q][0] - R[0], r[q][1] - R[1], r[q][2] - R[2]};
+        const double rot[3] = {w[1] * p[2] - w[2] * p[1], w[2] * p[0] - w[0] * p[2], w[0] * p[1] - w[1] * p[0]};
+        double* v[3] = {&S.vx[i], &S.vy[i], &S.vz[i]};
+        for (int a = 0; a < 3; a++) *v[a] = V[a] + rot[a] + std::sqrt(2.0) * (*v[a] - V[a] - rot[a]);
+    }
+}
 // Искра разряда: в шаре радиуса R газ превращается в плазму — связи рвутся (каждая получает D + 0.3 эВ, как при
 // фотодиссоциации), атомы получают добавочные тепловые скорости при температуре Tk. Вся энергия — внешняя работа
 static void spark(const double* c, double R, double Tk) {
     lightFlash(c, nullptr, R);
-    double v2max = 0;
+    // добавочные скорости — без общего импульса: разряд нагревает газ, но не толкает его целиком
+    std::vector<int> in; std::vector<std::array<double, 3>> dv; double M = 0, pa[3] = {0, 0, 0};
     for (int i = 0; i < S.n; i++) {
         if (frozenAt(i)) continue;
         const double dx = S.x[i] - c[0], dy = S.y[i] - c[1], dz = S.z[i] - c[2];
         if (dx * dx + dy * dy + dz * dz > R * R) continue;
-        const double m = EL[S.ty[i]].m, k0 = S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i];
         double vx, vy, vz; thermalVel(S.ty[i], Tk, vx, vy, vz);
-        S.vx[i] += vx; S.vy[i] += vy; S.vz[i] += vz;
+        const double m = EL[S.ty[i]].m; M += m; pa[0] += m * vx; pa[1] += m * vy; pa[2] += m * vz;
+        in.push_back(i); dv.push_back({vx, vy, vz});
+    }
+    double v2max = 0;
+    for (size_t k = 0; k < in.size(); k++) {
+        const int i = in[k]; const double m = EL[S.ty[i]].m, k0 = S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i];
+        S.vx[i] += dv[k][0] - pa[0] / M; S.vy[i] += dv[k][1] - pa[1] / M; S.vz[i] += dv[k][2] - pa[2] / M;
         const double k1 = S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i];
         Wext += 0.5 * m * (k1 - k0); v2max = std::max(v2max, k1);
     }
     // шаг — сразу под раскалённые атомы (как в mdStep): иначе первые шаги после искры идут с «холодным» dt и теряют энергию
-    if (v2max > 0) P.dt = std::min(P.dt, std::max(P.dtBase / 64, 0.85 * (respaOn && anyBondable ? 0.05 : 0.02) / std::sqrt(v2max)));
+    if (v2max > 0) {
+        const double lim = (respaOn && anyBondable ? 0.05 : 0.02) / std::sqrt(v2max);
+        if (P.dt > 0.7 * lim) { P.dt = std::max(P.dtBase / 64, 0.7 * lim); dtChanged = S.step; dtLimMin = std::min(dtLimMin, lim); }
+    }
 }
 // решётки Браве и ГПУ: элементарная ячейка + базис (дробные координаты)
 enum { L_FCC, L_HCP, L_BCC, L_SC, L_NACL, L_ICE };
@@ -1335,13 +1391,12 @@ static void iceLattice3D(double x0, double y0, double z0, int nx, int ny, int nz
     for (int k = 0; k < nz; k++) for (int j = 0; j < ny; j++) for (int i = 0; i < nx; i++) for (int f = 0; f < 4; f++) for (int sub = 0; sub < 2; sub++) {
         double ox = x0 + (i + fcc[f][0] + 0.125 + 0.25 * sub) * a, oy = y0 + (j + fcc[f][1] + 0.125 + 0.25 * sub) * a, oz = z0 + (k + fcc[f][2] + 0.125 + 0.25 * sub) * a;
         int h1 = sub == 0 ? 0 : 2, h2 = sub == 0 ? 1 : 3; double sg = sub == 0 ? 1 : -1;
-        double vx, vy, vz; thermalVel(E_O, T, vx, vy, vz);
-        int o = addAtom(E_O, ox, oy, oz, vx, vy, vz);
+        int mol[3]; mol[0] = addAtom(E_O, ox, oy, oz, 0, 0, 0);
         for (int h : {h1, h2}) {
-            int hi = addAtom(E_H, ox + sg * rOH * s3 * d[h][0], oy + sg * rOH * s3 * d[h][1], oz + sg * rOH * s3 * d[h][2], vx, vy, vz);
-            changeBond(o, hi, +1); updateCharge(hi);
+            int hi = addAtom(E_H, ox + sg * rOH * s3 * d[h][0], oy + sg * rOH * s3 * d[h][1], oz + sg * rOH * s3 * d[h][2], 0, 0, 0);
+            changeBond(mol[0], hi, +1); updateCharge(hi); mol[h == h1 ? 1 : 2] = hi;
         }
-        updateCharge(o);
+        updateCharge(mol[0]); thermalizeMol(mol, 3, T);
     }
 }
 static void wrapAll() {

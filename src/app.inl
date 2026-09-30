@@ -181,7 +181,7 @@ static bool loadState(const std::wstring& path) {
         toolPower = clampv(view[11] / 1000.0, 0.1, 10.0); selPal = clampv((int)view[12], 0, (int)palette.size() - 1);
     }
     if (ver < 4) rechargeAll(0.8);   // файл до перехода на реальную шкалу: однозарядные ионы несли ±0.8
-    buildPairTables(); updatePresence(); computeForces(); resetEnergyRef(); resetAnalysis(); resetMSD();
+    buildPairTables(); updatePresence(); computeForces(); dtFromState(); resetEnergyRef(); resetAnalysis(); resetMSD();
     showToast(ver >= 4 ? "Состояние загружено" : "Состояние загружено (файл прежней версии: заряды пересчитаны)");
     return true;
 }

@@ -1263,10 +1263,12 @@ static void barostatCRescale(double dtB);
 static void applyFieldObjs(double dt);
 static void physGuard(double K, double T);
 static double guardDtScale = 1.0;   // временное ограничение шага после отката (плавно возвращается к 1)
+static long long dtChanged = 0; static double dtLimMin = 1e30;   // шаг последней смены dt и наименьший предел шага (медленно забывается)
 static int baroCount = 0;
 
 static bool respaOn = true;          // многошаговый интегратор для веществ со связями (переключатель во вкладке «Физика»)
 static double slowStepA = 0.012;     // внешний шаг RESPA: смещение от медленных сил a·dt² не больше этого (σ)
+static double slowStepV = 0.05;      // внешний шаг RESPA: самый быстрый атом смещается за шаг не больше чем на столько (σ)
 static std::vector<double> stepUx, stepUy, stepUz, stepFx, stepFy, stepFz;   // начало шага: положения и силы ветра — для работы внешних сил
 // полушаг быстрых сил (связи, углы)
 static void kickFast(double h) {
@@ -1286,6 +1288,26 @@ static void drift(double h) {
         S.x[i] += h * S.vx[i]; S.y[i] += h * S.vy[i]; S.z[i] += h * S.vz[i];
         S.ux[i] += h * S.vx[i]; S.uy[i] += h * S.vy[i]; S.uz[i] += h * S.vz[i];
     }
+}
+// Предел шага по текущему состоянию: смещение самого быстрого атома за шаг — не больше 0.02σ (с RESPA — 0.05σ: лёгкие
+// атомы H колеблются внутри своих связей, это ведёт внутренний шаг, а внешнему достаточно не проскакивать столкновения)
+// и смещение от ускорения a·dt² — не больше 0.003σ (жёсткие столкновения горячих лёгких атомов). Ускорения — из последнего
+// расчёта сил (measureAccel)
+static double dtLimitNow() {
+    double vmax2 = 0;
+    for (int i = 0; i < S.n; i++) if (!frozenAt(i)) vmax2 = std::max(vmax2, S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]);
+    const double vmax = std::sqrt(vmax2);
+    // с RESPA ускорение от связей ограничивает внутренний шаг dt/n, а внешний — только столкновения и медленные силы
+    const bool respaNow = respaOn && anyBondable;
+    const double aLim = respaNow ? std::min(amaxSlow > 0 ? std::sqrt(slowStepA / amaxSlow) : 1e9, amaxFast > 0 ? cfg::RESPA_N * std::sqrt(0.003 / amaxFast) : 1e9)
+                                 : (EN.amax > 0 ? std::sqrt(0.003 / EN.amax) : 1e9);
+    return std::min(vmax > 0 ? (respaNow ? slowStepV : 0.02) / vmax : 1e9, aLim);
+}
+// шаг под уже имеющееся состояние (новая сцена, загрузка): иначе первый шаг горячей сцены шёл бы с базовым dt —
+// в пламени при 3500 K это разовый скачок энергии на 0.2%, а без RESPA — «взрыв»
+static void dtFromState() {
+    const double lim = dtLimitNow();
+    P.dt = std::max(P.dtBase / 64, std::min(P.dtBase, 0.7 * lim)); dtLimMin = lim; dtChanged = S.step;
 }
 static void mdStep() {
     const double dt = P.dt; const int n = S.n;
@@ -1507,25 +1529,18 @@ static void mdStep() {
     } else baroCount = 0;
     // объекты поля: локальные термостаты, источники и стоки атомов
     if (!fieldObjs.empty()) applyFieldObjs(dt);
-    // авто-dt: смещение за шаг ≤ 0.02σ и a·dt² ≤ 0.003σ (жёсткие столкновения горячих лёгких атомов)
-    double vmax2 = 0;
-    for (int i = 0; i < S.n; i++) if (!frozenAt(i)) vmax2 = std::max(vmax2, S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]);
-    double vmax = std::sqrt(vmax2);
-    // с RESPA ускорение от связей ограничивает внутренний шаг dt/n, а внешний — только столкновения и медленные силы
-    const bool respaNow = respaOn && anyBondable;
-    const double aLim = respaNow ? std::min(amaxSlow > 0 ? std::sqrt(slowStepA / amaxSlow) : 1e9, amaxFast > 0 ? cfg::RESPA_N * std::sqrt(0.003 / amaxFast) : 1e9)
-                                 : (EN.amax > 0 ? std::sqrt(0.003 / EN.amax) : 1e9);
-    // смещение самого быстрого атома за внешний шаг: 0.02σ, а с RESPA — 0.05σ (лёгкие атомы H колеблются внутри своих
-    // связей, и это ведёт внутренний шаг; внешнему достаточно не проскакивать столкновения)
-    double dtLim = std::min(vmax > 0 ? (respaNow ? 0.05 : 0.02) / vmax : 1e9, aLim);
+    const double dtLim = dtLimitNow();
     const double dtTop = P.dtBase * guardDtScale;   // после отката страж временно ограничивает шаг
-    // Уменьшение — сразу до безопасного значения (иначе при резком росте сил энергия успевает «разогнаться»),
-    // рост — ступенями по 10% не чаще раза в 100 шагов: интегратор Верле сохраняет энергию, только пока шаг постоянен,
-    // и «пила» из частых мелких изменений давала бы заметный дрейф
-    static long long dtChanged = 0;
-    if (P.dt > dtLim) { P.dt = std::max(P.dtBase / 64, 0.85 * dtLim); dtChanged = S.step; }
+    // Уменьшение — сразу до безопасного значения (иначе при резком росте сил энергия успевает «разогнаться»).
+    // Рост — только до 0.7 от наименьшего предела за последние тысячи шагов (память о худшем случае забывается
+    // за ~5000 шагов). В горячем газе самый быстрый атом то появляется, то исчезает: если шаг возвращался к краю
+    // устойчивости, каждый новый рекорд скорости проходил один слишком длинный шаг, и энергия пламени ползла вверх
+    // в 3–5 раз быстрее. Шаг с запасом меняется редко
+    dtLimMin = std::min(dtLim, dtLimMin * 1.0002);
+    const double room = std::min(dtTop, 0.7 * dtLimMin);
+    if (P.dt > dtLim) { P.dt = std::max(P.dtBase / 64, 0.7 * dtLim); dtChanged = S.step; }
     else if (P.dt > dtTop) { P.dt = std::max(P.dtBase / 64, dtTop); dtChanged = S.step; }
-    else if (P.dt < 0.8 * std::min(dtTop, dtLim) && S.step - dtChanged >= 100) { P.dt = std::min({dtTop, 0.9 * dtLim, P.dt * 1.1}); dtChanged = S.step; }
+    else if (P.dt < 0.85 * room && S.step - dtChanged >= 300) { P.dt = std::min(room, P.dt * 1.15); dtChanged = S.step; }
 
     S.t += dt; S.step++;
     // страж устойчивости: не-конечные величины или «взрыв» → откат к хорошему снимку

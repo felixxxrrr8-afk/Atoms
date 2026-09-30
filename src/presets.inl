@@ -54,11 +54,12 @@ static void worldReset(double Lx, double Ly, double Lz, int boundary) {
     pistonGrab = false; nlValid = false; fieldObjs.clear(); selFieldObj = -1; heatWallQ[0] = heatWallQ[1] = 0;
     sparkR = 5.0; sparkTK = 3000;
     guardSnap[0].ok = guardSnap[1].ok = false; guardDtScale = 1.0;   // снимки стража и ограничение шага — от прошлой сцены
+    dtChanged = 0; dtLimMin = 1e30;
     buildPairTables();
 }
 static void finishPreset() {
     wrapAll(); zeroMomentum(); updatePresence(); P.dt = P.dtBase;
-    computeForces(); resetEnergyRef(); resetAnalysis(); resetMSD();
+    computeForces(); dtFromState(); resetEnergyRef(); resetAnalysis(); resetMSD();
 }
 // presetTitle — всегда целый русский литерал (на экран — через перевод); presetLoaded — состояние загружено из файла
 static std::string presetTitle; static bool presetLoaded = false;
