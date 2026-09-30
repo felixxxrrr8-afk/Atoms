@@ -45,6 +45,8 @@ static void popUndo() {
 
 static void worldReset(double Lx, double Ly, double Lz, int boundary) {
     S = Sim(); S.Lx = Lx; S.Ly = Ly; S.Lz = Lz; P.boundary = boundary;
+    P.perMask = boundary == B_PERIODIC ? 7 : 0; P.container = CT_BOX; absorbedCount = 0;
+    for (int f = 0; f < 6; f++) { P.wallType[f] = WT_SOFT; P.wallTK[f] = kelvin(300); }
     P.npt = false; P.heatWalls = 0; P.gravity = 0; P.catalyst = false; P.chemistry = true;
     P.thermostat = TH_BUSSI; P.tauT = 0.5; P.epsScale = 1.0; P.wallAttr = 0.6; P.heatPower = 0.03; P.efield = 0; P.eaScale = 1.0;
     P.acidBase = true; P.surfCat = true; rxT0 = 0; chemPT = 0;

@@ -105,6 +105,10 @@ static bool loadState(const std::wstring& path) {
     if (maxb < 1 || maxb > 16) { fclose(f); showToast("Файл повреждён"); return false; }
     Params np = P;   // поля, которых нет в файле (более старая версия), остаются текущими
     { size_t m = std::min<size_t>(szP, sizeof(Params)); r(&np, m); skip((long)szP - (long)m); }
+    if (szP < sizeof(Params)) {   // файл до редактора граней: границы — по общему режиму, грани обычные
+        np.perMask = np.boundary == B_PERIODIC ? 7 : 0; np.container = CT_BOX;
+        for (int k = 0; k < 6; k++) { np.wallType[k] = WT_SOFT; np.wallTK[k] = 300 / cfg::U_T_K; }
+    }
     int32_t n = 0; r(&n, 4);
     if (!ok || n < 0 || n > 2000000 || (hdr[0] != 2 && hdr[0] != 3)) { fclose(f); showToast("Файл повреждён"); return false; }
     if (hdr[0] == 2) { fclose(f); showToast("Файл сохранён в плоском режиме старой версии — сейчас модель только объёмная"); return false; }
@@ -173,7 +177,7 @@ static bool loadState(const std::wstring& path) {
     fieldObjs = haveFO ? fo : std::vector<FieldObj>(); selFieldObj = -1; clearToolState();
     if (haveView) {
         layerCharges = view[0] != 0; layerVel = view[1] != 0; layerForce = view[2] != 0; layerFO = view[3] != 0; layerGrid = view[4] != 0; layerLegend = view[5] != 0;
-        layerScale = view[6] != 0; layerPins = view[7] != 0; foKind = clampv((int)view[8], 0, FO_N - 1); sideTab = clampv((int)view[9], 0, 4); graphsOn = view[10] != 0;
+        layerScale = view[6] != 0; layerPins = view[7] != 0; foKind = clampv((int)view[8], 0, FO_N - 1); sideTab = clampv((int)view[9], 0, TAB_N - 1); graphsOn = view[10] != 0;
         toolPower = clampv(view[11] / 1000.0, 0.1, 10.0); selPal = clampv((int)view[12], 0, (int)palette.size() - 1);
     }
     if (ver < 4) rechargeAll(0.8);   // файл до перехода на реальную шкалу: однозарядные ионы несли ±0.8
@@ -447,8 +451,9 @@ static void handleKeys() {
             P.catalyst = !same; P.catX = x; P.catY = y; P.catZ = z; P.catR = std::max(3.0, P.brushR * 1.5);
             showToast(P.catalyst ? "Катализатор: Ea×0.25 внутри" : "Катализатор убран"); break; }
         case 'L': lightFlash(o, d, P.brushR); break;
-        case VK_OEM_4: pushUndo(); strainX(1.0 / 1.02); showToast("Сжатие по x −2%"); break;
-        case VK_OEM_6: pushUndo(); strainX(1.02); showToast("Растяжение по x +2%"); break;
+        case VK_OEM_4: case VK_OEM_6:   // шар и цилиндр вписаны в ящик: одноосная деформация вытолкнула бы атомы за их стенку
+            if (P.container != CT_BOX) { showToast("Сжатие и растяжение по x — только без сосуда (вкладка «Сцена»)"); break; }
+            pushUndo(); strainX(k == VK_OEM_4 ? 1.0 / 1.02 : 1.02); showToast(k == VK_OEM_4 ? "Сжатие по x −2%" : "Растяжение по x +2%"); break;
         case VK_LEFT: camRotate(-0.12, 0); break;
         case VK_RIGHT: camRotate(0.12, 0); break;
         case VK_UP: camRotate(0, 0.08); break;
@@ -478,7 +483,14 @@ static void handleKeys() {
 }
 
 // ===================================== МЫШЬ =================================================
-enum { LM_NONE, LM_CAMERA, LM_TWEEZER, LM_ADD, LM_WALL, LM_PISTON, LM_BRUSH, LM_RUBBER, LM_MOVESEL, LM_THROW, LM_PUSH, LM_CUT, LM_FOMOVE, LM_FOPLACE };
+enum { LM_NONE, LM_CAMERA, LM_TWEEZER, LM_ADD, LM_WALL, LM_PISTON, LM_BRUSH, LM_RUBBER, LM_MOVESEL, LM_THROW, LM_PUSH, LM_CUT, LM_FOMOVE, LM_FOPLACE, LM_SNAP };
+static double snapLast[3] = {-1e9, -1e9, -1e9};   // последний узел точной расстановки (ряд Shift+протяжкой)
+// точная расстановка: одна молекула в узел сетки (вещество палитры или молекула библиотеки); false — место занято
+static bool snapPlace(double x, double y, double z) {
+    const bool ok = chemStampActive() ? insertMolecule(chemStampMol, x, y, z) : placeMol(palette[clampv(selPal, 1, (int)palette.size() - 1)], x, y, z, P.Tset, 0.85);
+    if (ok) { updatePresence(); computeForces(); resetEnergyRef(); }
+    return ok;
+}
 static int lMode = LM_NONE;
 static int lDragTool = 0;   // инструмент штриха ЛКМ (1 ластик, 2 нагрев, 3 холод)
 static double moveDepth = 0, lastW[3] = {0, 0, 0}, throwW0[3] = {0, 0, 0};
@@ -555,7 +567,12 @@ static void handleMouse(double frameDt) {
                 if (palette[selPal].tool == 1) { pushUndo(); wallStroke = true; lastWallX = lastWallY = lastWallZ = 1e9; lMode = LM_WALL; }
                 else {
                     int h = hoverAtom();
-                    if (h >= 0 && !EL[S.ty[h]].fixed) { grabbed = h; grabDepth = pdep[h]; grabX = S.x[h]; grabY = S.y[h]; grabZ = S.z[h]; lMode = LM_TWEEZER; }
+                    if (h >= 0 && !EL[S.ty[h]].fixed && !placeSnap) { grabbed = h; grabDepth = pdep[h]; grabX = S.x[h]; grabY = S.y[h]; grabZ = S.z[h]; lMode = LM_TWEEZER; }
+                    else if (placeSnap) {   // точно по сетке: одна молекула за щелчок, Shift+протяжка — ряд
+                        double p[3];
+                        if (snapPoint(mouseX, mouseY, p[0], p[1], p[2])) { pushUndo(); if (!snapPlace(p[0], p[1], p[2])) { undoStack.pop_back(); showToast("Узел занят — выберите свободное место"); } for (int q = 0; q < 3; q++) snapLast[q] = p[q]; }
+                        lMode = LM_SNAP;
+                    }
                     else if (chemStampActive()) {   // «штамп» молекулы из библиотеки (вкладка «Химия»): одна структура за щелчок
                         double p[3]; cursorPoint(p[0], p[1], p[2]); pushUndo();
                         if (insertMolecule(chemStampMol, p[0], p[1], p[2])) showToast(std::string(T("Вставлено: ")) + T(palette[0].label));
@@ -643,6 +660,20 @@ static void handleMouse(double frameDt) {
                 }
             }
             break;
+        case LM_SNAP: {   // Shift+протяжка — молекулы во всех узлах сетки от прошлого узла до узла под курсором
+            double p[3];
+            if (shift && snapPoint(mouseX, mouseY, p[0], p[1], p[2]) && (std::fabs(p[0] - snapLast[0]) > 1e-9 || std::fabs(p[2] - snapLast[2]) > 1e-9)) {
+                const bool from = snapLast[0] > -1e8;
+                const int n = from ? std::max(1, (int)std::lround(std::max(std::fabs(p[0] - snapLast[0]), std::fabs(p[2] - snapLast[2])) / snapStep)) : 1;
+                for (int k = 1; k <= n; k++) {
+                    const double t = (double)k / n;
+                    const double x = from ? std::round((snapLast[0] + (p[0] - snapLast[0]) * t) / snapStep) * snapStep : p[0];
+                    const double z = from ? std::round((snapLast[2] + (p[2] - snapLast[2]) * t) / snapStep) * snapStep : p[2];
+                    snapPlace(x, p[1], z);
+                }
+                for (int q = 0; q < 3; q++) snapLast[q] = p[q];
+            }
+            break; }
         case LM_RUBBER: rubX1 = (float)mouseX; rubY1 = (float)mouseY; break;
         case LM_MOVESEL: {   // выделение догоняет курсор шагами ≤ 0.3σ; упёрлось в соседей — стоит (не «взрывается»)
             double p[3]; worldAt(mouseX, mouseY, moveDepth, p);
@@ -800,7 +831,7 @@ static void renderFrame(double frameDt) {
     uiClock += frameDt;
     monoCtx = "сцена";
     if (world != W_MD) worldDraw();
-    else { drawScene(); pushClip(sceneX, sceneY, sceneW, sceneH); drawRingsFx(); popClip(); }
+    else { drawScene(); pushClip(sceneX, sceneY, sceneW, sceneH); drawRingsFx(); drawPlacementGuide(); popClip(); }
     monoCtx = "надписи сцены"; drawSceneOverlay();
     if (shotPending == 1) { doCapture(1); shotPending = 0; }   // снимок сцены: без панелей, подсказок и уведомлений
     recordFrame(); clipCapture();
@@ -915,6 +946,7 @@ static int tabOfId(int id) {   // вкладка боковой панели, н
     if (id >= 1000 && id < 1200) return 1;
     if (id >= 1200 && id < 1400) return 2;
     if (id >= 800 && id < 900) return 4;
+    if (id >= 2200 && id < 2300) return 5;
     return -1;
 }
 static bool checkInvariants(std::string& why) {
@@ -1087,9 +1119,16 @@ static void buildUiTest() {
     gesture("сдвиг камеры", 0, VK_CONTROL, VK_SHIFT, 0.5f, 0.5f, 0.4f, 0.4f, 12);
     add("колесо", 6, [](int fr) { tMouse((float)scx, (float)scy); in.wheel += fr < 3 ? 240 : -360; });
     // вкладки боковой панели и все их элементы
-    for (int t = 0; t < 5; t++) { click(700 + t); run(3); }
+    for (int t = 0; t < TAB_N; t++) { click(700 + t); run(3); }
     clickAllRange(1, 1000, 1200);
     clickAllRange(2, 1200, 1400);
+    // вкладка «Сцена»: оси, грани, сосуд, заливка; расстановка по сетке — щелчок и ряд Shift+протяжкой
+    clickAllRange(5, 2200, 2300); run(10);
+    for (int id : {2241, 2242, 2251, 2252}) slide(id, 0.3f, 0.6f);
+    click(2240); click(230 + TOOL_ADD); click(301);
+    gesture("по сетке: щелчок", 0, 0, 0, 0.5f, 0.55f, 0.5f, 0.55f, 2);
+    gesture("по сетке: ряд", 0, VK_SHIFT, 0, 0.4f, 0.6f, 0.6f, 0.6f, 10);
+    click(2240); for (int k = 0; k < 3; k++) click(2200 + k);   // оси — обратно
     for (int id = 200; id <= 208; id++) { click(id); click(id); }
     for (int id = 211; id <= 214; id++) { click(id); click(id); }
     for (int q = 0; q < 4; q++) click(200);   // полный круг термостатов
@@ -1367,7 +1406,35 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         }
         fclose(f); return 0;
     }
-    // --nuck: k-эффективный голого шара урана по радиусу и реактора по положению стержней → nuck.log
+    // --walltest: стенки из редактора сцены — зеркальные (сохранение энергии), тепловые (перепад T), поглощающая, шар → walltest.log
+    if (cmd && wcsstr(cmd, L"--walltest")) {
+        initBondTable(); initKlm(); initPalette(); rebuildTables();
+        FILE* f = fopen("walltest.log", "w"); if (!f) return 1;
+        auto gas = [&](int boundary, int n, double T) { worldReset(20, 20, 20, boundary); P.Tset = T; P.thermostat = TH_NVE; P.wallAttr = 0; fillBox(palette[findPal("Ar")], n, T, 1.0); };
+        auto run = [&](int steps) { finishPreset(); for (int s = 0; s < steps; s++) mdStep(); measure(); };
+        gas(B_WALLS, 600, kelvin(300)); for (int k = 0; k < 6; k++) P.wallType[k] = WT_MIRROR; run(20000);
+        fprintf(f, "зеркальные стенки, NVE: дрейф энергии %.4f%%, атомов %d\n", driftPct(), S.n);
+        gas(B_WALLS, 600, kelvin(300)); P.wallType[0] = WT_THERMAL; P.wallTK[0] = kelvin(600); P.wallType[1] = WT_THERMAL; P.wallTK[1] = kelvin(150); run(40000);
+        { double tl = 0, tr = 0; int nl = 0, nr = 0; for (int i = 0; i < S.n; i++) { const double k2 = EL[S.ty[i]].m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]) / 3; if (S.x[i] < 5) { tl += k2; nl++; } else if (S.x[i] > 15) { tr += k2; nr++; } }
+          fprintf(f, "тепловые стенки 600 K | 150 K: у горячей %.0f K, у холодной %.0f K, средняя %.0f K\n", toKelvin(tl / std::max(1, nl)), toKelvin(tr / std::max(1, nr)), toKelvin(EN.T)); }
+        gas(B_WALLS, 600, kelvin(300)); P.wallType[2] = WT_ABSORB; P.gravity = 0.01; run(20000);
+        fprintf(f, "поглощающее дно с тяжестью: осталось %d атомов из 600, поглощено %lld\n", S.n, absorbedCount);
+        for (int wa : {0, 1}) {   // сосуд-шар с отталкивающей и с притягивающей стенкой
+            gas(B_WALLS, 400, kelvin(300)); P.wallAttr = wa ? 0.6 : 0.0; setContainer(CT_SPHERE); measure(); const double T0 = EN.T; run(20000);
+            int out = 0; for (int i = 0; i < S.n; i++) { double d, a, b, c; if (containerDist(S.x[i], S.y[i], S.z[i], d, a, b, c) && d < 0) out++; }
+            fprintf(f, "сосуд-шар, притяжение стенки %.1f: атомов %d, вне шара %d, T %.0f → %.0f K, дрейф энергии %.4f%%\n", P.wallAttr, S.n, out, toKelvin(T0), toKelvin(EN.T), driftPct());
+        }
+        gas(B_PERIODIC, 600, kelvin(120)); setAxisPeriodic(1, false); P.wallType[2] = WT_STICKY; run(20000);
+        { int low = 0; for (int i = 0; i < S.n; i++) if (S.y[i] < 1.5) low++; fprintf(f, "плёнка: x, z периодичны, липкое дно: у дна %d атомов из %d (дрейф %.4f%%)\n", low, S.n, driftPct()); }
+        {   // вода: периодическая ось x становится стенками — молекулы на границе собираются целиком
+            waterBox(14); fillWater(kelvin(300)); finishPreset(); for (int s = 0; s < 3000; s++) mdStep();   // уравновесить с термостатом
+            measure(); const double T0 = EN.T; const int n0 = S.n;
+            setAxisPeriodic(0, false); P.thermostat = TH_NVE; run(4000);
+            double worst = 0; for (int i = 0; i < S.n; i++) for (int p = 0; p < S.nbc[i]; p++) worst = std::max(worst, std::sqrt(dist2(i, S.nb[i][p])));
+            fprintf(f, "вода, ось x → стенки: убрано %d атомов из %d, T %.0f → %.0f K, дрейф %.4f%%, самая длинная связь %.2f Å\n", n0 - S.n, n0, toKelvin(T0), toKelvin(EN.T), driftPct(), worst * 3.405);
+        }
+        fclose(f); return 0;
+    }
     // --semi: вольт-амперные характеристики диода и МОП-транзистора (дрейфово-диффузионная модель) → semi.log
     if (cmd && wcsstr(cmd, L"--semi")) {
         FILE* f = fopen("semi.log", "w"); if (!f) return 1;
@@ -1398,6 +1465,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         fprintf(f, "время %.1f с\n", std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count());
         fclose(f); return 0;
     }
+    // --nuck: k-эффективный голого шара урана по радиусу и реактора по положению стержней → nuck.log
     if (cmd && wcsstr(cmd, L"--nuck")) {
         initBondTable(); FILE* f = fopen("nuck.log", "w"); if (!f) return 1;
         for (double e : {0.9, 0.2}) for (double R : {5.0, 7.0, 8.0, 8.7, 9.5, 10.5, 12.0, 14.0}) {
@@ -1542,8 +1610,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     buildFonts(); buildTextures();
     layout(); sceneAspect = clampv(sceneH / sceneW, 0.4f, 1.2f);
     // --shot K N [vV] [rot] [help] [table] [menu] [settings] [hoverZ] [tab=T] [tool=T] [fo=K] [demo] [layers] [nopanel] [liball] [cut]
-    //        [color=C] [zoom=K] [scrollto=ID] [lib=K1,K2…] [rec=ПАПКА every=K from=F] [png] [out=имя] [size=WxH] [scale=S]:
-    //   пресет K, N кадров, сохранить снимок окна и выйти (проверка графики и раскладки, картинки для README)
+    //        [color=C] [zoom=K] [scrollto=ID] [lib=K1,K2…] [rec=ПАПКА every=K from=F] [png] [out=имя] [size=WxH] [scale=S]
+    //        [faces=ABCDEF] [cont=C] [per=M]:
+    //   пресет K, N кадров, сохранить снимок окна и выйти (проверка графики и раскладки, картинки для README);
+    //   faces — вид каждой грани цифрой (−x +x −y +y −z +z), cont — сосуд, per — маска периодичных осей
     int shotPreset = -1, shotFrames = 400, shotVar = 0; bool shotPng = false, shotDemo = false; std::wstring shotOut;
     if (cmd && wcsstr(cmd, L"--shot")) {
         const wchar_t* p = wcsstr(cmd, L"--shot") + 6; shotPreset = (int)wcstol(p, (wchar_t**)&p, 10); int fr = (int)wcstol(p, nullptr, 10); if (fr > 0) shotFrames = fr;
@@ -1555,7 +1625,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         if (wcsstr(cmd, L" settings")) settingsOn = true;
         if (wcsstr(cmd, L" atomview")) { atomViewOn = true; avZ = argInt(cmd, L"avz=", 6); avMode = clampv(argInt(cmd, L"avmode=", 0), 0, 2); avN = argInt(cmd, L"avn=", 2); avL = argInt(cmd, L"avl=", 1); avM = argInt(cmd, L"avm=", 0); }
         const wchar_t* hz = wcsstr(cmd, L" hover"); if (hz) shotHoverZ = (int)wcstol(hz + 6, nullptr, 10);   // навести курсор на элемент Z
-        sideTab = clampv(argInt(cmd, L"tab=", 0), 0, 4); lmbTool = clampv(argInt(cmd, L"tool=", TOOL_ADD), 0, TOOL_N - 1); foKind = clampv(argInt(cmd, L"fo=", 0), 0, FO_N - 1);
+        sideTab = clampv(argInt(cmd, L"tab=", 0), 0, TAB_N - 1); lmbTool = clampv(argInt(cmd, L"tool=", TOOL_ADD), 0, TOOL_N - 1); foKind = clampv(argInt(cmd, L"fo=", 0), 0, FO_N - 1);
         shotPng = wcsstr(cmd, L" png") != nullptr; shotDemo = wcsstr(cmd, L" demo") != nullptr;
         if (wcsstr(cmd, L" layers")) { layerVel = true; layerGrid = true; layerCharges = true; }
         if (wcsstr(cmd, L" nopanel")) graphsOn = false;
@@ -1568,6 +1638,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     }
     loadPreset(shotPreset >= 0 ? shotPreset : 1, shotVar);
     if (shotDemo) setupDemo();
+    if (cmd && shotPreset >= 0 && shotPreset < 100) {   // редактор сцены
+        if (wcsstr(cmd, L"per=") && P.boundary != B_PISTON) { const int m = argInt(cmd, L"per=", 7); for (int k = 0; k < 3; k++) setAxisPeriodic(k, (m >> k) & 1); }
+        if (const wchar_t* fp = wcsstr(cmd, L"faces=")) for (int k = 0; k < 6 && fp[6 + k] >= L'0' && fp[6 + k] <= L'9'; k++) P.wallType[k] = clampv(fp[6 + k] - L'0', 0, WT_N - 1);
+        if (wcsstr(cmd, L"cont=") && P.boundary != B_PISTON) setContainer(argInt(cmd, L"cont=", 0));
+        undoStack.clear();
+    }
     if (const wchar_t* lp = cmd ? wcsstr(cmd, L"lib=") : nullptr) {   // галерея структур библиотеки: lib=K1,K2,…
         std::vector<int> ks;
         for (const wchar_t* q = lp + 4; *q >= L'0' && *q <= L'9';) { ks.push_back((int)wcstol(q, (wchar_t**)&q, 10)); if (*q == L',') q++; }

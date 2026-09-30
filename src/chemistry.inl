@@ -681,13 +681,11 @@ static int polarNeighbors(int a, double rc) {
 // энергия атома во внешних потенциалах (стенки 9-3, тяжесть, консервативные объекты поля) — для событий, двигающих атом
 static double extEnergyOf(int i) {
     double E = 0; const Element& e = EL[S.ty[i]];
-    if (!isPer()) {
-        double U, F, s = e.sig;
-        wallTerm(S.x[i], s, U, F); E += U; wallTerm(S.Lx - S.x[i], s, U, F); E += U;
-        wallTerm(S.y[i], s, U, F); E += U; wallTerm(S.Ly - S.y[i], s, U, F); E += U;
-        wallTerm(S.z[i], s, U, F); E += U; wallTerm(S.Lz - S.z[i], s, U, F); E += U;
-        if (P.gravity != 0) E += e.m * P.gravity * S.y[i];
-    }
+    double U, F, s = e.sig;
+    if (!perAx(0)) { wallTerm(0, S.x[i], s, U, F); E += U; wallTerm(1, S.Lx - S.x[i], s, U, F); E += U; }
+    if (!perAx(1)) { wallTerm(2, S.y[i], s, U, F); E += U; wallTerm(3, S.Ly - S.y[i], s, U, F); E += U; if (P.gravity != 0) E += e.m * P.gravity * S.y[i]; }
+    if (!perAx(2)) { wallTerm(4, S.z[i], s, U, F); E += U; wallTerm(5, S.Lz - S.z[i], s, U, F); E += U; }
+    { double d, nx, ny, nz; if (containerDist(S.x[i], S.y[i], S.z[i], d, nx, ny, nz)) { wallTerm9(d, s, P.wallAttr, U, F); E += U; } }
     for (auto& o : fieldObjs) if (o.on && foConservative(o.kind)) E += foConsAtom(o, i, nullptr);
     return E;
 }
@@ -1156,10 +1154,10 @@ static void randomRotation(double R[9]) {
     memcpy(R, M, sizeof(M));
 }
 static bool overlaps(int t, double x, double y, double z, double fac) {
-    const bool per = isPer();
+    const bool per = !(P.perMask == 0 || P.boundary == B_PISTON);
     for (int j = 0; j < S.n; j++) {
         double dx = S.x[j] - x, dy = S.y[j] - y, dz = S.z[j] - z;
-        if (per) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz); }
+        if (per) minImage3(dx, dy, dz);
         // σ_ij с учётом NBFIX, но не ближе 1.5 Å: у водорода и ядра WCA σ мало, а вплотную к чужому атому — огромная энергия
         double s2 = std::max(PT[t][S.ty[j]].sig2 * fac * fac, 0.44 * 0.44);
         if (dx * dx + dy * dy + dz * dz < s2) return true;
@@ -1174,10 +1172,11 @@ static bool placeMol(const Tmpl& m, double cx, double cy, double cz, double T, d
     std::vector<std::array<double, 3>> pos;
     for (auto& a : m.a) {
         double x = cx + R[0] * a.x + R[1] * a.y + R[2] * a.z, y = cy + R[3] * a.x + R[4] * a.y + R[5] * a.z, z = cz + R[6] * a.x + R[7] * a.y + R[8] * a.z;
-        if (isPer()) { x -= S.Lx * std::floor(x / S.Lx); y -= S.Ly * std::floor(y / S.Ly); z -= S.Lz * std::floor(z / S.Lz); }
-        else {
-            double mg = 0.6 * EL[a.t].sig;
-            if (x < mg || y < mg || z < mg || x > S.Lx - mg || y > S.Ly - mg || z > S.Lz - mg) return false;
+        wrapPoint(x, y, z);
+        {   // у стенок (оси без периодичности) — отступ, в сосуде-шаре или цилиндре — внутри него
+            const double mg = 0.6 * EL[a.t].sig;
+            if ((!perAx(0) && (x < mg || x > S.Lx - mg)) || (!perAx(1) && (y < mg || y > S.Ly - mg)) || (!perAx(2) && (z < mg || z > S.Lz - mg))) return false;
+            double d, nx, ny, nz; if (containerDist(x, y, z, d, nx, ny, nz) && d < mg) return false;
         }
         if (overlaps(a.t, x, y, z, fac)) return false;
         pos.push_back({x, y, z});
@@ -1301,9 +1300,9 @@ static void iceLattice3D(double x0, double y0, double z0, int nx, int ny, int nz
     }
 }
 static void wrapAll() {
-    if (!isPer()) return;
+    if (P.perMask == 0 || P.boundary == B_PISTON) return;
     for (int i = 0; i < S.n; i++) {
-        S.x[i] -= S.Lx * std::floor(S.x[i] / S.Lx); S.y[i] -= S.Ly * std::floor(S.y[i] / S.Ly); S.z[i] -= S.Lz * std::floor(S.z[i] / S.Lz);
+        wrapPoint(S.x[i], S.y[i], S.z[i]);
         S.ux[i] = S.x[i]; S.uy[i] = S.y[i]; S.uz[i] = S.z[i];
     }
 }

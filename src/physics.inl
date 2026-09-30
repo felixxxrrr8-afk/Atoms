@@ -12,6 +12,7 @@ struct ChemStats { long long assoc = 0, exch = 0, diss = 0; double heat = 0; } C
 static double Wext = 0, Eref = 0;     // работа внешних сил/термостатов и опорная энергия для дрейфа
 static double heatWallQ[2] = {0, 0};  // теплота, переданная веществу горячей [0] и холодной [1] тепловыми стенками (ε, нарастающим итогом)
 constexpr int OMP_MIN = 500;          // простые циклы короче идут в одном потоке: запуск потоков дороже самой работы
+static long long absorbedCount = 0;   // атомов забрали поглощающие грани (с загрузки сцены)
 static bool energyRefValid = false;
 static bool conserving = true;        // false в режиме NPT (баростат не сохраняет энергию)
 
@@ -373,7 +374,9 @@ static void removeAllBonds(int i) {
 // вектор r_j − r_i с минимальным образом (периодические границы)
 static inline void dvec(int i, int j, double& dx, double& dy, double& dz) {
     dx = S.x[j] - S.x[i]; dy = S.y[j] - S.y[i]; dz = S.z[j] - S.z[i];
-    if (P.boundary == B_PERIODIC) { dx = minImg(dx, S.Lx, 1.0 / S.Lx); dy = minImg(dy, S.Ly, 1.0 / S.Ly); dz = minImg(dz, S.Lz, 1.0 / S.Lz); }
+    if (perAx(0)) dx = minImg(dx, S.Lx, 1.0 / S.Lx);
+    if (perAx(1)) dy = minImg(dy, S.Ly, 1.0 / S.Ly);
+    if (perAx(2)) dz = minImg(dz, S.Lz, 1.0 / S.Lz);
 }
 static inline double dist2(int i, int j) { double dx, dy, dz; dvec(i, j, dx, dy, dz); return dx * dx + dy * dy + dz * dz; }
 
@@ -462,11 +465,11 @@ static double nlAffine = 1.0;   // накопленное аффинное ма�
 static void buildNeighborList() {
     const double rl = rcMax + cfg::SKIN, rl2 = rl * rl;
     buildCells(0.5 * rl);
-    const int n = S.n, nx = cnx, ny = cny, nz = cnz; const bool per = isPer();
+    const int n = S.n, nx = cnx, ny = cny, nz = cnz; const bool px_ = perAx(0), py_ = perAx(1), pz_ = perAx(2);
     const double Lx = S.Lx, Ly = S.Ly, Lz = S.Lz, iLx = 1 / Lx, iLy = 1 / Ly, iLz = 1 / Lz;
     nlCnt.assign(n, 0); nlStart.assign(n + 1, 0);
-    // ячейки-соседи по одной оси: ±2 от своей; в периодическом ящике меньше пяти ячеек — все (без повторов)
-    auto around = [per](int ic, int nn, int* out) {
+    // ячейки-соседи по одной оси: ±2 от своей; по периодической оси меньше пяти ячеек — все (без повторов)
+    auto around = [](int ic, int nn, bool per, int* out) {
         int m = 0;
         if (per && nn < 5) { for (int k = 0; k < nn; k++) out[m++] = k; return m; }
         for (int d = -2; d <= 2; d++) { int j = ic + d; if (per) j = (j + nn) % nn; else if (j < 0 || j >= nn) continue; out[m++] = j; }
@@ -483,13 +486,13 @@ static void buildNeighborList() {
             const size_t before = out.size();
             const bool fi = EL[S.ty[i]].fixed; const double xi = S.x[i], yi = S.y[i], zi = S.z[i];
             const int c = cellOf[i], cx = c % nx, cy = (c / nx) % ny, cz = c / (nx * ny);
-            int ox[5], oy[5], oz[5]; const int mx = around(cx, nx, ox), my = around(cy, ny, oy), mz = around(cz, nz, oz);
+            int ox[5], oy[5], oz[5]; const int mx = around(cx, nx, px_, ox), my = around(cy, ny, py_, oy), mz = around(cz, nz, pz_, oz);
             for (int a = 0; a < mz; a++) for (int b = 0; b < my; b++) for (int d = 0; d < mx; d++) {
                 const int cc = (oz[a] * ny + oy[b]) * nx + ox[d];
                 for (int p = cellStart[cc]; p < cellStart[cc + 1]; p++) {
                     const int j = cellAtoms[p]; if (j == i || (fi && EL[S.ty[j]].fixed)) continue;
                     double dx = S.x[j] - xi, dy = S.y[j] - yi, dz = S.z[j] - zi;
-                    if (per) { dx = minImg(dx, Lx, iLx); dy = minImg(dy, Ly, iLy); dz = minImg(dz, Lz, iLz); }
+                    if (px_) dx = minImg(dx, Lx, iLx); if (py_) dy = minImg(dy, Ly, iLy); if (pz_) dz = minImg(dz, Lz, iLz);
                     if (dx * dx + dy * dy + dz * dz < rl2) out.push_back(j);
                 }
             }
@@ -542,17 +545,37 @@ static inline double pairEnergy(int i, int j, double r2) {
     if (S.nbc[i] && S.nbc[j] && pair14(i, j)) e *= SCALE14;
     return e;
 }
-// Потенциал стенки 9-3 (интеграл LJ по полупространству): U = ε_w[(2/15)(σ/d)^9 − (σ/d)^3]
-static inline void wallTerm(double d, double s, double& U, double& F) {
+// Потенциал стенки 9-3 (интеграл LJ по полупространству): U = ε_w[(2/15)(σ/d)^9 − (σ/d)^3]; attr — притяжение стенки
+// (0 — только отталкивание: обрезка в минимуме 0.8584σ)
+static inline void wallTerm9(double d, double s, double attr, double& U, double& F) {
     U = 0; F = 0;
-    bool attr = P.wallAttr > 0.01;
-    double ew = attr ? 1.5 * P.wallAttr : 1.0, dc = attr ? 2.5 * s : 0.8584 * s;  // 0.8584σ — минимум, WCA-обрезка
+    const bool at = attr > 0.01;
+    double ew = at ? 1.5 * attr : 1.0, dc = at ? 2.5 * s : 0.8584 * s;
     if (d >= dc) return;
     if (d < 0.25 * s) d = 0.25 * s;
     double a = s / d, a3 = a * a * a, a9 = a3 * a3 * a3;
     double b = s / dc, b3 = b * b * b, b9 = b3 * b3 * b3;
     U = ew * ((2.0 / 15.0) * a9 - a3) - ew * ((2.0 / 15.0) * b9 - b3);
     F = ew * (1.2 * a9 - 3.0 * a3) / d;   // F = −dU/dd, направлена от стенки
+}
+// стенка грани f (0 x−, 1 x+, 2 y− — дно, 3 y+, 4 z−, 5 z+) по её виду: обычная — притяжение из общего ползунка, липкая —
+// сильное, тепловая и поглощающая — только отталкивание, зеркальная — без потенциала (упругое отражение в mdStep)
+static inline void wallTerm(int f, double d, double s, double& U, double& F) {
+    switch (P.wallType[f]) {
+    case WT_SOFT: wallTerm9(d, s, P.wallAttr, U, F); return;
+    case WT_STICKY: wallTerm9(d, s, 3.0, U, F); return;
+    case WT_MIRROR: U = F = 0; return;
+    default: wallTerm9(d, s, 0.0, U, F); return;
+    }
+}
+// сосуд-шар или цилиндр вдоль y внутри ящика: расстояние до стенки сосуда и внутренняя нормаль в точке атома
+static inline bool containerDist(double x, double y, double z, double& d, double& nx, double& ny, double& nz) {
+    if (P.container == CT_BOX) return false;
+    const double cx = S.Lx / 2, cy = S.Ly / 2, cz = S.Lz / 2, rx = x - cx, ry = P.container == CT_SPHERE ? y - cy : 0, rz = z - cz;
+    const double R = P.container == CT_SPHERE ? 0.5 * std::min({S.Lx, S.Ly, S.Lz}) : 0.5 * std::min(S.Lx, S.Lz);
+    const double r = std::sqrt(rx * rx + ry * ry + rz * rz);
+    d = R - r; if (r < 1e-9) { nx = ny = nz = 0; return true; }
+    nx = -rx / r; ny = -ry / r; nz = -rz / r; return true;
 }
 // Связь: Морзе U = D[(1 − e^{−a(r−r0)})² − 1] + гладкое ядро 400·(s/r − 1)² при r < s = 0.6·r0
 // (у одного Морзе при r → 0 барьер всего ~D, и очень «горячая» пара могла бы пройти сквозь друг друга)
@@ -885,7 +908,7 @@ static double metalEmbedLocal(const std::vector<int>& C) {
 static inline void tweezerForce(double& Fx, double& Fy, double& Fz) {
     int g = grabbed; double m = EL[S.ty[g]].m, k = cfg::TWEEZER_K, c = 2 * std::sqrt(k);
     double dx = grabX - S.x[g], dy = grabY - S.y[g], dz = grabZ - S.z[g];
-    if (isPer()) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz); }
+    minImage3(dx, dy, dz);
     Fx =m * (k * dx - c * S.vx[g]); Fy = m * (k * dy - c * S.vy[g]); Fz = m * (k * dz - c * S.vz[g]);
 }
 
@@ -896,7 +919,7 @@ static bool foAnyOn() { for (auto& o : fieldObjs) if (o.on) return true; return 
 // вектор от точки (cx,cy,cz) к атому i с минимальным образом
 static inline void foRel(double cx, double cy, double cz, int i, double& rx, double& ry, double& rz) {
     rx = S.x[i] - cx; ry = S.y[i] - cy; rz = S.z[i] - cz;
-    if (isPer()) { rx -= S.Lx * std::nearbyint(rx / S.Lx); ry -= S.Ly * std::nearbyint(ry / S.Ly); rz -= S.Lz * std::nearbyint(rz / S.Lz); }
+    minImage3(rx, ry, rz);
 }
 static inline void foUnitDir(const FieldObj& o, double& ux, double& uy, double& uz) {
     ux = o.dx; uy = o.dy; uz = o.dz;
@@ -1068,7 +1091,7 @@ static void computeFast(bool withEp) {
 }
 static void computeSlow() {
     ensureNeighborList();
-    const int n = S.n; const bool per = isPer();
+    const int n = S.n; const bool per = isPer(), pX = perAx(0), pY = perAx(1), pZ = perAx(2);
     const double Lx = S.Lx, Ly = S.Ly, Lz = S.Lz, rcc2 = rcCoul * rcCoul;
     double enb = 0, vir = 0;
     // --- молекулы (компоненты связности): исключения 1-2, 1-3 и ослабление 1-4 проверяются только внутри одной
@@ -1106,7 +1129,7 @@ static void computeSlow() {
                 const int j = nlIdx[p]; if (j < i) continue;
                 const PackA& Bj = pk[j];
                 double dx = Bj.x - xi, dy = Bj.y - yi, dz = Bj.z - zi;
-                if (per) { dx = minImg(dx, Lx, iLx); dy = minImg(dy, Ly, iLy); dz = minImg(dz, Lz, iLz); }
+                if (pX) dx = minImg(dx, Lx, iLx); if (pY) dy = minImg(dy, Ly, iLy); if (pZ) dz = minImg(dz, Lz, iLz);
                 const double r2 = dx * dx + dy * dy + dz * dz;
                 if (r2 > rcMax2 || r2 < 1e-12) continue;
                 const bool same = bi && (Bj.flags & 1) && A.mol == Bj.mol;
@@ -1134,22 +1157,24 @@ static void computeSlow() {
         for (int t = 0; t < nt; t++) { const double* B = tbuf.data() + (size_t)t * 4 * n; fx += B[i]; fy += B[n + i]; fz += B[2 * n + i]; ep += B[3 * n + i]; }
         S.fx[i] = fx; S.fy[i] = fy; S.fz[i] = fz; S.ep[i] = ep;
     }
-    // --- стенки (9-3), гравитация
+    // --- стенки граней (9-3; у периодических осей граней нет), сосуд-шар или цилиндр, гравитация (если у ящика есть дно)
     double ewall = 0, egrav = 0, fw = 0, fp = 0;
     const double g = P.gravity;
-    if (!per) {
+    const bool wx = !perAx(0), wy = !perAx(1), wz = !perAx(2), cont = P.container != CT_BOX;
+    if (!per || cont) {
 #pragma omp parallel for reduction(+ : ewall, egrav, fw, fp) if (n > OMP_MIN)
         for (int i = 0; i < n; i++) {
             const Element& e = EL[S.ty[i]]; if (e.fixed) continue;
             double U, F, s = e.sig, eu = 0;
-            wallTerm(S.x[i], s, U, F);      S.fx[i] += F; eu += U; fw += F;
-            wallTerm(Lx - S.x[i], s, U, F); S.fx[i] -= F; eu += U; fw += F;
-            wallTerm(S.y[i], s, U, F);      S.fy[i] += F; eu += U; fw += F;
-            wallTerm(Ly - S.y[i], s, U, F); S.fy[i] -= F; eu += U; fw += F; fp += F;
-            wallTerm(S.z[i], s, U, F);      S.fz[i] += F; eu += U; fw += F;
-            wallTerm(Lz - S.z[i], s, U, F); S.fz[i] -= F; eu += U; fw += F;
+            if (wx) { wallTerm(0, S.x[i], s, U, F); S.fx[i] += F; eu += U; fw += F; wallTerm(1, Lx - S.x[i], s, U, F); S.fx[i] -= F; eu += U; fw += F; }
+            if (wy) { wallTerm(2, S.y[i], s, U, F); S.fy[i] += F; eu += U; fw += F; wallTerm(3, Ly - S.y[i], s, U, F); S.fy[i] -= F; eu += U; fw += F; fp += F; }
+            if (wz) { wallTerm(4, S.z[i], s, U, F); S.fz[i] += F; eu += U; fw += F; wallTerm(5, Lz - S.z[i], s, U, F); S.fz[i] -= F; eu += U; fw += F; }
+            double d, ux, uy, uz;
+            if (cont && containerDist(S.x[i], S.y[i], S.z[i], d, ux, uy, uz)) {   // стенка сосуда — как обычная грань
+                wallTerm9(d, s, P.wallAttr, U, F); S.fx[i] += F * ux; S.fy[i] += F * uy; S.fz[i] += F * uz; eu += U; fw += F;
+            }
             ewall += eu; S.ep[i] += eu;
-            if (g != 0) { S.fy[i] -= e.m * g; egrav += e.m * g * S.y[i]; }   // гравитация только в ящике со дном
+            if (g != 0 && wy) { S.fy[i] -= e.m * g; egrav += e.m * g * S.y[i]; }   // гравитация только в ящике со дном
         }
     }
     // --- металлическая связь (многочастичная)
@@ -1221,6 +1246,7 @@ static void nhHalf(double dt) {
     G = (2 * K - nf * T0) / Q; S.xi += G * dt / 4;
 }
 static void measure();
+static void resetEnergyRef();
 static bool chemistryStep();
 static void relaxBondOffsets(double dt);
 
@@ -1299,22 +1325,24 @@ static void mdStep() {
         drift(h);
         if (respa) { computeFast(false); kickFast(0.5 * h); }
     }
-    // границы
+    // границы: периодические оси — возврат в ящик; у стенок — упругое отражение (у зеркальной грани это и есть стенка,
+    // у остальных — страховка, обычно работает потенциал стенки)
+    const bool pX = perAx(0), pY = perAx(1), pZ = perAx(2), cont = P.container != CT_BOX;
 #pragma omp parallel for if (n > OMP_MIN)
     for (int i = 0; i < n; i++) {
-        if (per) {
-            if (S.x[i] < 0 || S.x[i] >= S.Lx) S.x[i] -= S.Lx * std::floor(S.x[i] / S.Lx);
-            if (S.y[i] < 0 || S.y[i] >= S.Ly) S.y[i] -= S.Ly * std::floor(S.y[i] / S.Ly);
-            if (S.z[i] < 0 || S.z[i] >= S.Lz) S.z[i] -= S.Lz * std::floor(S.z[i] / S.Lz);
-        } else {   // упругое отражение (страховка, обычно работает потенциал стенки)
-            if (S.x[i] < 0) { S.x[i] = -S.x[i]; S.vx[i] = std::fabs(S.vx[i]); }
-            if (S.x[i] > S.Lx) { S.x[i] = 2 * S.Lx - S.x[i]; S.vx[i] = -std::fabs(S.vx[i]); }
-            if (S.y[i] < 0) { S.y[i] = -S.y[i]; S.vy[i] = std::fabs(S.vy[i]); }
-            if (S.y[i] > S.Ly) { S.y[i] = std::max(0.0, 2 * S.Ly - S.y[i]); S.vy[i] = -std::fabs(S.vy[i]); }
-            if (S.z[i] < 0) { S.z[i] = -S.z[i]; S.vz[i] = std::fabs(S.vz[i]); }
-            if (S.z[i] > S.Lz) { S.z[i] = 2 * S.Lz - S.z[i]; S.vz[i] = -std::fabs(S.vz[i]); }
+        if (pX) { if (S.x[i] < 0 || S.x[i] >= S.Lx) S.x[i] -= S.Lx * std::floor(S.x[i] / S.Lx); }
+        else { if (S.x[i] < 0) { S.x[i] = -S.x[i]; S.vx[i] = std::fabs(S.vx[i]); } if (S.x[i] > S.Lx) { S.x[i] = 2 * S.Lx - S.x[i]; S.vx[i] = -std::fabs(S.vx[i]); } }
+        if (pY) { if (S.y[i] < 0 || S.y[i] >= S.Ly) S.y[i] -= S.Ly * std::floor(S.y[i] / S.Ly); }
+        else { if (S.y[i] < 0) { S.y[i] = -S.y[i]; S.vy[i] = std::fabs(S.vy[i]); } if (S.y[i] > S.Ly) { S.y[i] = std::max(0.0, 2 * S.Ly - S.y[i]); S.vy[i] = -std::fabs(S.vy[i]); } }
+        if (pZ) { if (S.z[i] < 0 || S.z[i] >= S.Lz) S.z[i] -= S.Lz * std::floor(S.z[i] / S.Lz); }
+        else { if (S.z[i] < 0) { S.z[i] = -S.z[i]; S.vz[i] = std::fabs(S.vz[i]); } if (S.z[i] > S.Lz) { S.z[i] = 2 * S.Lz - S.z[i]; S.vz[i] = -std::fabs(S.vz[i]); } }
+        double d, ux, uy, uz;
+        if (cont && containerDist(S.x[i], S.y[i], S.z[i], d, ux, uy, uz) && d < 0) {   // вылетел из сосуда — отражение внутрь
+            S.x[i] -= 2 * d * ux; S.y[i] -= 2 * d * uy; S.z[i] -= 2 * d * uz;
+            const double vn = S.vx[i] * ux + S.vy[i] * uy + S.vz[i] * uz; if (vn < 0) { S.vx[i] -= 2 * vn * ux; S.vy[i] -= 2 * vn * uy; S.vz[i] -= 2 * vn * uz; }
         }
     }
+    (void)per;
     computeForces();
     if (track) {
         double wq = 0, wnc = 0; const bool ncNow = nc && (int)foFx.size() == n;
@@ -1398,6 +1426,47 @@ static void mdStep() {
                 if (S.y[i] < s && S.vy[i] < 0) { S.vy[i] = ray(P.Thot); S.vx[i] = tang(P.Thot); S.vz[i] = tang(P.Thot); hit = 0; }
             }
             if (hit >= 0) { double dK = 0.5 * e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]) - K0; Wext += dK; heatWallQ[hit] += dK; }
+        }
+    }
+    // грани из редактора сцены: тепловая отдаёт ударившемуся атому скорость из распределения своей температуры,
+    // поглощающая забирает молекулу целиком (как сток)
+    {
+        bool anyT = false, anyA = false;
+        for (int f = 0; f < 6; f++) if (!perAx(f / 2)) { anyT |= P.wallType[f] == WT_THERMAL; anyA |= P.wallType[f] == WT_ABSORB; }
+        if (anyT) for (int i = 0; i < n; i++) {
+            const Element& e = EL[S.ty[i]]; if (frozenAt(i)) continue;
+            const double s = e.sig * 1.2; double* pos[3] = {&S.x[i], &S.y[i], &S.z[i]}; double* vel[3] = {&S.vx[i], &S.vy[i], &S.vz[i]};
+            const double Lk[3] = {S.Lx, S.Ly, S.Lz};
+            for (int f = 0; f < 6; f++) {
+                const int k = f / 2; if (perAx(k) || P.wallType[f] != WT_THERMAL) continue;
+                const bool hit = (f & 1) ? (*pos[k] > Lk[k] - s && *vel[k] > 0) : (*pos[k] < s && *vel[k] < 0);
+                if (!hit) continue;
+                const double Tw = P.wallTK[f], K0 = 0.5 * e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]);
+                const double vn = std::sqrt(-2 * Tw / e.m * std::log(std::max(1e-12, urand())));
+                for (int c = 0; c < 3; c++) *vel[c] = c == k ? ((f & 1) ? -vn : vn) : grand() * std::sqrt(Tw / e.m);
+                Wext += 0.5 * e.m * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i] + S.vz[i] * S.vz[i]) - K0;
+                break;
+            }
+        }
+        if (anyA) {
+            std::vector<int> gone;
+            for (int i = 0; i < n; i++) {
+                if (frozenAt(i)) continue;
+                const double p3[3] = {S.x[i], S.y[i], S.z[i]}, Lk[3] = {S.Lx, S.Ly, S.Lz}, s = 0.7 * EL[S.ty[i]].sig;
+                for (int f = 0; f < 6; f++) {
+                    const int k = f / 2; if (perAx(k) || P.wallType[f] != WT_ABSORB) continue;
+                    if ((f & 1) ? p3[k] > Lk[k] - s : p3[k] < s) { gone.push_back(i); break; }
+                }
+            }
+            if (!gone.empty()) {
+                // энергия ушедших атомов — внешняя работа (баланс E − W сохраняется)
+                std::vector<char> mark(S.n, 0); std::vector<int> mol;
+                for (int a : gone) { if (mark[a]) continue; moleculeOf(a, mol); for (int b : mol) mark[b] = 1; }
+                double dE = 0; for (int b = 0; b < S.n; b++) if (mark[b]) dE -= 0.5 * EL[S.ty[b]].m * (S.vx[b] * S.vx[b] + S.vy[b] * S.vy[b] + S.vz[b] * S.vz[b]) + S.ep[b];
+                for (int b = S.n - 1; b >= 0; b--) if (mark[b]) removeAtom(b);
+                Wext += dE; absorbedCount += (long long)gone.size();
+                updatePresence(); nlValid = false; computeForces(); resetEnergyRef();
+            }
         }
     }
     // кисть нагрева / охлаждения (локальный термостат вдоль луча под курсором)
@@ -1581,15 +1650,15 @@ static void applyFieldObjs(double dt) {
                         double c1 = rr * std::cos(ph), c2 = rr * std::sin(ph);
                         px = o.x + c1 * e1x + c2 * e2x; py = o.y + c1 * e1y + c2 * e2y; pz = o.z + c1 * e1z + c2 * e2z;
                     }
-                    if (isPer()) { px -= S.Lx * std::floor(px / S.Lx); py -= S.Ly * std::floor(py / S.Ly); pz -= S.Lz * std::floor(pz / S.Lz); }
-                    else {
+                    wrapPoint(px, py, pz);
+                    {
                         const double mg = 0.6 * EL[t].sig;
-                        if (px < mg || py < mg || pz < mg || px > S.Lx - mg || py > S.Ly - mg || pz > S.Lz - mg) continue;
+                        if ((!perAx(0) && (px < mg || px > S.Lx - mg)) || (!perAx(1) && (py < mg || py > S.Ly - mg)) || (!perAx(2) && (pz < mg || pz > S.Lz - mg))) continue;
                     }
                     bool ok = true;
                     for (int j = 0; j < S.n && ok; j++) {
                         double dx = S.x[j] - px, dy = S.y[j] - py, dz = S.z[j] - pz;
-                        if (isPer()) { dx -= S.Lx * std::nearbyint(dx / S.Lx); dy -= S.Ly * std::nearbyint(dy / S.Ly); dz -= S.Lz * std::nearbyint(dz / S.Lz); }
+                        minImage3(dx, dy, dz);
                         double s = 0.9 * std::sqrt(PT[t][S.ty[j]].sig2); if (s < 0.5) s = 0.5;
                         if (dx * dx + dy * dy + dz * dz < s * s) ok = false;
                     }

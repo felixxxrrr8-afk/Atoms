@@ -6,6 +6,7 @@ static bool uiModal = false;           // открыто модальное ок
 static double uiClock = 0;             // секунды с запуска (медленное вращение миниатюр атомов)
 static int avZ = 6;                    // элемент окна «Строение атома» (orbitals.inl)
 static void drawAtomMini(int Z, float x, float y, float s, float t);   // orbitals.inl
+static int splitAxis(int k);                                           // panel_scene.inl: периодическая ось → две стенки
 // всплывающие подсказки: элемент под курсором и его текст (показывается после короткой задержки)
 static int hotId = -1, hintShownId = -1; static std::string hotHint; static double hintTime = 0;
 static inline void setHot(int id, const char* hint) { hotId = id; hotHint = hint ? hint : ""; }
@@ -1098,10 +1099,15 @@ static void drawCtrlTab(float x, float y, float w, float h) {
     uiSection(x, yy, W, "Давление и границы");
     {
         float w1 = std::floor(W * 0.68f);
-        if (uiCycle(201, x, yy, w1, bh, "Границы", BD_NAMES[P.boundary], P.boundary != B_PERIODIC, "Границы: периодические → стенки → поршень\n(верхняя стенка под давлением P внешн.)")) {
-            pushUndo(); P.boundary = (P.boundary + 1) % 3; S.pistonV = 0; pistonGrab = false;
+        const bool mixed = P.boundary != B_PISTON && P.perMask != 0 && P.perMask != 7;
+        if (uiCycle(201, x, yy, w1, bh, "Границы", mixed ? "по осям" : BD_NAMES[P.boundary], P.boundary != B_PERIODIC, "Границы: периодические → стенки → поршень\n(верхняя стенка под давлением P внешн.). По осям и по граням — вкладка «Сцена»")) {
+            pushUndo(); const int was = P.boundary == B_PISTON ? 0 : P.perMask;
+            P.boundary = (P.boundary + 1) % 3; P.perMask = P.boundary == B_PERIODIC ? 7 : 0; S.pistonV = 0; pistonGrab = false;
+            if (P.boundary == B_PISTON) P.container = CT_BOX;   // шар и цилиндр вписаны в ящик, а поршень меняет его высоту
+            int removed = 0; for (int k = 0; k < 3; k++) if (((was >> k) & 1) && !perAx(k)) removed += splitAxis(k);
             for (int i = 0; i < S.n; i++) { S.x[i] = clampv(S.x[i], 0.3, S.Lx - 0.3); S.y[i] = clampv(S.y[i], 0.3, S.Ly - 0.3); S.z[i] = clampv(S.z[i], 0.3, S.Lz - 0.3); }
-            nlValid = false; computeForces(); resetEnergyRef();
+            updatePresence(); nlValid = false; computeForces(); resetEnergyRef();
+            if (removed) showToast(fmt("У новых стенок убрано атомов: %d", removed));
         }
         if (uiButton(202, x + w1 + g, yy, W - w1 - g, bh, "NPT", P.npt, false, "Баростат C-rescale (Бернетти–Бусси): ящик сжимается/расширяется до P внешн.,\nправильные флуктуации объёма (только при периодических границах)")) { P.npt = !P.npt; resetEnergyRef(); }
         yy += bh + g;
@@ -1339,8 +1345,10 @@ static void drawObjTab(float x, float y, float w, float h) {
 }
 
 // ===================================== БОКОВАЯ ПАНЕЛЬ ======================================
-static int sideTab = 0;   // 0 управление, 1 физика, 2 химия, 3 графики, 4 объект
-static const char* TAB_NAMES[5] = {"Управление", "Физика", "Химия", "Графики", "Объект"};
+static int sideTab = 0;   // 0 управление, 1 физика, 2 химия, 3 графики, 4 объект, 5 сцена (редактор)
+constexpr int TAB_N = 6;
+static const char* TAB_NAMES[TAB_N] = {"Управление", "Физика", "Химия", "Графики", "Объект", "Сцена"};
+static void drawSceneTab(float x, float y, float w, float h);   // panel_scene.inl
 static void drawSidePanel(float x, float y, float w, float h) {
     if (world != W_MD) { worldPanel(x, y, w, h); return; }
     rectFill(x, y, w, h, C_PANEL); lineV(x, y, y + h, C_LINE);
@@ -1349,14 +1357,15 @@ static void drawSidePanel(float x, float y, float w, float h) {
     // вкладки
     float th = uiPx(28), tx = x + 1, tw0 = 0;
     for (auto t : TAB_NAMES) tw0 += textW(fontUB, t) + uiPx(12);
-    float extra = std::max(0.0f, (w - 1 - tw0) / 5);
+    float extra = std::max(0.0f, (w - 1 - tw0) / TAB_N);
     rectFill(x + 1, yy, w - 1, th, C_PANEL2); lineH(x + 1, x + w, yy, C_LINE); lineH(x + 1, x + w, yy + th - 1, C_LINE);
-    static const char* tabHints[5] = {"Управление: термостат, давление, система, химия, отображение", "Физика: параметры и инструменты физической модели",
+    static const char* tabHints[TAB_N] = {"Управление: термостат, давление, система, химия, отображение", "Физика: параметры и инструменты физической модели",
                                       "Химия: реакции, библиотека молекул", "Графики: распределения, временные ряды, кинетика реакций",
-                                      "Объект: инспектор выделения, объекта поля, измерений и атома"};
-    for (int k = 0; k < 5; k++) {
+                                      "Объект: инспектор выделения, объекта поля, измерений и атома",
+                                      "Сцена: границы и стенки, форма сосуда, расстановка по сетке, заливка вещества"};
+    for (int k = 0; k < TAB_N; k++) {
         float tw = std::floor(textW(fontUB, TAB_NAMES[k]) + uiPx(12) + extra);
-        if (k == 4) tw = x + w - tx;
+        if (k == TAB_N - 1) tw = x + w - tx;
         if (uiTab(700 + k, tx, yy, tw, th, TAB_NAMES[k], sideTab == k, tabHints[k])) sideTab = k;
         tx += tw;
     }
@@ -1376,6 +1385,7 @@ static void drawSidePanel(float x, float y, float w, float h) {
         scrollEnd(1, bottom + uiPx(6));
         break; }
     case 4: drawObjTab(cx, cy, cw, ch); break;
+    case 5: drawSceneTab(cx, cy, cw, ch); break;
     }
     popClip();
 }
@@ -1471,7 +1481,13 @@ static void drawSceneOverlay() {
     float x = sceneX + uiPx(12), y = sceneY + uiPx(8);
     drawText(fontU, x, y, presetLoaded ? std::string(T(presetTitle)) + T("  [загружено]") : presetTitle, withA(C_TEXT, 0.9f));
     if (world != W_MD) { drawText(fontXS, x, y + fontU.h + uiPx(1), worldSubtitle(), C_DIM); popClip(); return; }
-    std::string sub = fmt("%s · %s · %s · ящик %.1f×%.1f%s σ (%.2f×%.2f%s нм)", T(TH_NAMES[P.thermostat]), T(BD_NAMES[P.boundary]), T(P.chemistry ? "химия вкл." : "химия выкл."),
+    std::string bd = T(BD_NAMES[P.boundary]);
+    if (P.boundary == B_WALLS && P.perMask) {   // часть осей периодична: «периодичны по x, z»
+        bd = T("периодичны по"); const char* sep = " ";
+        for (int k = 0; k < 3; k++) if (perAx(k)) { bd += sep; bd += "xyz"[k]; sep = ", "; }
+    }
+    if (P.container != CT_BOX) bd += std::string(" · ") + T("сосуд") + ": " + T(CT_NAMES[P.container]);
+    std::string sub = fmt("%s · %s · %s · ящик %.1f×%.1f%s σ (%.2f×%.2f%s нм)", T(TH_NAMES[P.thermostat]), bd.c_str(), T(P.chemistry ? "химия вкл." : "химия выкл."),
                           S.Lx, S.Ly, fmt("×%.1f", S.Lz).c_str(), realNm(S.Lx), realNm(S.Ly), fmt("×%.2f", realNm(S.Lz)).c_str());
     sub += camMode == 1 ? T(" · камера: полёт (WASD, Q/E)") : "";
     if (sliceOn) sub += fmt(" · разрез %+.1fσ (Shift+колесо)", sliceOff);

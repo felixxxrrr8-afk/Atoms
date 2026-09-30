@@ -465,7 +465,17 @@ struct Params {
     double eaScale = 1.0;         // множитель кинетических барьеров реакций
     bool acidBase = true;         // кислотно-основные реакции: перенос протона (H3O+, OH−, NH4+, HCl → Cl−)
     bool surfCat = true;          // металлическая поверхность (Pt, Pd, Ni, Fe…) снижает барьеры адсорбированных молекул
+    // границы по граням (редактор сцены): оси с периодическими границами (биты x, y, z), вид каждой грани
+    // x−, x+, y− (дно), y+ (верх), z−, z+ и температура тепловых граней; сосуд внутри ящика
+    int perMask = 7;
+    int wallType[6] = {0, 0, 0, 0, 0, 0};
+    double wallTK[6] = {2.146, 2.146, 2.146, 2.146, 2.146, 2.146};
+    int container = 0;            // 0 ящик, 1 шар, 2 цилиндр вдоль y
 } P;
+enum { WT_SOFT, WT_STICKY, WT_THERMAL, WT_ABSORB, WT_MIRROR, WT_N };   // виды граней
+enum { CT_BOX, CT_SPHERE, CT_CYL, CT_N };                                 // формы сосуда
+static const char* WT_NAMES[WT_N] = {"обычная", "липкая", "тепловая", "поглощает", "зеркальная"};
+static const char* CT_NAMES[CT_N] = {"ящик", "шар", "цилиндр"};
 
 // ---- Объекты поля: постоянные «приборы», которые пользователь ставит в ящик (общий интерфейс UI ↔ физика).
 //  Физика (physics.inl) применяет их в computeForces/mdStep; UI (ui.inl/app.inl) ставит, двигает, рисует, удаляет.
@@ -490,8 +500,22 @@ struct FieldObj {
 static std::vector<FieldObj> fieldObjs;
 static int selFieldObj = -1;          // выбранный объект (UI)
 
-static inline bool isPer() { return P.boundary == B_PERIODIC; }
+// периодична ли ось k (0 — x, 1 — y, 2 — z); у поршня все оси со стенками
+static inline bool perAx(int k) { return P.boundary != B_PISTON && ((P.perMask >> k) & 1); }
+static inline bool isPer() { return P.boundary != B_PISTON && P.perMask == 7; }      // все оси периодические
+static inline bool anyWall() { return !isPer(); }
+// ближайший образ разности координат и возврат точки в ящик — только по периодическим осям
+static inline void minImage3(double& dx, double& dy, double& dz) {
+    if (perAx(0)) dx -= S.Lx * std::nearbyint(dx / S.Lx); if (perAx(1)) dy -= S.Ly * std::nearbyint(dy / S.Ly); if (perAx(2)) dz -= S.Lz * std::nearbyint(dz / S.Lz);
+}
+static inline void wrapPoint(double& x, double& y, double& z) {
+    if (perAx(0)) x -= S.Lx * std::floor(x / S.Lx); if (perAx(1)) y -= S.Ly * std::floor(y / S.Ly); if (perAx(2)) z -= S.Lz * std::floor(z / S.Lz);
+}
 static double boxVolume() { return S.Lx * S.Ly * S.Lz; }
-static double wallArea() { return 2 * (S.Lx * S.Ly + S.Ly * S.Lz + S.Lx * S.Lz); }
+static double wallArea() {   // площадь граней со стенками (у периодических осей граней нет)
+    double a = 0;
+    if (!perAx(0)) a += 2 * S.Ly * S.Lz; if (!perAx(1)) a += 2 * S.Lx * S.Lz; if (!perAx(2)) a += 2 * S.Lx * S.Ly;
+    return std::max(a, 1e-9);
+}
 static double pistonArea() { return S.Lx * S.Lz; }
 

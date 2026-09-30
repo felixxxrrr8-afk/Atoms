@@ -16,6 +16,7 @@
 //     --chemtest lib        устойчивость каждой структуры библиотеки молекул
 //     --water T P N шагов   модель воды: плотность, энергия, диффузия, g(r)
 //     --nuck, --semi        критичность сборок урана; вольт-амперные характеристики диода и транзистора
+//     --walltest            стенки редактора сцены: зеркальные, тепловые, поглощающие, сосуд, ось → стенки
 //     --lang ru|en          язык интерфейса (иначе atoms.ini, затем язык Windows); Ctrl+L — на лету
 //
 // Единицы — приведённые LJ (σ, ε аргона, масса 10 а.е.м.). Для аргона: T[K] = 139.8·T*, L[нм] = 0.3405·L*,
@@ -72,6 +73,7 @@ static void drawChemPanel(float x, float y, float w, float h);   // src/panel_ch
 #include "src/panel_phys.inl"
 #include "src/panel_chem.inl"
 #include "src/panel_settings.inl"   // окно настроек (F8)
+#include "src/panel_scene.inl"      // вкладка «Сцена»: стенки, сосуд, расстановка по сетке, заливка
 #include "src/orbitals.inl"   // строение атома: электронные облака и орбитали (F7)
 #include "src/world_nuclear.inl"   // ядра: распад, деление, цепная реакция
 #include "src/world_quark.inl"     // кварки: струны глюонного поля, адроны, столкновения

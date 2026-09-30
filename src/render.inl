@@ -926,6 +926,38 @@ static void drawMeasure() {
     boxPanel(bx, by, w, h, withA(C_PANEL, 0.92f), withA(C_MEAS, 0.45f));
     for (size_t k = 0; k < L.size(); k++) drawText(fontS, bx + uiPx(7), by + uiPx(4) + k * lh, L[k], C_MEAS);
 }
+// углы грани f ящика (0 x−, 1 x+, 2 y− — дно, 3 y+, 4 z−, 5 z+) по обходу
+static void faceCorners(int f, double c[4][3]) {
+    const double L3[3] = {S.Lx, S.Ly, S.Lz};
+    const int k = f / 2, a = (k + 1) % 3, b = (k + 2) % 3; const double at = (f & 1) ? L3[k] : 0;
+    const double ua[4] = {0, L3[a], L3[a], 0}, ub[4] = {0, 0, L3[b], L3[b]};
+    for (int q = 0; q < 4; q++) { c[q][k] = at; c[q][a] = ua[q]; c[q][b] = ub[q]; }
+}
+// подписи особых граней (липкая, T тепловой, сток, зеркало) — в центре грани поверх атомов, на плашке;
+// совпавшие на экране (грань за гранью) раздвигаются по вертикали
+static void drawFaceLabels() {
+    if (!opt.box) return;
+    std::vector<std::array<float, 4>> used;
+    for (int f = 0; f < 6; f++) {
+        if (perAx(f / 2) || P.wallType[f] == WT_SOFT) continue;
+        double c[4][3]; faceCorners(f, c);
+        double m[3] = {0, 0, 0}; for (auto& v : c) for (int q = 0; q < 3; q++) m[q] += v[q] / 4;
+        float sx, sy, dd, s; if (!project(m[0], m[1], m[2], sx, sy, dd, s)) continue;
+        const int wt = P.wallType[f];
+        const std::string lab = wt == WT_THERMAL ? fmt("%.0f K", toKelvin(P.wallTK[f])) : std::string(T(WT_NAMES[wt]));
+        const float w = textW(fontXS, lab) + uiPx(10), h = fontXS.h + uiPx(4);
+        float bx = sx - w / 2, by = sy - h / 2;
+        for (int tries = 0; tries < 6; tries++) {
+            bool hit = false;
+            for (auto& r : used) if (bx < r[0] + r[2] && r[0] < bx + w && by < r[1] + r[3] && r[1] < by + h) { hit = true; break; }
+            if (!hit) break;
+            by += h + uiPx(2);
+        }
+        used.push_back({bx, by, w, h});
+        boxPanel(bx, by, w, h, withA(C_PANEL, 0.8f), withA(C_LINE_H, 0.9f));
+        drawText(fontXS, bx + uiPx(5), by + uiPx(2), lab, C_TEXT_HI);
+    }
+}
 static void drawScene() {
     glEnable(GL_SCISSOR_TEST); glScissor((int)sceneX, (int)(winH - sceneY - sceneH), (int)sceneW, (int)sceneH);
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -947,10 +979,58 @@ static void drawScene() {
     // --- ящик: тонкий серый контур; периодические границы — пунктир
     glLineWidth(1.0f);
     if (opt.box) {
-        if (isPer()) { glEnable(GL_LINE_STIPPLE); glLineStipple(1, 0x3333); }
-        col(isPer() ? withA(C_BOX, 0.4f) : C_BOX);
+        const bool dash = P.boundary != B_PISTON && P.perMask != 0;   // есть периодические оси — контур пунктиром
+        if (dash) { glEnable(GL_LINE_STIPPLE); glLineStipple(1, 0x3333); }
+        col(isPer() ? withA(C_BOX, 0.4f) : (dash ? withA(C_BOX, 0.7f) : C_BOX));
         glEnable(GL_LINE_SMOOTH); boxEdges(S.Ly); glDisable(GL_LINE_SMOOTH);
         glDisable(GL_LINE_STIPPLE);
+    }
+    // грани из редактора сцены: липкая — плотная заливка, тепловая — заливка тем ярче, чем горячее (холодная — пунктир),
+    // сток — косая штриховка, зеркальная — блики у углов; подписи — поверх атомов (drawFaceLabels)
+    if (opt.box) {
+        for (int f = 0; f < 6; f++) {
+            if (perAx(f / 2) || P.wallType[f] == WT_SOFT) continue;
+            double c[4][3]; faceCorners(f, c);
+            const int wt = P.wallType[f]; const double TK = toKelvin(P.wallTK[f]);
+            const bool cold = wt == WT_THERMAL && TK < 250;
+            float p[4][2], dd, s; bool ok = true;
+            for (int q = 0; q < 4; q++) ok &= project(c[q][0], c[q][1], c[q][2], p[q][0], p[q][1], dd, s);
+            const float fill = wt == WT_STICKY ? 0.12f : wt == WT_MIRROR ? 0.09f
+                             : wt == WT_THERMAL ? (float)clampv(0.03 + 0.05 * std::log2(std::max(TK, 20.0) / 150), 0.02, 0.16) : 0.0f;
+            if (ok && fill > 0) { col(grayc(0.95f, fill)); glBegin(GL_QUADS); for (auto& v : p) glVertex2f(v[0], v[1]); glEnd(); }
+            auto pt = [&](double u, double v, int q) { return c[0][q] + u * (c[1][q] - c[0][q]) + v * (c[3][q] - c[0][q]); };
+            auto seg = [&](double u0, double v0, double u1, double v1) { line3(pt(u0, v0, 0), pt(u0, v0, 1), pt(u0, v0, 2), pt(u1, v1, 0), pt(u1, v1, 1), pt(u1, v1, 2)); };
+            glEnable(GL_LINE_SMOOTH);
+            glLineWidth(wt == WT_THERMAL || wt == WT_STICKY ? 2.5f : 1.5f); col(withA(cold ? C_COLD : C_HOT, 0.85f));
+            if (cold || wt == WT_ABSORB) lineStyle(LS_DASH);
+            glBegin(GL_LINES); seg(0, 0, 1, 0); seg(1, 0, 1, 1); seg(1, 1, 0, 1); seg(0, 1, 0, 0); glEnd();
+            lineStyle(LS_SOLID); glLineWidth(1.0f);
+            if (wt == WT_ABSORB) {   // штриховка по линиям u + v = const
+                col(withA(C_HOT, 0.28f)); glBegin(GL_LINES);
+                const int N = 14; for (int q = 1; q < N; q++) { const double t = 2.0 * q / N, a = std::min(t, 1.0); seg(a, t - a, t - a, a); }
+                glEnd();
+            } else if (wt == WT_MIRROR) {
+                col(withA(C_HOT, 0.45f)); glBegin(GL_LINES); seg(0.08, 0.3, 0.3, 0.08); seg(0.08, 0.42, 0.42, 0.08); seg(0.62, 0.92, 0.92, 0.62); glEnd();
+            }
+            glDisable(GL_LINE_SMOOTH);
+        }
+        // сосуд: шар — три больших круга, цилиндр — два торца и четыре образующие
+        if (P.container != CT_BOX) {
+            const double cx = S.Lx / 2, cy = S.Ly / 2, cz = S.Lz / 2;
+            const double R = P.container == CT_SPHERE ? 0.5 * std::min({S.Lx, S.Ly, S.Lz}) : 0.5 * std::min(S.Lx, S.Lz);
+            col(withA(C_BOX, 0.9f)); glEnable(GL_LINE_SMOOTH); glLineWidth(1.5f); glBegin(GL_LINES);
+            const int M = 72;
+            for (int q = 0; q < M; q++) {
+                const double a0 = 2 * PI * q / M, a1 = 2 * PI * (q + 1) / M;
+                if (P.container == CT_SPHERE) {
+                    line3(cx + R * std::cos(a0), cy + R * std::sin(a0), cz, cx + R * std::cos(a1), cy + R * std::sin(a1), cz);
+                    line3(cx + R * std::cos(a0), cy, cz + R * std::sin(a0), cx + R * std::cos(a1), cy, cz + R * std::sin(a1));
+                    line3(cx, cy + R * std::cos(a0), cz + R * std::sin(a0), cx, cy + R * std::cos(a1), cz + R * std::sin(a1));
+                } else for (double y : {0.0, S.Ly}) line3(cx + R * std::cos(a0), y, cz + R * std::sin(a0), cx + R * std::cos(a1), y, cz + R * std::sin(a1));
+            }
+            if (P.container == CT_CYL) for (int q = 0; q < 4; q++) { const double a = PI / 2 * q; line3(cx + R * std::cos(a), 0, cz + R * std::sin(a), cx + R * std::cos(a), S.Ly, cz + R * std::sin(a)); }
+            glEnd(); glLineWidth(1.0f); glDisable(GL_LINE_SMOOTH);
+        }
     }
     // тепловые стенки: горячая — белая сплошная толстая линия, холодная — серый пунктир
     if (P.heatWalls && !isPer()) {
@@ -1165,8 +1245,9 @@ static void drawScene() {
             glEnable(GL_LINE_SMOOTH); glLineWidth(2.5f); col(withA(C_ACC, 0.95f)); glBegin(GL_LINES); segPx(psx[cutHoverA], psy[cutHoverA], bx, by); glEnd(); glLineWidth(1); glDisable(GL_LINE_SMOOTH);
         }
     }
-    // значки объектов поля (поверх атомов)
+    // значки объектов поля и подписи граней (поверх атомов)
     drawFieldObjs(true);
+    drawFaceLabels();
     // линейка / угломер
     drawMeasure();
     // --- пинцет
