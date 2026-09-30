@@ -8,6 +8,10 @@ static void worldLoad(int k, int variant) {
     (void)variant;
     const int prev = world;
     if (k >= 100 && k < 105) { world = W_NUC; nucReset(k - 100); }
+    else if (k >= 110 && k < 115) {   // повтор той же сцены (R) сохраняет выбор
+        if (prev != W_QUARK || currentPreset != k) qkDefaults(k - 110);
+        world = W_QUARK; qkReset(k - 110);
+    }
     else if (k >= 120 && k < 124) {   // повтор той же сцены (R) сохраняет напряжения
         if (prev != W_SEMI || currentPreset != k) scDefaults(k - 120);
         world = W_SEMI; scReset(k - 120);
@@ -23,7 +27,7 @@ static void worldLoad(int k, int variant) {
         "Критическая масса: в шаре урана-235 нейтроны деления вызывают новые деления — растёт ли их число?",
         "Ядерный реактор: вода замедляет нейтроны, стержни с бором поглощают лишние — цепная реакция идёт ровно",
         "Ядерный взрыв: сверхкритическая сборка — число делений растёт экспоненциально, пока шар не разлетится"};
-    presetTitle = world == W_WAVE ? WV_TITLES[wv::scene] : (world == W_SEMI ? SC_TITLES[sc::scene] : TITLES[clampv(nuc::scene, 0, 4)]);
+    presetTitle = world == W_WAVE ? WV_TITLES[wv::scene] : world == W_SEMI ? SC_TITLES[sc::scene] : world == W_QUARK ? QK_TITLES[qk::scene] : TITLES[clampv(nuc::scene, 0, 4)];
     currentPreset = k; presetVariant = 0; presetLoaded = false;
     if (prev == W_MD) worldToolSaved = lmbTool;
     lmbTool = TOOL_CAMERA; P.paused = false; viewFitPending = true; followAtom = -1; flashes.clear();
@@ -33,10 +37,10 @@ static void worldLoad(int k, int variant) {
 // выход в молекулярную динамику: вернуть инструмент
 static void worldLeave() { if (worldToolSaved >= 0) { lmbTool = worldToolSaved; worldToolSaved = -1; } }
 static void worldStep(double frameDt) {
-    switch (world) { case W_NUC: nucStep(frameDt); break; case W_WAVE: wvStep(frameDt); break; case W_SEMI: scStep(frameDt); break; }
+    switch (world) { case W_NUC: nucStep(frameDt); break; case W_WAVE: wvStep(frameDt); break; case W_SEMI: scStep(frameDt); break; case W_QUARK: qkStep(frameDt); break; }
 }
 static void worldDraw() {
-    switch (world) { case W_NUC: nucDraw(); break; case W_WAVE: wvDraw(); return; case W_SEMI: scDraw(); return; }
+    switch (world) { case W_NUC: nucDraw(); break; case W_WAVE: wvDraw(); return; case W_SEMI: scDraw(); return; case W_QUARK: qkDraw(); return; }
     // масштаб и подпись мира в левом нижнем углу
     const float x = sceneX + uiPx(12), y = sceneY + sceneH - uiPx(22);
     const double pps = pxPerSigma();
@@ -48,7 +52,7 @@ static void worldDraw() {
     } else if (world == W_NUC) drawText(fontXS, x, y - fontXS.h, "ядра увеличены: на самом деле между ними в 100 000 раз больше места", C_DIM);
 }
 static std::string worldClock() {
-    switch (world) { case W_NUC: return nucWorldTime(); case W_WAVE: return wvTimeStr(); case W_SEMI: return scTimeStr(); }
+    switch (world) { case W_NUC: return nucWorldTime(); case W_WAVE: return wvTimeStr(); case W_SEMI: return scTimeStr(); case W_QUARK: return qkTimeStr(); }
     return "";
 }
 
@@ -147,7 +151,7 @@ static void nucPanel(float x, float y, float w, float h) {
     scrollEnd(6, yy);
 }
 static void worldPanel(float x, float y, float w, float h) {
-    switch (world) { case W_NUC: nucPanel(x, y, w, h); break; case W_WAVE: wvPanel(x, y, w, h); break; case W_SEMI: scPanel(x, y, w, h); break; }
+    switch (world) { case W_NUC: nucPanel(x, y, w, h); break; case W_WAVE: wvPanel(x, y, w, h); break; case W_SEMI: scPanel(x, y, w, h); break; case W_QUARK: qkPanel(x, y, w, h); break; }
 }
 // ---- полоса под сценой: легенда цветов мира
 static void worldStrip(float x, float y, float w, float h) {
@@ -164,6 +168,13 @@ static void worldStrip(float x, float y, float w, float h) {
         sw("быстрый нейтрон", {1.0f, 1.0f, 1.0f, 1}); sw("тепловой нейтрон", {0.35f, 0.55f, 1.0f, 1});
         sw("электрон β−", {0.4f, 0.6f, 1.0f, 1}, true); sw("позитрон β+", {1.0f, 0.45f, 0.8f, 1}, true);
         sw("гамма-квант", {1.0f, 0.95f, 0.4f, 1}, true); sw("антинейтрино", {0.5f, 0.5f, 0.5f, 1}, true);
+    }
+    if (world == W_QUARK) {
+        bx += drawText(fontXS, bx, cy - fontXS.h / 2, "цвет кварка:", C_DIM) + uiPx(10);
+        for (int c = 0; c < 3; c++) { float r, g, b; qkColor(c, false, r, g, b); static const char* CN[3] = {"красный", "зелёный", "синий"}; sw(CN[c], {r, g, b, 1}); }
+        bx += drawText(fontXS, bx, cy - fontXS.h / 2, "антикварк — дополнительный цвет:", C_DIM) + uiPx(10);
+        for (int c = 0; c < 3; c++) { float r, g, b; qkColor(c, true, r, g, b); static const char* AN[3] = {"антикрасный", "антизелёный", "антисиний"}; sw(AN[c], {r, g, b, 1}); }
+        sw("струна глюонного поля", {0.9f, 0.9f, 0.9f, 1}, true);
     }
     if (world == W_SEMI) {
         bx += drawText(fontXS, bx, cy - fontXS.h / 2, "цвет:", C_DIM) + uiPx(10);
@@ -187,6 +198,7 @@ static std::string worldSubtitle() {
     case W_NUC: return nuc::scene <= 1 ? "мир ядер · время — реальные периоды полураспада, ускорено ползунком справа · мышь: вращать, колесо — масштаб"
                                        : "мир ядер · перенос нейтронов Монте-Карло: реальные сечения и плотности · размеры — в сантиметрах";
     case W_WAVE: return "квантовый мир · уравнение Шрёдингера для электрона на сетке 256×256 · единицы: нм, фс, эВ";
+    case W_QUARK: return "мир кварков · потенциал Корнелла: σ = 0.9 ГэВ/фм, αs = 0.3 · кварки точечные, шарики — для наглядности · мышь: вращать, колесо — масштаб";
     case W_SEMI: return "полупроводник · дрейф и диффузия носителей, уравнение Пуассона; параметры кремния при 300 K · размеры — микрометры";
     }
     return "";
@@ -196,6 +208,7 @@ static std::string worldReport() {
     using namespace nuc;
     if (world == W_WAVE) return wvReport();
     if (world == W_SEMI) return scReport();
+    if (world == W_QUARK) return qkReport();
     if (world != W_NUC) return "";
     if (scene <= 1) {
         const int iso = scene == 0 ? isoPick : 7; int left = 0; for (auto& n : nuclei) if (n.iso == iso) left++;

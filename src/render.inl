@@ -129,7 +129,9 @@ static void buildFonts() {
     std::vector<uint32_t> cps;
     auto range = [&](uint32_t a, uint32_t b) { for (uint32_t c = a; c <= b; c++) cps.push_back(c); };
     range(32, 126); range(0xA0, 0xFF); range(0x391, 0x3A9); range(0x3B1, 0x3C9); cps.push_back(0x401); range(0x410, 0x44F); cps.push_back(0x451);
+    for (uint32_t c : utf8("ħūĀā")) cps.push_back(c);   // ħ — постоянная Планка, ū — анти-u
     range(0x2010, 0x2027); cps.push_back(0x2030); cps.push_back(0x2032); cps.push_back(0x2033); range(0x2070, 0x2079); range(0x207A, 0x207B); range(0x2080, 0x2089);
+    range(0x2090, 0x209C);   // нижние индексы-буквы: ₑ, ₙ…
     range(0x2190, 0x2195); cps.push_back(0x21C4); cps.push_back(0x21CC);
     for (uint32_t c : utf8("∂∆∑−√∞∝∠≈≠≡≤≥⋅⊕⊗⟨⟩▲▶▼◀●○■□✓✕")) cps.push_back(c);
     int px = 1, py = 1, rowH = 0;

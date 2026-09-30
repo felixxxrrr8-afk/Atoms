@@ -74,6 +74,7 @@ static void drawChemPanel(float x, float y, float w, float h);   // src/panel_ch
 #include "src/panel_settings.inl"   // окно настроек (F8)
 #include "src/orbitals.inl"   // строение атома: электронные облака и орбитали (F7)
 #include "src/world_nuclear.inl"   // ядра: распад, деление, цепная реакция
+#include "src/world_quark.inl"     // кварки: струны глюонного поля, адроны, столкновения
 #include "src/world_wave.inl"      // волновая функция электрона: уравнение Шрёдингера на сетке
 #include "src/world_semi.inl"      // полупроводники: диод, светодиод, транзисторы (дрейф и диффузия носителей)
 #include "src/worlds.inl"     // миры других масштабов: переключение, панели
