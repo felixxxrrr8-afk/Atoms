@@ -690,7 +690,7 @@ static void vsInitLP(int k, const double (*r)[3], const double* w, int nd, const
         }
         if (trans) for (int c = 0; c < 3; c++) T[1][c] = -T[0][c];
         const double e = vsEnergy(k, r, w, nd, wl, T, 80, nullptr, trans);
-        if (e < best) { best = e; memcpy(B, T, sizeof(B)); }
+        if (tr == 0 || e < best) { best = e; memcpy(B, T, sizeof(B)); }   // первая попытка — всегда (энергия могла выйти NaN)
     }
     memcpy(L, B, sizeof(double) * 3 * nd);
 }

@@ -776,7 +776,9 @@ static void handleMouse(double frameDt) {
 // ===================================== ОКНО / ГЛАВНЫЙ ЦИКЛ ================================
 static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
-    case WM_SIZE: winW = std::max(200, (int)LOWORD(lp)); winH = std::max(200, (int)HIWORD(lp));  return 0;
+    case WM_SIZE:   // свёрнутое окно сообщает размер 0×0: раскладку и масштаб шрифтов под него не пересчитываем
+        if (wp == SIZE_MINIMIZED) return 0;
+        winW = std::max(200, (int)LOWORD(lp)); winH = std::max(200, (int)HIWORD(lp)); return 0;
     case WM_MOUSEMOVE: mouseX = (short)LOWORD(lp); mouseY = (short)HIWORD(lp); return 0;
     case WM_LBUTTONDOWN: SetCapture(h); in.lDown = true; in.lPress = true; ui.down = true; ui.pressed = true; return 0;
     case WM_LBUTTONDBLCLK: SetCapture(h); in.lDown = true; in.dbl = true; ui.down = true; ui.pressed = true; return 0;   // второй щелчок: кнопки UI срабатывают, в сцене — слежение

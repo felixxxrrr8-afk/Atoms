@@ -1673,7 +1673,7 @@ static void drawPeriodicTable() {
         PR c0 = cellRect(0, 2), c1 = cellRect(2, 11);
         float cx = c0.x + uiPx(4), cy = c0.y + uiPx(2), cw = c1.x + c1.w - c0.x - uiPx(8), ch = c1.y + c1.h - c0.y - uiPx(6);
         if (z >= 1) {
-            int t = typeOfZ(z); const Element& e = EL[t]; const ZData& d = ZD[z]; const RGBA& cc = CATC[d.cat];
+            int t = typeOfZ(z); const Element& e = EL[t]; const ZData& d = ZD[z];
             boxPanel(cx, cy, cw, ch, C_PANEL2, C_LINE);
             float bs = std::min(ch - uiPx(16), 2.2f * cell);
             // миниатюра атома: электронное облако (не орбиты!); щелчок — окно «Строение атома»
