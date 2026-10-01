@@ -16,7 +16,7 @@ $shotList = @(
   @('hydrogen-combustion',  '7 450 tab=2'),
   @('nacl-water',           '6 900'),
   @('crystal-melting',      '2 700 tab=1'),
-  @('ice',                  '2 500 v5 tab=1'),
+  @('ice',                  '2 40 v5 tab=1 zoom=0.6 notoast'),
   @('cross-section',        '2 150 cut'),
   @('quench-polycrystal',   '9 700'),
   @('glass',                '9 700 v1 color=3'),

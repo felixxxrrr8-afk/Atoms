@@ -1712,7 +1712,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     layout(); sceneAspect = clampv(sceneH / sceneW, 0.4f, 1.2f);
     // --shot K N [vV] [rot] [help] [table] [menu] [settings] [hoverZ] [tab=T] [tool=T] [fo=K] [demo] [layers] [nopanel] [liball] [cut]
     //        [color=C] [zoom=K] [scrollto=ID] [lib=K1,K2… cell=S cols=C] [rec=ПАПКА every=K from=F] [png] [out=имя] [size=WxH] [scale=S]
-    //        [faces=ABCDEF] [cont=C] [per=M] [orbitals] [atomview avz=Z avmode=M avn= avl= avm=]:
+    //        [faces=ABCDEF] [cont=C] [per=M] [orbitals] [atomview avz=Z avmode=M avn= avl= avm=] [notoast]:
     //   пресет K, N кадров, сохранить снимок окна и выйти (проверка графики и раскладки, картинки для README);
     //   faces — вид каждой грани цифрой (−x +x −y +y −z +z), cont — сосуд, per — маска периодичных осей;
     //   orbitals — слой облаков электронов, atomview — окно «Строение атома»
@@ -1741,6 +1741,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     }
     loadPreset(shotPreset >= 0 ? shotPreset : 1, shotVar);
     if (shotDemo) setupDemo();
+    if (cmd && wcsstr(cmd, L" notoast")) toastTime = 0;   // первые кадры — без уведомления с названием сцены
     if (cmd && shotPreset >= 0 && shotPreset < 100) {   // редактор сцены
         if (wcsstr(cmd, L"per=") && P.boundary != B_PISTON) { const int m = argInt(cmd, L"per=", 7); for (int k = 0; k < 3; k++) setAxisPeriodic(k, (m >> k) & 1); }
         if (const wchar_t* fp = wcsstr(cmd, L"faces=")) for (int k = 0; k < 6 && fp[6 + k] >= L'0' && fp[6 + k] <= L'9'; k++) P.wallType[k] = clampv(fp[6 + k] - L'0', 0, WT_N - 1);
