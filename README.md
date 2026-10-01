@@ -81,6 +81,7 @@ Next to them are worlds of other scales: nuclei and chain reactions, quarks, sem
 **Chemistry**
 - Bonds form, break and switch partners; reaction heat goes into motion, barriers follow Marcus
 - Valence counted by electrons: hypervalent SF₆, PCl₅, XeF₄, H₂SO₄; lone pairs set the shape of a molecule
+- Orbitals in the simulation: a bond forms only if the atoms meet along a free orbital (the steric factor); the clouds of lone pairs, unpaired electrons and π bonds are visible right in the scene (<kbd>Shift</kbd>+<kbd>O</kbd>)
 - Combustion, explosions, acids and bases, Grotthuss proton hopping, pH, catalysis on metal surfaces
 - Light with a wavelength: a quantum hν breaks a bond only if the molecule absorbs it — frequency matters, not brightness
 - All 118 elements and a library of 149 structures: molecules, ions, crystals, metal clusters
@@ -95,7 +96,7 @@ Next to them are worlds of other scales: nuclei and chain reactions, quarks, sem
 - Quarks: inside a proton, string breaking, proton collision, a hadron builder, neutron decay
 - Semiconductors: a diode, an LED and a solar cell, MOS and bipolar transistors
 - Quantum waves: tunneling, the double slit, an oscillator, the quantum carpet, electron diffraction
-- Atom structure (<kbd>F7</kbd>): electron clouds and the shapes of s, p, d, f orbitals instead of a planetary model
+- Atom structure (<kbd>F7</kbd>): 3D electron clouds instead of a planetary model — the atom in a cutaway with its shell layers, an orbital colored by the sign of ψ, the s, p, d, f shapes
 
 </td>
 <td valign="top">
@@ -180,14 +181,22 @@ Next to them are worlds of other scales: nuclei and chain reactions, quarks, sem
 <td><img src="docs/en/valence-gallery.png" alt="Hypervalent molecules"><br><sub><b>Hypervalent molecules.</b> H₂SO₄, SF₆, PCl₅, XeF₄, ClF₃, SF₄, BrF₅, XeF₂, XeO₃, HNO₃, SO₄²⁻, PO₄³⁻: lone pairs set the shape</sub></td>
 <td><img src="docs/en/library-panel.png" alt="Chemistry tab"><br><sub><b>Chemistry tab.</b> Reaction switches, the wavelength of light, the event log and the structure library</sub></td>
 </tr>
+<tr>
+<td><img src="docs/en/orbitals-gallery.png" alt="Orbitals in molecules"><br><sub><b>Orbitals in molecules (Shift+O).</b> Lone pairs of water and ammonia, π clouds of ethylene and CO₂, the unpaired electron of NO₂; a bond forms only along a free orbital</sub></td>
+<td><img src="docs/en/orbitals-flame.png" alt="Orbitals in a flame"><br><sub><b>Orbitals in a methane flame.</b> Amber clouds are the unpaired electrons of the O, H, OH, CH₃ radicals: the chain reaction runs on them</sub></td>
+</tr>
 </table>
 
 **The quantum and subatomic world**
 
 <table>
 <tr>
-<td width="50%"><img src="docs/en/orbital-shapes.png" alt="Orbital shapes"><br><sub><b>Atom structure (F7).</b> The shapes of s, p, d and f orbitals; lobe color is the sign of the wave function</sub></td>
-<td width="50%"><img src="docs/en/orbital-cloud.png" alt="Orbital cloud"><br><sub><b>A 3d electron of iron.</b> Points fall with density |ψ|²; on the right, the subshells and where their electrons are</sub></td>
+<td width="50%"><img src="docs/en/atom-cloud.png" alt="A xenon atom in a cutaway"><br><sub><b>Atom structure (F7): xenon in a cutaway.</b> The s, p, d shell layers and the dark nodes of the wave between them; brightness is the probability of finding an electron at that distance</sub></td>
+<td width="50%"><img src="docs/en/orbital-cloud.png" alt="Orbital cloud"><br><sub><b>A 3d electron of iron.</b> It glows where |ψ|² is large; color is the sign of ψ, the glossy surface encloses 85% of the probability</sub></td>
+</tr>
+<tr>
+<td><img src="docs/en/orbital-shapes.png" alt="Orbital shapes"><br><sub><b>The shapes of s, p, d and f orbitals.</b> The angular parts of the wave functions; the shade of a lobe is the sign of ψ</sub></td>
+<td><img src="docs/en/orbital-2p.png" alt="The 2p orbital of carbon"><br><sub><b>The 2p orbital of carbon.</b> Two lobes of opposite sign of ψ with a nodal plane between them, where the electron never is</sub></td>
 </tr>
 <tr>
 <td><img src="docs/en/double-slit.png" alt="Double slit"><br><sub><b>Double slit.</b> The Schrödinger equation on a 256×256 grid; color is the phase of the wave, hits on the screen on the right</sub></td>

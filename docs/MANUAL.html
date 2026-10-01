@@ -83,6 +83,7 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
   <a href="#physics">Physics</a>
   <a href="#phases">States of matter</a>
   <a href="#chem">Chemistry</a>
+  <a href="#orbitals">Orbitals in molecules</a>
   <a href="#light">Light and photons</a>
   <a href="#atom">Atom structure</a>
   <a href="#worlds">Worlds of other scales</a>
@@ -216,6 +217,7 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <tr><td><kbd>1</kbd>…<kbd>0</kbd>, <kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>5</kbd></td><td>quick scene launch (the other scenes — from the menu)</td></tr>
 <tr><td><kbd>E</kbd></td><td>periodic table</td></tr>
 <tr><td><kbd>F7</kbd></td><td>atom structure: electron clouds and orbitals (the element of the atom under the cursor; inside the window — ◀ ▶ and <b>element from the table</b>)</td></tr>
+<tr><td><kbd>Shift</kbd>+<kbd>O</kbd></td><td>orbitals in the scene: lone pairs, unpaired electrons, π clouds (see <a href="#orbitals">Orbitals in molecules</a>)</td></tr>
 <tr><td><kbd>Space</kbd> / <kbd>S</kbd> / <kbd>R</kbd></td><td>pause / single step / reset scene</td></tr>
 <tr><td><kbd>Ctrl+Z</kbd></td><td>undo</td></tr>
 <tr><td><kbd>C</kbd></td><td>atom coloring: element, speed, energy, order, coordination, phase</td></tr>
@@ -305,9 +307,11 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
   <li><b>Electrostatics</b> — full Coulomb by the damped shifted force method (DSF: α = 0.23 Å⁻¹, cutoff 9.5 Å) from a spline table; charged fragments also get their self-energy. Partial charges come from electronegativities, ions use Joung–Cheatham parameters.</li>
   <li><b>Water</b> — a flexible SPC/Fw-type model: at 300 K its density is 0.96 g/cm³ and its diffusion coefficient 2.5·10⁻⁹ m²/s (real water: 0.997 and 2.3·10⁻⁹); check it with <code>--water</code>.</li>
   <li><b>Covalent bonds</b> — the Morse potential with a soft core: reference energies and lengths, stiffness from molecular vibration frequencies. Multiple bonds, bond angles from VSEPR domains (lone pairs push bonds harder than bonds push each other), π torsion: a double bond resists twisting.</li>
-  <li><b>Hydrogen bonds</b> — the directional DREIDING term; water also has a three-body tetrahedral term: ice and water anomalies.</li>
+  <li><b>Hydrogen bonds</b> — there is no separate term, as in the SPC and TIP water models: they are held by the attraction of the partial charges of H⁺ and O⁻, N⁻, F⁻, Cl⁻, while the bare core of hydrogen keeps a proton from sliding over to a foreign oxygen.</li>
   <li><b>Metals</b> — the many-body second-moment potential (Gupta / Cleri–Rosato): a bond depends on the number of neighbors, so surfaces, melting and nanoparticle faceting are realistic.</li>
-  <li><b>Integrator</b> — velocity Verlet with an automatic time step; fast bond and angle vibrations run in inner steps (RESPA), slow forces once per outer step. Verlet neighbor list, OpenMP. Forces are checked against numerical differentiation of the energy (<code>--gradcheck</code>).</li>
+  <li><b>Integrator</b> — velocity Verlet with an automatic time step; fast bond and angle vibrations run in inner steps (RESPA), slow forces once per outer step. The step is fitted to the state of a scene right away and grows back carefully after shrinking, so even a flame at 3500 K loses no more than hundredths of a percent of its energy over picoseconds. Verlet neighbor list, OpenMP. Forces are checked against numerical differentiation of the energy (<code>--gradcheck</code>).</li>
+  <li><b>Initial velocities</b> of molecules are in thermal equilibrium from the start: velocities are split into translation, rotation and vibration, and the vibrations get their share of energy (at equilibrium the kinetic energy of a vibration equals its potential energy). Otherwise the vibrations would hand half of their energy over to potential energy, and in a gas hydrogen would stay colder than its neighbors.</li>
+  <li><b>The average shape of molecules on screen</b>. Bonds to hydrogen vibrate in 10–30 fs, faster than a frame: taken with such an exposure, H atoms would dart about from frame to frame. In nature these vibrations are "invisible" at room temperature — their quantum ħω is 7–17 times larger than kT, and the molecule sits in its vibrational ground state. So the shape of each molecule averaged over about 60 fs is drawn, while its translation and rotation are shown without delay. The simulation does not change; it can be turned off in the <a href="#settings">settings</a>. Check the smoothness with <code>--jitter</code>.</li>
 </ul>
 <h3>Units</h3>
 <p>Lengths and temperatures are calibrated to argon: σ = 0.3405 nm, mass 10 u, ε/k = 139.8 K — so the model's critical point (T*c = 1.078) matches argon at 150.7 K, the triple point comes out at ≈ 87 K (argon: 83.8 K), time τ = 0.999 ps, pressure ε/σ³ = 482.5 atm. Chemical energies: 1 eV = 83.0ε. The program shows both model and real quantities everywhere.</p>
@@ -339,6 +343,7 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
   <li><b>Bond energies and lengths</b> — real tabulated values for the common pairs and bond orders (H–H 4.52 eV, O=O 5.12, N≡N 9.79, C–H 4.3, O–H 4.8…). Halogens, sulfur, phosphorus, silicon, boron and interhalogen pairs (H–F, N–F, P–F, Si–F, B–F, S–Cl, B–Cl, Cl–F, I–Cl, H–Se, H–Ge, H–As and others, about 70 pairs in all) also come from reference tables; the remaining pairs follow Pauling's rules from electronegativities. The scale is real: 1 eV = 83ε.</li>
   <li><b>Valence</b> is counted by electrons: an atom has valence electrons, lone pairs and a formal charge. Sulfur, phosphorus, chlorine, bromine, iodine and xenon next to electronegative neighbors (F, O, Cl) can become hypervalent: SO₂, SO₃, H₂SO₄, H₃PO₄, HClO₄, SF₄, SF₆, PF₅, PCl₅, ClF₃, BrF₅, IF₅, XeF₂, XeF₄, XeO₃ — up to six bonds per atom. The shape of a molecule is set by VSEPR domains, lone pairs included: bent SO₂, the SF₄ "seesaw", T-shaped ClF₃, square-planar XeF₄.</li>
   <li><b>Barriers</b> follow Marcus: E = E₀(1 + ΔH/4E₀)², where E₀ is the intrinsic barrier of the reaction (atom exchange, addition to a multiple bond, radical association) and ΔH its heat. A strongly exothermic reaction runs without a barrier, a strongly endothermic one needs at least ΔH. The <b>reaction barriers ×</b> slider multiplies E₀ — it changes the kinetics without touching the equilibrium.</li>
+  <li><b>Orbitals</b> — a bond forms only if the atoms meet along a free orbital (see <a href="#orbitals">Orbitals in molecules</a>). So not every collision with enough energy reacts, only a well-aimed one — this is the steric factor known from experiment.</li>
   <li><b>Charges</b> — partial, from electronegativity differences; for ions (H₃O⁺, OH⁻, NH₄⁺, SO₄²⁻…) the charge is distributed by atomic hardness (a simplified electronegativity equalization).</li>
   <li><b>Acids and bases</b> — proton transfer: HCl + H₂O → H₃O⁺ + Cl⁻, H⁺ hopping along a chain of water molecules (Grotthuss), neutralization H₃O⁺ + OH⁻ → 2H₂O, NH₃ + H₃O⁺ → NH₄⁺. The water around new ions does not rearrange instantly: the energy of this rearrangement is "borrowed" and paid back as it happens. Water autoionization is not modeled: in a box of ~10⁻²³ L its equilibrium is zero ions.</li>
   <li><b>Catalysis</b> — a catalyst zone (<kbd>K</kbd>; barriers ×0.25) and the surface of metals Pt, Pd, Ni, Fe, Cu, Ru, Rh, Ag…: molecules that touch the metal split into atoms, the atoms settle on the surface and assemble into new molecules there (the Langmuir–Hinshelwood mechanism).</li>
@@ -347,7 +352,7 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 </ul>
 <h3>The Chemistry tab</h3>
 <ul>
-  <li><b>Reactions</b>: switches <b>chemical reactions</b>, <b>acids and bases</b>, <b>metal surface catalysis</b>, <b>catalyst zone</b>, the <b>reaction barriers ×</b> slider, event and heat counters.</li>
+  <li><b>Reactions</b>: switches <b>chemical reactions</b>, <b>acids and bases</b>, <b>metal surface catalysis</b>, <b>bonds only along orbitals</b> (turn it off and a bond forms on any approach of the atoms, so reactions run faster), <b>catalyst zone</b>, the <b>reaction barriers ×</b> slider, event and heat counters.</li>
   <li><b>Light (key L)</b>: the wavelength of the flash and the photon energy — see <a href="#light">Light and photons</a>.</li>
   <li><b>Acidity (pH)</b> — a pH scale with H₃O⁺, OH⁻ and water concentrations in mol/L.</li>
   <li><b>Molecule and structure library</b> — 149 structures in four sections. Collapsed, it shows one row per section; <b>full library (149)</b> expands it, <b>collapse</b> folds it back.
@@ -365,6 +370,22 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <div class="note">Experiments: "Acid in water" → watch the pH and the H+ transfer counter on the Chemistry tab. "Platinum catalysis" → erase the platinum with the eraser and the mixture stops reacting. "Chemical equilibrium" → move the piston and watch the Cl / Cl₂ fractions shift (Le Chatelier's principle). "Equilibrium H₂ + I₂ ⇌ 2HI" → select the reaction in the log and watch K<sub>c</sub> settle.</div>
 <div class="note warn">The model is simplified: atoms move classically, there is one bond curve per atom pair, and electron transfer is not modeled explicitly (redox goes through bonds). The simulation covers picoseconds, so reactions that are slow at room temperature run in the scenes at high temperatures, from a spark or from light.</div>
 
+<h2 id="orbitals">Orbitals in molecules</h2>
+<p>The valence electrons of an atom in a molecule occupy "clouds" — hybrid orbitals: one for each bond (σ), each lone pair and an unpaired electron. The clouds spread as far from each other as they can (VSEPR theory): two along a line (sp), three in a triangle (sp²), four as a tetrahedron (sp³). Bonds point at the neighbors, the other clouds into free directions. The directions follow the current positions of the atoms, so the clouds turn together with the molecule.</p>
+<ul>
+  <li><b>The orbitals layer</b> — <kbd>Shift</kbd>+<kbd>O</kbd> or the checkbox in the <b>Display</b> block of the Control tab. Lone pairs are blue lobes with two dots (two electrons), an unpaired electron is an amber lobe with one dot, the π clouds of multiple bonds are green, above and below the bond (a triple bond has two clouds crosswise). In a planar radical (CH₃·) the unpaired electron sits in a p orbital across the plane — two lobes. A lone atom is surrounded by a spherical cloud: amber if it has unpaired electrons (H, O, Cl atoms are radicals), blue if all its electrons are paired (the Cl⁻ ion).</li>
+  <li><b>Orbitals decide whether a bond forms.</b> The partners have to meet along a free orbital, within a ±60° cone around its axis:
+    <ul>
+      <li>a radical takes an atom along the axis of its free orbital — a planar CH₃ along the axis of its p orbital, from above or below;</li>
+      <li>in an atom transfer (Cl + CH₄ → HCl + CH₃) the attacker approaches the transferred atom from behind, along the line of the bond being broken — the Cl···H···C transition state is almost straight;</li>
+      <li>a radical adds to a double bond from the side, through the π cloud, not along the bond axis;</li>
+      <li>a proton lands on a lone pair of the base — in water it points away from the hydrogen atoms.</li>
+    </ul>
+    So only a well-aimed collision reacts — this is the steric factor of reactions. For an atom with one bond and several free clouds (OH·, Cl in Cl₂) the clouds merge into a "cap", and the whole back side of the atom will do; a lone atom accepts a bond from any side.</li>
+  <li>The rule is switched off with the <b>bonds only along orbitals</b> checkbox on the Chemistry tab: then a bond forms on any approach and reactions run faster — you can compare.</li>
+</ul>
+<div class="note">Try this: "Methane combustion" → <kbd>Shift</kbd>+<kbd>O</kbd>. O₂ molecules show π clouds and lone pairs, while the O, H, OH and CH₃ radicals that appear after the spark show the amber clouds of unpaired electrons. The next reactions of the chain run exactly on them.</div>
+
 <h2 id="light">Light and photons</h2>
 <p>The <kbd>L</kbd> key flashes light along the ray under the cursor (as wide as the brush). Light consists of quanta with energy hν = hc/λ; the wavelength λ is set on the Chemistry tab (the <b>Light</b> section, 100 to 1000 nm), next to the photon energy in eV and the name of the band: vacuum UV, UV-C/B/A, the colors of visible light, infrared.</p>
 <ul>
@@ -378,9 +399,10 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <h2 id="atom">Atom structure</h2>
 <p><kbd>F7</kbd> (or the button on the cloud thumbnail in the atom card) opens the <b>Atom structure</b> window. The element is the one of the atom under the cursor; inside the window the ◀ ▶ arrows and <b>element from the table (E)</b> change it.</p>
 <ul>
-  <li><b>atom cloud</b> — all electrons: tens of thousands of random points distributed with the density |ψ|² of every filled subshell. The electron does not fly along an orbit: it is a standing wave, and the cloud shows where it can be found.</li>
-  <li><b>orbital</b> — one orbital n, l, m: its cloud and the angular part |Y|; below — the number of electrons in it (0, 1 or 2 — the Pauli principle).</li>
-  <li><b>s p d f shapes</b> — the angular parts of all orbitals: one s, three p, five d, seven f; the lobe color is the sign of the wave function.</li>
+  <li>The cloud is drawn as a glowing gas: ψ is computed at the nodes of a volume grid, and rays pass through it — each one collects the glow and loses brightness in dense places. The picture is computed by the processor and updated as it turns.</li>
+  <li><b>atom cloud</b> — all electrons; a quarter of the atom is cut away, and the cut shows the layers of the shells (s red, p orange, d blue, f green) and the dark nodes of the wave between them. The brightness is the probability of finding a shell's electron at this distance from the nucleus (r²|ψ|²), as on the radial plot on the right. The electron does not fly along an orbit: it is a standing wave, and the cloud shows where it can be found.</li>
+  <li><b>orbital</b> — one orbital n, l, m: the cloud glows where |ψ|² is large, the color is the sign of ψ (orange plus, blue minus), and a glossy surface encloses the region where the electron is found 85% of the time; the corner shows the angular part |Y|; under the buttons — the number of electrons in the orbital (0, 1 or 2 — the Pauli principle).</li>
+  <li><b>s p d f shapes</b> — the angular parts of all orbitals as smooth glossy figures: one s, three p, five d, seven f; the shade of a lobe is the sign of the wave function.</li>
   <li>On the right — the electron configuration, the subshells with their electron counts, the effective nuclear charge Z_eff (Slater's rules) and the mean radius, and the plot "where the electrons are: probability at distance r".</li>
   <li>The cloud can be rotated with the mouse. The radial functions are hydrogen-like with Z_eff, so sizes are approximate while shapes are exact.</li>
 </ul>
@@ -447,7 +469,7 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <p><kbd>F8</kbd> or the gear in the top bar opens the settings window. Changes apply at once; they are written to <code>atoms.ini</code> next to atoms.exe when the window closes and when the program exits. <b>Defaults</b> restores everything except the language and the window position.</p>
 <div class="tbl"><table>
 <tr><td><b>Interface</b></td><td>language; interface scale (auto — by window size, or 100–300%); interface font (numbers and tables use a monospaced one); button tooltips; the atom card under the cursor; model time and FPS in the top bar; how long notifications stay</td></tr>
-<tr><td><b>Graphics</b></td><td>molecule model — ball-and-stick (balls in element colors and cylinder bonds, multiple bonds as parallel tubes), van der Waals (dense spheres), sticks, or auto (molecules as ball-and-stick, metals and noble gases as dense spheres); vertical sync; scene background (black, graphite, dark gray); depth dimming of far atoms; highlights on atoms; glow of red-hot atoms (dark red from ≈1000 K, white above 5000 K, by Planck's law); box outline; bond thickness</td></tr>
+<tr><td><b>Graphics</b></td><td>molecule model — ball-and-stick (balls in element colors and cylinder bonds, multiple bonds as parallel tubes), van der Waals (dense spheres), sticks, or auto (molecules as ball-and-stick, metals and noble gases as dense spheres); vertical sync; scene background (black, graphite, dark gray); depth dimming of far atoms; highlights on atoms; glow of red-hot atoms (dark red from ≈1000 K, white above 5000 K, by Planck's law); the average shape of molecules (fast bond vibrations do not jitter, see <a href="#physics">Physics</a>); box outline; bond thickness</td></tr>
 <tr><td><b>Camera and mouse</b></td><td>rotation sensitivity; inverted vertical axis; wheel step; camera smoothing (0 — the camera follows the mouse instantly); auto-rotation speed</td></tr>
 <tr><td><b>Simulation</b></td><td>worker threads (all cores or fewer, to keep the computer responsive); undo depth; pause while the window is inactive; what to open on startup — the ideal gas, the last scene, or the previous session (the state at exit is kept in <code>session.atoms</code>)</td></tr>
 <tr><td><b>Files and window</b></td><td>where snapshots, frame recordings and CSV go — next to atoms.exe or in Pictures\Atoms; which frames to record (every one to every 4th); remember the window size and position; start in full screen</td></tr>
@@ -476,6 +498,7 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <tr><td><code>--semi</code></td><td>current–voltage curves of the diode (against the Shockley formula), the MOSFET, the LED and the bipolar transistor</td></tr>
 <tr><td><code>--walltest</code></td><td>Scene tab walls: mirror (energy conservation), thermal, absorbing, a spherical vessel, an axis turned into walls in water</td></tr>
 <tr><td><code>--lighttest</code></td><td>the photodissociation threshold: CH₄ + Cl₂ and H₂ + O₂ under light of different wavelengths</td></tr>
+<tr><td><code>--jitter K</code></td><td>smoothness of the picture of scene K: how far atoms move and "jitter" per frame, for the real and the drawn coordinates; the temperature of each element</td></tr>
 <tr><td><code>--uitest</code></td><td>automatic interface test</td></tr>
 <tr><td><code>--lang ru|en</code></td><td>interface language for this run (also with the window; not saved to atoms.ini)</td></tr>
 </table></div>
@@ -486,11 +509,14 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
   <li><b>Valence counted by electrons</b>: hypervalent molecules, lone pairs in VSEPR, π torsion, up to six bonds; <b>Marcus barriers</b>; proton transfer with water rearrangement; Langmuir–Hinshelwood catalysis — see <a href="#chem">Chemistry</a>. The library has 149 structures.</li>
   <li><b>Light with a wavelength</b> — <a href="#light">Light and photons</a>.</li>
   <li><b>Ball-and-stick molecules</b> in element colors, glow of red-hot atoms, a new font; the molecule model and the font are chosen in the <a href="#settings">settings</a>.</li>
-  <li><b>Atom structure</b> (<kbd>F7</kbd>) — <a href="#atom">electron clouds and orbitals</a>.</li>
+  <li><b>Orbitals in the simulation</b> — a bond forms only along a free orbital; the clouds are visible right in the scene (<kbd>Shift</kbd>+<kbd>O</kbd>) — <a href="#orbitals">Orbitals in molecules</a>.</li>
+  <li><b>Atom structure</b> (<kbd>F7</kbd>) — <a href="#atom">electron clouds and orbitals</a> in 3D: the atom in a cutaway, an orbital with a glossy surface, smooth s, p, d, f shapes.</li>
+  <li><b>Smooth motion</b>: the screen shows the average shape of molecules without the jitter of fast vibrations, molecules start in thermal equilibrium, time runs evenly — see <a href="#physics">Physics</a>.</li>
   <li><b>Worlds of other scales</b>, 19 scenes — <a href="#worlds">nuclei, quarks, semiconductors, quantum waves</a>.</li>
   <li><b>The Scene tab</b> — <a href="#editor">an editor of boundaries, walls and the vessel, grid placement and filling</a>.</li>
   <li><b>The installer</b> <code>AtomsSetup.exe</code> — <a href="#install">Installing and removing</a>.</li>
-  <li><b>Fixes</b>: the stability guard no longer compares a new scene with a snapshot of the previous one (a hot scene after a cold one used to roll back on every step); right after a spark the time step adapts to the red-hot atoms at once — energy drift in combustion scenes is 10–20 times lower; switching from periodic boundaries to walls no longer tears molecules apart at the box edge.</li>
+  <li><b>Energy drift</b>: a reaction event also recomputes the pairs of neighbors whose distance along bonds changes — iron with oxygen drifted by 5–8% in 13 ps, now 0.1%; the first step of a hot scene no longer runs with the base time step; the step grows more carefully, and combustion keeps its energy 3–5 times better.</li>
+  <li><b>Fixes</b>: the stability guard no longer compares a new scene with a snapshot of the previous one (a hot scene after a cold one used to roll back on every step); right after a spark the time step adapts to the red-hot atoms at once; switching from periodic boundaries to walls no longer tears molecules apart at the box edge; a hot salt solution is no longer taken for "crystallization".</li>
 </ul>
 
 <h2>Version 4.1</h2>
