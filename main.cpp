@@ -66,6 +66,7 @@ static void drawChemPanel(float x, float y, float w, float h);   // src/panel_ch
 #include "src/core.inl"
 #include "src/settings.inl"   // atoms.ini
 #include "src/physics.inl"
+#include "src/hybrid.inl"     // гибридные орбитали атомов в молекулах: направления облаков, свободные орбитали для реакций
 #include "src/chemistry.inl"
 #include "src/analysis.inl"
 #include "src/presets.inl"

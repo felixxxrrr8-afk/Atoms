@@ -2,6 +2,8 @@
 static HWND hwnd; static HDC hdc; static HGLRC hglrc;
 static int winW = 1600, winH = 960;
 static GLuint texGlow = 0, texCore = 0, texFont = 0;
+constexpr int AT_CELLS = 5;                     // квадратов в атласе texCore (buildTextures)
+constexpr float AT_W = 1.0f / AT_CELLS;         // ширина одного квадрата в координатах текстуры
 struct RGBA { float r, g, b, a; };
 static constexpr RGBA hexc(unsigned h, float a = 1) { return {((h >> 16) & 255) / 255.0f, ((h >> 8) & 255) / 255.0f, (h & 255) / 255.0f, a}; }
 static constexpr RGBA grayc(float v, float a = 1) { return {v, v, v, a}; }   // оттенок серого: 0 — чёрный, 1 — белый
@@ -205,17 +207,26 @@ static void buildTextures() {
     // мягкое пятно (вспышки реакций): гауссов профиль
     texGlow = makeTex(128, [](double x, double y, unsigned char& l, unsigned char& a) {
         double r2 = x * x + y * y; l = 255; a = (unsigned char)(255 * std::exp(-r2 * 4.5) * (r2 < 1 ? 1 : 0)); });
-    // Атлас шара 384×128, три квадрата, яркость уже умножена на покрытие (смешивание с предумноженной альфой):
+    // Атлас шара 640×128, пять квадратов, яркость уже умножена на покрытие (смешивание с предумноженной альфой):
     //   [0] тело: рассеянный свет (Ламберт) от источника сверху-слева-спереди + немного окружающего, к краю темнеет
     //       почти до чёрного — объём как у отрендеренной модели;
     //   [1] блик Блинна–Фонга (складывается поверх, альфа 0) — белый, даже на красном кислороде;
-    //   [2] ровный диск (маска): туман к цвету фона, заливки.
+    //   [2] ровный диск (маска): туман к цвету фона, заливки;
+    //   [3] доля орбитали: облако-«капля» от ядра (слева) к вершине (справа), плотнее в середине;
+    //   [4] круглое облако: π-облака связей (растянутые вдоль связи) и сферическое облако одиночного атома.
     // Цилиндры связей берут тот же атлас вдоль диаметра, перпендикулярного связи на экране, — освещение
     // шаров и связей согласовано, как на фотографии шаростержневой модели.
     {
-        const int N = 128; std::vector<unsigned char> d((size_t)3 * N * N * 2);
+        const int N = 128, C = AT_CELLS; std::vector<unsigned char> d((size_t)C * N * N * 2);
         const double Lx = -0.42, Ly = -0.58, Lz = 0.70, ll = std::sqrt(Lx * Lx + Ly * Ly + Lz * Lz);
         const double lx = Lx / ll, ly = Ly / ll, lz = Lz / ll, hx0 = lx, hy0 = ly, hz0 = lz + 1, hl = std::sqrt(hx0 * hx0 + hy0 * hy0 + hz0 * hz0);
+        // облако: непрозрачность растёт с толщиной пройденного слоя, середина светится (яркость больше покрытия —
+        // при предумноженной альфе это добавленный свет), по краю — тонкий светлый ободок, как у стекла
+        auto cloud = [](double th, unsigned char* px) {
+            const double a = 0.8 * (1 - std::exp(-2.2 * th)), rim = th > 0 ? std::pow(1 - th, 4) * std::min(1.0, th * 12) : 0;
+            const double l = a * (0.55 + 0.7 * std::pow(th, 0.5)) + 0.35 * rim;
+            px[0] = (unsigned char)(255 * clampv(l, 0.0, 1.0)); px[1] = (unsigned char)(255 * clampv(a + 0.15 * rim, 0.0, 1.0));
+        };
         for (int j = 0; j < N; j++) for (int i = 0; i < N; i++) {
             double x = (i + 0.5) / N * 2 - 1, y = (j + 0.5) / N * 2 - 1, r2 = x * x + y * y, r = std::sqrt(r2);
             double edge = clampv((1.0 - r) / 0.035, 0.0, 1.0), nz = std::sqrt(std::max(0.0, 1 - r2));
@@ -223,15 +234,21 @@ static void buildTextures() {
             double shade = 0.10 + 0.84 * std::pow(diff, 1.15) + 0.10 * nz * nz;
             double spec = std::pow(std::max(0.0, (x * hx0 + y * hy0 + nz * hz0) / hl), 48.0);
             double soft = std::pow(std::max(0.0, (x * hx0 + y * hy0 + nz * hz0) / hl), 6.0);   // широкий мягкий ореол вокруг блика
-            size_t row = (size_t)j * 3 * N, c0 = (row + i) * 2, c1 = (row + N + i) * 2, c2 = (row + 2 * N + i) * 2;
-            d[c0] = (unsigned char)(255 * clampv(shade * edge, 0.0, 1.0)); d[c0 + 1] = (unsigned char)(255 * edge);
-            d[c1] = (unsigned char)(255 * clampv((0.95 * spec + 0.10 * soft) * edge, 0.0, 1.0)); d[c1 + 1] = 0;
-            d[c2] = d[c2 + 1] = (unsigned char)(255 * edge);
+            const size_t row = (size_t)j * C * N; unsigned char* c[AT_CELLS];
+            for (int k = 0; k < C; k++) c[k] = &d[(row + (size_t)k * N + i) * 2];
+            c[0][0] = (unsigned char)(255 * clampv(shade * edge, 0.0, 1.0)); c[0][1] = (unsigned char)(255 * edge);
+            c[1][0] = (unsigned char)(255 * clampv((0.95 * spec + 0.10 * soft) * edge, 0.0, 1.0)); c[1][1] = 0;
+            c[2][0] = c[2][1] = (unsigned char)(255 * edge);
+            {   // капля: радиус сечения ρ(s) ∝ s^0.6·(1 − s)^0.4, s — от ядра к вершине; толщина — как у тела вращения
+                const double s = (x + 1) / 2, rho = s > 0 && s < 1 ? std::pow(s, 0.6) * std::pow(1 - s, 0.4) / 0.5102 : 0;
+                cloud(rho > 1e-6 ? std::sqrt(std::max(0.0, 1 - (y / rho) * (y / rho))) : 0, c[3]);
+            }
+            cloud(nz * std::min(1.0, (1 - r) / 0.02), c[4]);
         }
         glGenTextures(1, &texCore); glBindTexture(GL_TEXTURE_2D, texCore);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, 3 * N, N, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, d.data());
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, C * N, N, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, d.data());
     }
 }
 static inline void col(const RGBA& c) { glColor4f(c.r, c.g, c.b, c.a); }
@@ -631,6 +648,7 @@ static bool foPlacing = false; static double foP0[3] = {0, 0, 0}, foP1[3] = {0, 
 static int cutHoverA = -1, cutHoverB = -1;        // связь под «ножницами»
 // слои отображения
 static bool layerCharges = false, layerVel = false, layerForce = false, layerFO = true, layerGrid = false, layerLegend = true, layerScale = true, layerPins = true;
+static bool layerOrbitals = false;                // облака валентных электронов: неподелённые пары, неспаренные электроны, π-связи
 static double toolPower = 1.0;                    // сила толчка / удара / броска
 static bool throwDrag = false; static float throwX0 = 0, throwY0 = 0;   // «бросок» выделения (Alt+перетаскивание)
 static inline bool isSel(int i) { return i >= 0 && i < (int)selMask.size() && selMask[i]; }
@@ -660,18 +678,30 @@ static inline void quadUV(float x, float y, float R, float r, float g, float b, 
     float d[4][4] = {{x - R, y - R, u0, 0}, {x + R, y - R, u1, 0}, {x + R, y + R, u1, 1}, {x - R, y + R, u0, 1}};
     for (auto& v : d) { vb.push_back(v[0]); vb.push_back(v[1]); vb.push_back(v[2]); vb.push_back(v[3]); vb.push_back(r); vb.push_back(g); vb.push_back(b); vb.push_back(a); }
 }
-// шар атома: тело, блик и ровный диск — трети атласа texCore (яркость предумножена на покрытие).
+// шар атома: тело, блик и ровный диск — квадраты атласа texCore (яркость предумножена на покрытие).
 // Блик и диск с альфой 0 складываются с тем, что под ними, тело — закрывает.
-static inline void quadAtom(float x, float y, float R, float r, float g, float b) { quadUV(x, y, R, r, g, b, 1.0f, 0.0f, 1.0f / 3); }
-static inline void quadSpec(float x, float y, float R, float k) { quadUV(x, y, R, k, k, k, 0.0f, 1.0f / 3, 2.0f / 3); }
-static inline void quadDisc(float x, float y, float R, float r, float g, float b, float a) { quadUV(x, y, R, r, g, b, a, 2.0f / 3, 1.0f); }
+static inline void quadAtom(float x, float y, float R, float r, float g, float b) { quadUV(x, y, R, r, g, b, 1.0f, 0.0f, AT_W); }
+static inline void quadSpec(float x, float y, float R, float k) { quadUV(x, y, R, k, k, k, 0.0f, AT_W, 2 * AT_W); }
+static inline void quadDisc(float x, float y, float R, float r, float g, float b, float a) { quadUV(x, y, R, r, g, b, a, 2 * AT_W, 3 * AT_W); }
+// повёрнутый прямоугольник вдоль отрезка (x0,y0)→(x1,y1) полушириной hw с квадратом cell атласа: текстура идёт
+// слева направо вдоль отрезка; k — непрозрачность, br — яркость цвета (предумноженная альфа: br > k — облако светится)
+static void quadAlong(float x0, float y0, float x1, float y1, float hw, int cell, float r, float g, float b, float k, float br = -1) {
+    monoFix(r, g, b, "quadAlong (цвет вершин)");
+    if (br < 0) br = k;
+    r *= br; g *= br; b *= br;
+    float ax = x1 - x0, ay = y1 - y0; const float l = std::sqrt(ax * ax + ay * ay);
+    if (l < 1e-3f) { ax = 1; ay = 0; } else { ax /= l; ay /= l; }
+    const float nx = -ay * hw, ny = ax * hw, u0 = cell * AT_W, u1 = (cell + 1) * AT_W;
+    const float p[4][4] = {{x0 - nx, y0 - ny, u0, 0}, {x1 - nx, y1 - ny, u1, 0}, {x1 + nx, y1 + ny, u1, 1}, {x0 + nx, y0 + ny, u0, 1}};
+    for (auto& v : p) { vb.push_back(v[0]); vb.push_back(v[1]); vb.push_back(v[2]); vb.push_back(v[3]); vb.push_back(r); vb.push_back(g); vb.push_back(b); vb.push_back(k); }
+}
 // Цилиндр (часть связи) от (x1,y1) до (x2,y2), полутолщина w1 и w2 на концах (перспектива).
 // Поперёк цилиндра текстура идёт по диаметру шара в направлении нормали к связи: нормали боковой поверхности
 // цилиндра те же, что у шара на этом диаметре, поэтому свет и блик ложатся так же, как на шарах.
 static void cylQuad(float x1, float y1, float w1, float x2, float y2, float w2, float r, float g, float b, float spec) {
     float dx = x2 - x1, dy = y2 - y1, l = std::sqrt(dx * dx + dy * dy); if (l < 0.5f) return;
     monoFix(r, g, b, "cylQuad (цвет вершин)");
-    const float nx = -dy / l, ny = dx / l, du = nx * 0.46f / 3, dv = ny * 0.46f, cu = 1.0f / 6, cv = 0.5f;
+    const float nx = -dy / l, ny = dx / l, du = nx * 0.46f * AT_W, dv = ny * 0.46f, cu = 0.5f * AT_W, cv = 0.5f;
     auto put = [](float px, float py, float u, float v, float cr, float cg, float cb, float ca) {
         vb.push_back(px); vb.push_back(py); vb.push_back(u); vb.push_back(v); vb.push_back(cr); vb.push_back(cg); vb.push_back(cb); vb.push_back(ca);
     };
@@ -680,7 +710,7 @@ static void cylQuad(float x1, float y1, float w1, float x2, float y2, float w2, 
         put(x2 - nx * w2, y2 - ny * w2, u0 - du, cv - dv, cr, cg, cb, ca); put(x1 - nx * w1, y1 - ny * w1, u0 - du, cv - dv, cr, cg, cb, ca);
     };
     quad(cu, r, g, b, 1.0f);
-    if (spec > 0) quad(cu + 1.0f / 3, spec, spec, spec, 0.0f);
+    if (spec > 0) quad(cu + AT_W, spec, spec, spec, 0.0f);
 }
 static void flushQuads(GLuint tex) {
     if (vb.empty()) return;
@@ -1138,11 +1168,92 @@ static void drawScene() {
     for (int i = 0; i < n; i++) if (pvis[i]) items.push_back({pdep[i], i, -1});
     if (bondsOn && style != MS_VDW)
         for (int i = 0; i < n; i++) if (pvis[i]) for (int k = 0; k < S.nbc[i]; k++) { int j = S.nb[i][k]; if (pvis[j]) items.push_back({pdep[i] + 1e-3f, i, j}); }
+    // облака валентных электронов (слой «орбитали»): доли неподелённых пар (голубые, две точки — два электрона),
+    // неспаренного электрона (янтарные, одна точка), π-облака кратных связей (зелёные, над и под связью) и сферическое
+    // облако одиночного атома. Каждая доля — отдельный элемент в порядке художника: доля, смотрящая от нас, уходит за шар
+    struct OrbSprite { float x0, y0, x1, y1, hw, r, g, b, k; int cell; };   // k — непрозрачность (яркость — вдвое больше: облако светится)
+    std::vector<OrbSprite> orbS;
+    if (layerOrbitals) {
+        orbVec = dvecG;   // направления облаков — по рисуемым координатам, как и сами атомы
+        auto sprite = [&](float depth, const OrbSprite& s) { items.push_back({depth, (int)orbS.size(), -2}); orbS.push_back(s); };
+        auto round = [&](double x, double y, double z, double R, float r, float g, float b, float k) {
+            float sx, sy, dd, sc; if (!project(x, y, z, sx, sy, dd, sc)) return;
+            const float hw = (float)R * sc; if (hw < 1) return;
+            sprite(dd, {sx - hw, sy, sx + hw, sy, hw, r, g, b, k, 4});
+        };
+        // доля от центра атома i по направлению d длиной L и наибольшей шириной W (σ); dots — электроны на ней
+        auto lobe = [&](int i, const double* d, double L, double W, float r, float g, float b, float k, int dots) {
+            float x0, y0, x1, y1, xc, yc, dd, s0, s1, sc;
+            if (!project(gX[i] + d[0] * 0.08 * L, gY[i] + d[1] * 0.08 * L, gZ[i] + d[2] * 0.08 * L, x0, y0, dd, s0)) return;
+            if (!project(gX[i] + d[0] * L, gY[i] + d[1] * L, gZ[i] + d[2] * L, x1, y1, dd, s1)) return;
+            if (!project(gX[i] + d[0] * 0.56 * L, gY[i] + d[1] * 0.56 * L, gZ[i] + d[2] * 0.56 * L, xc, yc, dd, sc)) return;
+            const float hw = 0.5f * (float)W * sc, lp = std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)); if (hw < 1) return;
+            // доля, повёрнутая к нам, видна «с торца» — круглым облаком; сбоку — каплей; между ними — плавно
+            const float t = clampv((lp / (2 * hw) - 0.35f) / 0.6f, 0.0f, 1.0f);
+            if (t > 0) sprite(dd, {x0, y0, x1, y1, hw, r, g, b, k * t, 3});
+            if (t < 1) sprite(dd, {xc - hw, yc, xc + hw, yc, hw, r, g, b, k * (1 - t), 4});
+            if (dots <= 0 || hw < uiPx(4)) return;
+            float ax = x1 - x0, ay = y1 - y0; const float al = std::sqrt(ax * ax + ay * ay); if (al > 1e-3f) { ax /= al; ay /= al; } else { ax = 1; ay = 0; }
+            const float dr = std::max(1.3f, 0.085f * hw), sep = dots == 2 ? 0.26f * hw : 0;
+            for (int q = 0; q < dots; q++) {
+                const float o = (q - 0.5f * (dots - 1)) * 2 * sep;
+                sprite(dd - 1e-4f, {xc - ay * o - dr, yc + ax * o, xc - ay * o + dr, yc + ax * o, dr, 1.0f, 0.97f, 0.9f, 0.9f, 2});
+            }
+        };
+        const float kPair = 0.55f, kOne = 0.72f, kPi = 0.42f;
+        for (int i = 0; i < n; i++) {
+            if (!pvis[i]) continue;
+            AtomOrbs o; if (!atomOrbitals(i, o)) continue;
+            const float f = fog(pdep[i]);
+            const double rc = EL[S.ty[i]].rcov, Ra = atomDrawR(i, style) * coreK;
+            const double L = std::max((0.6 + 1.1 * rc) / 3.405, 1.7 * Ra), W = 0.62 * L;
+            if (o.nb == 0) {   // одиночный атом: облако сферическое; с неспаренными электронами — янтарное
+                if (o.single) round(gX[i], gY[i], gZ[i], 0.62 * L, 1.0f, 0.62f, 0.15f, 0.45f * f);
+                else if (o.pairs) round(gX[i], gY[i], gZ[i], 0.62 * L, 0.45f, 0.75f, 1.0f, 0.32f * f);
+                continue;
+            }
+            for (int m = 0; m < o.n; m++) {
+                const bool one = o.kind[m] == ORB_ONE || (o.kind[m] == ORB_P && o.single);
+                const float r = one ? 1.0f : 0.45f, g = one ? 0.62f : 0.75f, b = one ? 0.15f : 1.0f, k = (one ? kOne : kPair) * f;
+                lobe(i, o.d[m], L, W, r, g, b, k, one ? 1 : 2);
+                if (o.kind[m] == ORB_P) { const double back[3] = {-o.d[m][0], -o.d[m][1], -o.d[m][2]}; lobe(i, back, 0.85 * L, 0.85 * W, r, g, b, k, 0); }
+            }
+        }
+        for (int i = 0; i < n; i++) if (pvis[i]) for (int kb = 0; kb < S.nbc[i]; kb++) {
+            const int j = S.nb[i][kb], bo2 = S.bo[i][kb]; if (j < i || !pvis[j] || bo2 < 2) continue;
+            double a[3]; dvecG(i, j, a[0], a[1], a[2]); const double d = std::sqrt(vDot(a, a)); if (d < 1e-6) continue;
+            float xj, yj, dj, sj; if (!project(gX[i] + a[0], gY[i] + a[1], gZ[i] + a[2], xj, yj, dj, sj) || std::fabs(xj - psx[j]) > 2 || std::fabs(yj - psy[j]) > 2) continue;
+            a[0] /= d; a[1] /= d; a[2] /= d;
+            double n1[3]; if (!sp2Normal(i, n1) && !sp2Normal(j, n1)) perpRef(i, j, a, n1);
+            double n2[3]; vCross(a, n1, n2);
+            const double h = 0.34 / 3.405, hwp = 0.30 / 3.405, f = fog(0.5f * (pdep[i] + pdep[j]));
+            for (int p = 0; p < bo2 - 1 && p < 2; p++) {   // двойная связь — одно π-облако (две доли), тройная — два, крест-накрест
+                const double* nn = p == 0 ? n1 : n2;
+                for (int sg = -1; sg <= 1; sg += 2) {
+                    const double cx = gX[i] + a[0] * 0.5 * d + sg * nn[0] * h, cy = gY[i] + a[1] * 0.5 * d + sg * nn[1] * h, cz = gZ[i] + a[2] * 0.5 * d + sg * nn[2] * h;
+                    float xa, ya, xb, yb, xc, yc, dd, s0, sc;
+                    if (!project(cx - a[0] * 0.5 * d, cy - a[1] * 0.5 * d, cz - a[2] * 0.5 * d, xa, ya, dd, s0) || !project(cx + a[0] * 0.5 * d, cy + a[1] * 0.5 * d, cz + a[2] * 0.5 * d, xb, yb, dd, s0)
+                        || !project(cx, cy, cz, xc, yc, dd, sc)) continue;
+                    const float hw = (float)hwp * sc; if (hw < 1) continue;
+                    // вдоль связи облако не короче своей толщины (связь смотрит на нас — круглое пятно)
+                    float ex = xb - xa, ey = yb - ya; const float el = std::sqrt(ex * ex + ey * ey);
+                    if (el < 2 * hw) { if (el > 1e-3f) { ex *= 2 * hw / el; ey *= 2 * hw / el; } else { ex = 2 * hw; ey = 0; } }
+                    sprite(dd, {xc - 0.5f * ex, yc - 0.5f * ey, xc + 0.5f * ex, yc + 0.5f * ey, hw, 0.35f, 1.0f, 0.6f, kPi * (float)f, 4});
+                }
+            }
+        }
+        orbVec = dvec;
+    }
     std::sort(items.begin(), items.end(), [](const DrawItem& a, const DrawItem& b) { return a.depth > b.depth; });
     vb.reserve((size_t)items.size() * 72);
     const float rb0 = (float)(bondRadius(style) * opt.bondW);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);   // предумноженная альфа: тела, блики и связи — одним пакетом
     for (auto& it : items) {
+        if (it.b == -2) {   // облако-орбиталь
+            const OrbSprite& s = orbS[it.a]; MonoAtoms atomsColored;
+            quadAlong(s.x0, s.y0, s.x1, s.y1, s.hw, s.cell, s.r, s.g, s.b, s.k, std::min(1.0f, (s.cell == 2 ? 1.0f : 1.9f) * s.k));
+            continue;
+        }
         const int i = it.a; const Element& e = EL[S.ty[i]];
         float f = fog(pdep[i]); if (e.fixed) f *= 0.8f;
         if (it.b < 0) {
@@ -1374,6 +1485,10 @@ static void drawLegendAndScale(double emin, double emax) {
     else {   // по элементам — только присутствующие
         std::vector<std::pair<std::string, RGBA>> it;
         for (int t = 0; t < NEL; t++) if (present[t] && !EL[t].fixed) it.push_back({EL[t].sym, {EL[t].r, EL[t].g, EL[t].b, 1}});
-        if (!it.empty() && it.size() <= 8) swatches("цвет — элемент", it);
+        if (!it.empty() && it.size() <= 8) swatches("цвет — элемент", it); else ly += uiPx(52);
+    }
+    if (layerOrbitals) {   // слой «орбитали» — над легендой цвета
+        ly -= uiPx(52);
+        swatches("облака электронов", {{"пара ↑↓", {0.45f, 0.75f, 1.0f, 1}}, {"неспаренный ↑", {1.0f, 0.62f, 0.15f, 1}}, {"π-связь", {0.35f, 1.0f, 0.6f, 1}}});
     }
 }

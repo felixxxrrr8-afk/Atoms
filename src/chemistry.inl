@@ -733,6 +733,10 @@ static bool tryProton(int D, int h, int A) {
         double ux, uy, uz; dvec(h, D, ux, uy, uz); double lu = std::sqrt(ux * ux + uy * uy + uz * uz);
         if (lu < 1e-9 || (ux * dx + uy * dy + uz * dz) / (lu * r) > -0.7) return false;
     }
+    if (P.orbRule) {   // протон садится на неподелённую пару основания: она должна смотреть на него
+        const double ua[3] = {-dx / r, -dy / r, -dz / r};
+        if (!orbitalOpen(A, ua)) return false;
+    }
     const double vn = -((S.vx[A] - S.vx[h]) * dx + (S.vy[A] - S.vy[h]) * dy + (S.vz[A] - S.vz[h]) * dz) / r;
     ptGate[2]++;
     if (vn <= 0) return false;
@@ -994,10 +998,14 @@ static bool chemistryStep() {
                 return catMetal && Eapp >= barrier(E0, dH, cat * chem::CAT_SURF) && (onCatSurface(i) || onCatSurface(j));
             };
             bool done = false;
+            // направление будущей связи: от i к j и обратно (для проверки орбиталей)
+            const double u[3] = {dx / r, dy / r, dz / r}, ub[3] = {-u[0], -u[1], -u[2]};
+            if (P.orbRule && o == 0 && !orbitalOpen(i, u)) continue;   // свободная орбиталь радикала смотрит не туда (π-связь между соседями — не проверяется)
             if (freeVal(j) > 0 || (o == 0 && canExpand(j, i))) {
                 // ΔH по энергиям связей + промотирование электронов, если атом уходит за обычную валентность
                 double dH = -(bt.D[o + 1] - bt.D[o]) + promDelta(i, +1) + promDelta(j, +1);
                 if (!passes(cfg::EA_ASSOC, dH)) continue;
+                if (P.orbRule && o == 0 && !orbitalOpen(j, ub)) continue;   // свободные орбитали обоих должны смотреть друг на друга
                 if (!plainMol(i) || !plainMol(j)) continue;   // заряженные частицы реагируют переносом протона
                 int Sa[2] = {i, j}; double dE;
                 bool one = o > 0 || sameMolecule(i, j);
@@ -1012,6 +1020,8 @@ static bool chemistryStep() {
                 for (int q = 0; q < S.nbc[j]; q++) {
                     int B = S.nb[j][q]; if (B == i || usedFlag[B]) continue;
                     int oB = S.bo[j][q]; const BondT& b2 = BT[tj][S.ty[B]];
+                    // перенос атома — с тыла, по линии связи j–B; присоединение к кратной связи — сбоку, по π-облаку
+                    if (P.orbRule && o == 0 && !(oB >= 2 ? orbitalPiSide(j, B, ub) : orbitalBackside(j, B, ub))) continue;
                     double dH = (b2.D[oB] - b2.D[oB - 1]) - (bt.D[o + 1] - bt.D[o]) + promDelta(i, +1) + promDelta(B, -1);
                     const double E0 = oB >= 2 ? cfg::EA_ADD : rxIntrinsic(i, B), ea = barrier(E0, dH, cat);
                     if (ea < bestEa) { bestEa = ea; bestH = dH; bestE0 = E0; best = B; }

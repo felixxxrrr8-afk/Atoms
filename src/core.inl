@@ -489,6 +489,7 @@ struct Params {
     int wallType[6] = {0, 0, 0, 0, 0, 0};
     double wallTK[6] = {2.146, 2.146, 2.146, 2.146, 2.146, 2.146};
     int container = 0;            // 0 ящик, 1 шар, 2 цилиндр вдоль y
+    bool orbRule = true;          // связь возникает, только если атомы сходятся вдоль свободной орбитали (hybrid.inl)
 } P;
 enum { WT_SOFT, WT_STICKY, WT_THERMAL, WT_ABSORB, WT_MIRROR, WT_N };   // виды граней
 enum { CT_BOX, CT_SPHERE, CT_CYL, CT_N };                                 // формы сосуда

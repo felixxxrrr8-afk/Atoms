@@ -84,7 +84,7 @@ static bool saveState(const std::wstring& path, bool quiet) {
       chunk("PIN_", (uint32_t)pn.size()); wv(pn); }
     { uint32_t szF = sizeof(FieldObj), cnt = (uint32_t)fieldObjs.size(); chunk("FOBJ", 8 + szF * cnt); w(&szF, 4); w(&cnt, 4); wv(fieldObjs); }
     { int32_t v[16] = {layerCharges, layerVel, layerForce, layerFO, layerGrid, layerLegend, layerScale, layerPins, foKind, sideTab, graphsOn,
-                       (int32_t)std::lround(toolPower * 1000), selPal, 0, 0, 0};
+                       (int32_t)std::lround(toolPower * 1000), selPal, layerOrbitals, 0, 0};
       chunk("VIEW", sizeof(v)); w(v, sizeof(v)); }
     bool ok = ferror(f) == 0; fclose(f);
     if (toastsOff) return ok;
@@ -105,10 +105,11 @@ static bool loadState(const std::wstring& path) {
     if (maxb < 1 || maxb > 16) { fclose(f); showToast("Файл повреждён"); return false; }
     Params np = P;   // поля, которых нет в файле (более старая версия), остаются текущими
     { size_t m = std::min<size_t>(szP, sizeof(Params)); r(&np, m); skip((long)szP - (long)m); }
-    if (szP < sizeof(Params)) {   // файл до редактора граней: границы — по общему режиму, грани обычные
+    if (szP < offsetof(Params, container) + sizeof(P.container)) {   // файл до редактора граней: границы — по общему режиму, грани обычные
         np.perMask = np.boundary == B_PERIODIC ? 7 : 0; np.container = CT_BOX;
         for (int k = 0; k < 6; k++) { np.wallType[k] = WT_SOFT; np.wallTK[k] = 300 / cfg::U_T_K; }
     }
+    if (szP < offsetof(Params, orbRule) + sizeof(P.orbRule)) np.orbRule = true;
     int32_t n = 0; r(&n, 4);
     if (!ok || n < 0 || n > 2000000 || (hdr[0] != 2 && hdr[0] != 3)) { fclose(f); showToast("Файл повреждён"); return false; }
     if (hdr[0] == 2) { fclose(f); showToast("Файл сохранён в плоском режиме старой версии — сейчас модель только объёмная"); return false; }
@@ -179,6 +180,7 @@ static bool loadState(const std::wstring& path) {
         layerCharges = view[0] != 0; layerVel = view[1] != 0; layerForce = view[2] != 0; layerFO = view[3] != 0; layerGrid = view[4] != 0; layerLegend = view[5] != 0;
         layerScale = view[6] != 0; layerPins = view[7] != 0; foKind = clampv((int)view[8], 0, FO_N - 1); sideTab = clampv((int)view[9], 0, TAB_N - 1); graphsOn = view[10] != 0;
         toolPower = clampv(view[11] / 1000.0, 0.1, 10.0); selPal = clampv((int)view[12], 0, (int)palette.size() - 1);
+        layerOrbitals = view[13] != 0;
     }
     if (ver < 4) rechargeAll(0.8);   // файл до перехода на реальную шкалу: однозарядные ионы несли ±0.8
     buildPairTables(); updatePresence(); computeForces(); dtFromState(); resetEnergyRef(); resetAnalysis(); resetMSD();
@@ -421,7 +423,10 @@ static void handleKeys() {
         case VK_SPACE: P.paused = !P.paused; break;
         case 'S': P.paused = true; if (world != W_MD) worldStep(1.0 / 30); else { mdStep(); analysisTick(); } break;
         case 'R': cmdReset(); break;
-        case 'O': cam3.autoRot = !cam3.autoRot; break;
+        case 'O':
+            if (shift) { layerOrbitals = !layerOrbitals; showToast(layerOrbitals ? "Орбитали: пары — голубые, неспаренный электрон — янтарный, π-облака — зелёные" : "Орбитали скрыты"); }
+            else cam3.autoRot = !cam3.autoRot;
+            break;
         case 'H': helpOn = !helpOn; break;
         case 'G': graphsOn = !graphsOn; viewFitPending = true; break;
         case 'T': trailsOn = !trailsOn; break;
@@ -1610,13 +1615,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         for (int k = 20; k < 80; k += 2) { const double r1 = k * 0.1, r2 = (k + 2) * 0.1, shell = 4.0 / 3 * PI * (r2 * r2 * r2 - r1 * r1 * r1); fprintf(f, " %.1f:%.2f", r1, (g[k] + g[k + 1]) / (no * rhoO * shell)); }
         fprintf(f, "\n"); fclose(f); return 0;
     }
-    // --kin K шагов T вариант: длинный прогон одного пресета без окна (T ≤ 0 — как в пресете), отчёт в kin_*.log
+    // --kin K шагов T вариант: длинный прогон одного пресета без окна (T ≤ 0 — как в пресете), отчёт в kin_*.log.
+    // Проверочные ключи: ea= sr= st= (барьеры, искра), orb=0 (связи без проверки орбиталей), chem=0, nve=1, respa=0,
+    // dt= (базовый шаг), al= dv= (пределы внешнего шага RESPA), tag= (к имени отчёта)
     if (cmd && wcsstr(cmd, L"--kin")) {
         wchar_t* p = wcsstr(cmd, L"--kin") + 5;
         int K = (int)wcstol(p, &p, 10), steps = (int)wcstol(p, &p, 10); double T = wcstod(p, &p); int var = (int)wcstol(p, &p, 10);
         initBondTable(); initKlm(); rebuildTables(); loadPreset(K, var);
         if (T > 0) { P.Tset = T; measure(); if (EN.T > 1e-9) scaleVel(std::sqrt(T / EN.T)); resetEnergyRef(); }   // и начальные скорости — под эту T
         P.eaScale = argDbl(cmd, L"ea=", P.eaScale); sparkR = argDbl(cmd, L"sr=", sparkR); sparkTK = argDbl(cmd, L"st=", sparkTK);
+        P.orbRule = argInt(cmd, L"orb=", 1) != 0; slowStepA = argDbl(cmd, L"al=", slowStepA); slowStepV = argDbl(cmd, L"dv=", slowStepV);
+        if (const double dt = argDbl(cmd, L"dt=", 0); dt > 0) P.dtBase = P.dt = dt;
+        if (argInt(cmd, L"chem=", 1) == 0) P.chemistry = false;
+        if (argInt(cmd, L"nve=", 0)) { P.thermostat = TH_NVE; script.clear(); }
+        respaOn = argInt(cmd, L"respa=", 1) != 0;
+        if (wcsstr(cmd, L"nve=") || wcsstr(cmd, L"chem=") || wcsstr(cmd, L"respa=") || wcsstr(cmd, L"dt=")) { dtFromState(); resetEnergyRef(); }
         std::string tag; if (const wchar_t* tp = wcsstr(cmd, L"tag=")) for (tp += 4; *tp && *tp != L' '; tp++) tag += (char)*tp;
         FILE* f = fopen(fmt("kin_%d_%.2f_v%d%s.log", K, T, var, tag.c_str()).c_str(), "w"); if (!f) return 1;
         fprintf(f, "%s  N=%d\n", presetTitle.c_str(), S.n);
@@ -1696,10 +1709,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     buildFonts(); buildTextures();
     layout(); sceneAspect = clampv(sceneH / sceneW, 0.4f, 1.2f);
     // --shot K N [vV] [rot] [help] [table] [menu] [settings] [hoverZ] [tab=T] [tool=T] [fo=K] [demo] [layers] [nopanel] [liball] [cut]
-    //        [color=C] [zoom=K] [scrollto=ID] [lib=K1,K2…] [rec=ПАПКА every=K from=F] [png] [out=имя] [size=WxH] [scale=S]
-    //        [faces=ABCDEF] [cont=C] [per=M]:
+    //        [color=C] [zoom=K] [scrollto=ID] [lib=K1,K2… cell=S cols=C] [rec=ПАПКА every=K from=F] [png] [out=имя] [size=WxH] [scale=S]
+    //        [faces=ABCDEF] [cont=C] [per=M] [orbitals] [atomview avz=Z avmode=M avn= avl= avm=]:
     //   пресет K, N кадров, сохранить снимок окна и выйти (проверка графики и раскладки, картинки для README);
-    //   faces — вид каждой грани цифрой (−x +x −y +y −z +z), cont — сосуд, per — маска периодичных осей
+    //   faces — вид каждой грани цифрой (−x +x −y +y −z +z), cont — сосуд, per — маска периодичных осей;
+    //   orbitals — слой облаков электронов, atomview — окно «Строение атома»
     int shotPreset = -1, shotFrames = 400, shotVar = 0; bool shotPng = false, shotDemo = false; std::wstring shotOut;
     if (cmd && wcsstr(cmd, L"--shot")) {
         const wchar_t* p = wcsstr(cmd, L"--shot") + 6; shotPreset = (int)wcstol(p, (wchar_t**)&p, 10); int fr = (int)wcstol(p, nullptr, 10); if (fr > 0) shotFrames = fr;
@@ -1714,6 +1728,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         sideTab = clampv(argInt(cmd, L"tab=", 0), 0, TAB_N - 1); lmbTool = clampv(argInt(cmd, L"tool=", TOOL_ADD), 0, TOOL_N - 1); foKind = clampv(argInt(cmd, L"fo=", 0), 0, FO_N - 1);
         shotPng = wcsstr(cmd, L" png") != nullptr; shotDemo = wcsstr(cmd, L" demo") != nullptr;
         if (wcsstr(cmd, L" layers")) { layerVel = true; layerGrid = true; layerCharges = true; }
+        if (wcsstr(cmd, L" orbitals")) layerOrbitals = true;
         if (wcsstr(cmd, L" nopanel")) graphsOn = false;
         if (wcsstr(cmd, L" liball")) chemLibAll = true;   // вся библиотека во вкладке «Химия»
         if (wcsstr(cmd, L" cut")) sliceOn = true;
@@ -1733,12 +1748,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     if (const wchar_t* lp = cmd ? wcsstr(cmd, L"lib=") : nullptr) {   // галерея структур библиотеки: lib=K1,K2,…
         std::vector<int> ks;
         for (const wchar_t* q = lp + 4; *q >= L'0' && *q <= L'9';) { ks.push_back((int)wcstol(q, (wchar_t**)&q, 10)); if (*q == L',') q++; }
-        const int n = (int)ks.size(), cols = n == 1 ? 1 : std::max(1, (int)std::ceil(std::sqrt(n * 1.7))), rows = (n + cols - 1) / std::max(1, cols);
+        const int n = (int)ks.size(), cols = argInt(cmd, L"cols=", 0) > 0 ? argInt(cmd, L"cols=", 0) : (n == 1 ? 1 : std::max(1, (int)std::ceil(std::sqrt(n * 1.7)))), rows = (n + cols - 1) / std::max(1, cols);
         const double cell = clampv(argDbl(cmd, L"cell=", 8.0), 3.0, 20.0);   // шаг сетки: кристаллам нужно 8σ, молекулам хватит 4–5σ
         worldReset(cols * cell, rows * cell, cell, B_PERIODIC);
         P.thermostat = TH_BERENDSEN; P.Tset = 0.02; P.chemistry = false; opt.box = false; colorMode = 0;
         for (int q = 0; q < n; q++) if (ks[q] >= 0 && ks[q] < ML_N) insertMolecule(ks[q], (q % cols + 0.5) * cell, (rows - 1 - q / cols + 0.5) * cell, cell / 2);
-        presetTitle = "Библиотека молекул и структур"; presetLoaded = false;
+        presetTitle = "Библиотека молекул и структур"; presetLoaded = false; toastTime = 0;   // без уведомления о первой сцене
         cam3.yaw = camGoal.yaw = 0.18; cam3.pitch = camGoal.pitch = 0.16;
         fitView(true); cam3.dist *= 0.62; camGoal = cam3; viewFitPending = false;   // сетка структур занимает не весь шар обзора
     }

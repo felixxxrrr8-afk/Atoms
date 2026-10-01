@@ -49,7 +49,7 @@ static void worldReset(double Lx, double Ly, double Lz, int boundary) {
     for (int f = 0; f < 6; f++) { P.wallType[f] = WT_SOFT; P.wallTK[f] = kelvin(300); }
     P.npt = false; P.heatWalls = 0; P.gravity = 0; P.catalyst = false; P.chemistry = true;
     P.thermostat = TH_BUSSI; P.tauT = 0.5; P.epsScale = 1.0; P.wallAttr = 0.6; P.heatPower = 0.03; P.efield = 0; P.eaScale = 1.0;
-    P.acidBase = true; P.surfCat = true; rxT0 = 0; chemPT = 0;
+    P.acidBase = true; P.surfCat = true; P.orbRule = true; rxT0 = 0; chemPT = 0;
     grabbed = -1; followAtom = -1; flashes.clear(); CH = ChemStats(); script.clear(); trailsOn = false; P.substeps = 8;
     pistonGrab = false; nlValid = false; fieldObjs.clear(); selFieldObj = -1; heatWallQ[0] = heatWallQ[1] = 0;
     sparkR = 5.0; sparkTK = 3000;
