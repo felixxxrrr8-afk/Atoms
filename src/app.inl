@@ -408,7 +408,14 @@ static void handleKeys() {
         if (k == VK_F8) { settingsOn = !settingsOn; ptOn = menuOn = helpOn = atomViewOn = false; continue; }
         if (settingsOn) { if (k == VK_ESCAPE) settingsOn = false; continue; }   // пока открыты настройки, клавиши сцены не работают
         if (k == VK_F7) { if (!atomViewOn && hoverAtom() >= 0) avZ = EL[S.ty[hoverAtom()]].Z; atomViewOn = !atomViewOn; ptOn = menuOn = helpOn = false; continue; }
-        if (atomViewOn) { if (k == VK_ESCAPE) atomViewOn = false; if (k == 'E') { atomViewOn = false; ptOn = true; } continue; }
+        if (atomViewOn) {
+            if (k == VK_ESCAPE) atomViewOn = false;
+            if (k == 'E') { atomViewOn = false; ptOn = true; }
+            if (k == VK_ADD || k == VK_OEM_PLUS) avZoomGoal *= 2;                                    // ближе к ядру
+            if (k == VK_SUBTRACT || k == VK_OEM_MINUS) avZoomGoal = std::max(1.0, avZoomGoal / 2);   // дальше
+            if (k == VK_HOME) avZoomGoal = 1;                                                        // весь атом
+            continue;
+        }
         if (k >= '0' && k <= '9') {
             int p = k - '0';
             if (shift) { if (p >= 1 && p <= 5) { ptOn = menuOn = false; openScene(10 + p); } continue; }   // Shift+1…5 — новые сцены
@@ -1068,6 +1075,25 @@ static void buildUiTest() {
     // таблица Менделеева: выбрать разные элементы и добавить их в сцену
     for (int z : {1, 9, 26, 79, 118, 6}) { key('E', 3); click(400 + z); gesture("атомы элемента", 0, 0, 0, 0.35f, 0.45f, 0.5f, 0.5f, 6); }
     key('E', 3); gesture("щелчок мимо таблицы", 0, 0, 0, 0.01f, 0.99f, 0.01f, 0.99f, 2); key(VK_ESCAPE);
+    // окно «Строение атома» (F7): режимы, подоболочка, приближение колесом и кнопками до кварков, другой элемент на глубине,
+    // клавиши − + Home, поворот мышью, закрытие
+    auto inAtomView = [] { tMouse(avRect.x + avRect.w * 0.3f, avRect.y + avRect.h * 0.5f); };
+    key(VK_F7, 6);
+    for (int id : {1704, 1705, 1703}) { click(id); run(4); }
+    click(1710 + 2 * 4 + 1); run(4);   // 2p — режим «орбиталь»
+    auto expectZoom = [&](const char* what, double lo, double hi) { add(fmt("F7: проверка — %s", what), 1, [what, lo, hi](int) {
+        if (avZoomGoal < lo || avZoomGoal > hi) { uiProblems++; fprintf(uiLog, "     ОШИБКА: увеличение ×%.3g вне [%.3g, %.3g]\n", avZoomGoal, lo, hi); } }); };
+    for (int k = 0; k < 6; k++) wheelAt("F7: колесо — ближе к ядру", 0, 240, inAtomView);
+    run(30); expectZoom("колесо приблизило", 2, 1e9);
+    for (int id : {1761, 1762, 1763}) { click(id); run(40); }
+    expectZoom("кварки", 1e4, 1e9);
+    click(1701); run(10); click(1700); run(10);
+    click(1703); run(10);
+    key(VK_OEM_MINUS, 10); key(VK_OEM_PLUS, 10); key(VK_HOME, 30); expectZoom("весь атом", 1, 1.001);
+    add("F7: поворот мышью", 12, [inAtomView](int fr) {
+        if (fr == 0) inAtomView(); if (fr == 1) tLDown(); if (fr > 1 && fr < 10) tMouse((float)mouseX + 6, (float)mouseY + 2); if (fr == 10) tLUp(); });
+    click(1762); run(30); click(1760); run(20);
+    key(VK_F7, 4);
     click(301);   // Ar
     // все инструменты: кнопкой и жестом в сцене
     for (int t : TOOL_ORDER) { if (t < 0) continue; click(230 + t); gesture("инструмент", 0, 0, t == TOOL_CAMERA ? VK_SHIFT : 0, 0.45f, 0.5f, 0.6f, 0.55f, 8); }
@@ -1510,6 +1536,23 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
                 comV() * cfg::U_L_NM * 1000 / cfg::U_T_PS, toKelvin(EN.T), EN.total() - Wext - Eref, (EN.total() - Wext - Eref) / std::max(1, n) / std::max(1e-9, P.Tset));
         fclose(f); return 0;
     }
+    // --f7bench: скорость рисунков окна «Строение атома» (F7) — модель оболочек, сетка, объёмное облако, разрез → f7bench.log
+    if (cmd && wcsstr(cmd, L"--f7bench")) {
+        FILE* f = fopen("f7bench.log", "w"); if (!f) return 1;
+        auto ms = [](const std::function<void()>& fn, int reps) {
+            const auto t0 = std::chrono::high_resolution_clock::now(); for (int r = 0; r < reps; r++) fn();
+            return std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - t0).count() / reps; };
+        std::vector<unsigned char> img;
+        for (int Z : {1, 6, 26, 54, 92}) {
+            const double tArt = ms([&] { atomArt(Z); }, 1), tGrid = ms([&] { VolGrid G; buildAtomGrid(G, Z, 64); }, 1);
+            const VolGrid& G = atomGrid(Z, 64);
+            const double tVol = ms([&] { volRender(G, 340, 0.6f, 0.38f, img, true); }, 5);
+            const double tHi = ms([&] { sliceRender(Z, 0, 1, 0, 0, G.half / 6, 0, 0.6f, 0.38f, 680, img); }, 5);
+            const double tLo = ms([&] { sliceRender(Z, 0, 1, 0, 0, G.half / 6, 0, 0.6f, 0.38f, 340, img); }, 5);
+            fprintf(f, "Z=%3d  оболочки %.1f мс · сетка 64³ %.1f мс · облако 340² %.1f мс · разрез 680² %.1f мс, 340² %.1f мс\n", Z, tArt, tGrid, tVol, tHi, tLo);
+        }
+        fclose(f); return 0;
+    }
     // --lighttest: порог фотодиссоциации — смеси CH4 + Cl2 и H2 + O2 под вспышками разной длины волны → lighttest.log
     if (cmd && wcsstr(cmd, L"--lighttest")) {
         initBondTable(); initKlm(); initPalette(); rebuildTables();
@@ -1712,7 +1755,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
     layout(); sceneAspect = clampv(sceneH / sceneW, 0.4f, 1.2f);
     // --shot K N [vV] [rot] [help] [table] [menu] [settings] [hoverZ] [tab=T] [tool=T] [fo=K] [demo] [layers] [nopanel] [liball] [cut]
     //        [color=C] [zoom=K] [scrollto=ID] [lib=K1,K2… cell=S cols=C] [rec=ПАПКА every=K from=F] [png] [out=имя] [size=WxH] [scale=S]
-    //        [faces=ABCDEF] [cont=C] [per=M] [orbitals] [atomview avz=Z avmode=M avn= avl= avm=] [notoast]:
+    //        [faces=ABCDEF] [cont=C] [per=M] [orbitals] [atomview avz=Z avmode=M avn= avl= avm= avzoom=K] [notoast]:
     //   пресет K, N кадров, сохранить снимок окна и выйти (проверка графики и раскладки, картинки для README);
     //   faces — вид каждой грани цифрой (−x +x −y +y −z +z), cont — сосуд, per — маска периодичных осей;
     //   orbitals — слой облаков электронов, atomview — окно «Строение атома»
@@ -1725,7 +1768,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmd, int) {
         if (wcsstr(cmd, L" table")) ptOn = true;      // таблица Менделеева
         if (wcsstr(cmd, L" menu")) menuOn = true;     // меню сцен
         if (wcsstr(cmd, L" settings")) settingsOn = true;
-        if (wcsstr(cmd, L" atomview")) { atomViewOn = true; avZ = argInt(cmd, L"avz=", 6); avMode = clampv(argInt(cmd, L"avmode=", 0), 0, 2); avN = argInt(cmd, L"avn=", 2); avL = argInt(cmd, L"avl=", 1); avM = argInt(cmd, L"avm=", 0); }
+        if (wcsstr(cmd, L" atomview")) { atomViewOn = true; avZ = argInt(cmd, L"avz=", 6); avMode = clampv(argInt(cmd, L"avmode=", 0), 0, 2); avN = argInt(cmd, L"avn=", 2); avL = argInt(cmd, L"avl=", 1); avM = argInt(cmd, L"avm=", 0);
+                                         avZoom = avZoomGoal = std::max(1.0, argDbl(cmd, L"avzoom=", 1)); }
         const wchar_t* hz = wcsstr(cmd, L" hover"); if (hz) shotHoverZ = (int)wcstol(hz + 6, nullptr, 10);   // навести курсор на элемент Z
         sideTab = clampv(argInt(cmd, L"tab=", 0), 0, TAB_N - 1); lmbTool = clampv(argInt(cmd, L"tool=", TOOL_ADD), 0, TOOL_N - 1); foKind = clampv(argInt(cmd, L"fo=", 0), 0, FO_N - 1);
         shotPng = wcsstr(cmd, L" png") != nullptr; shotDemo = wcsstr(cmd, L" demo") != nullptr;
