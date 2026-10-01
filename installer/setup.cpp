@@ -1,4 +1,5 @@
-// Установщик «Атомов» одним файлом: внутри — atoms.exe, библиотека OpenMP, инструкции, лицензия и uninstall.exe.
+// Установщик «Атомов» одним файлом: внутри — atoms.exe, библиотека OpenMP и среда выполнения Visual C++ (их кладём рядом
+// с программой — она запускается на чистой Windows без Visual C++ Redistributable), инструкции, лицензия и uninstall.exe.
 // По умолчанию ставит программу для текущего пользователя (%LOCALAPPDATA%\Programs\Atoms) — права администратора
 // не нужны; если выбрана папка, куда без них не записать, перезапускается с запросом прав. Делает ярлыки на рабочем
 // столе и в меню «Пуск» и записывает программу в список установленных приложений Windows.
@@ -36,7 +37,7 @@ static const wchar_t* HOME_URL = L"https://github.com/felixxxrrr8-afk/atoms-md";
 struct Item { int id; const wchar_t* name; };
 static const Item ITEMS[] = {
     {101, L"atoms.exe"}, {102, L"vcomp140.dll"}, {103, L"MANUAL.html"}, {104, L"ИНСТРУКЦИЯ.html"},
-    {105, L"LICENSE.txt"}, {106, L"uninstall.exe"},
+    {105, L"LICENSE.txt"}, {106, L"uninstall.exe"}, {107, L"vcruntime140.dll"}, {108, L"vcruntime140_1.dll"},
 };
 // что программа сама пишет рядом с собой и что удаляется вместе с ней (быстрое сохранение и снимки — нет)
 static const wchar_t* STATE_FILES[] = {L"atoms.ini", L"session.atoms", L"lang_missing.log"};

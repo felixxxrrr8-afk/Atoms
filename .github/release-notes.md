@@ -18,7 +18,7 @@ Download **AtomsSetup.exe** — a one-file installer: pick a folder, get shortcu
 - `atoms.exe` — the program
 - `MANUAL.html` — the full manual in English, opens with <kbd>F1</kbd> when the interface is in English
 - `ИНСТРУКЦИЯ.html` — the same manual in Russian
-- `vcomp140.dll` — Microsoft's OpenMP runtime; needed if the Visual C++ Redistributable is not installed
+- `vcomp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll` — Microsoft's OpenMP and Visual C++ runtime: they lie next to the program, so nothing else has to be installed, not even the Visual C++ Redistributable
 - `LICENSE` — GPL-3.0
 
 **Requirements:** Windows 10 or 11 (x64) and any OpenGL-capable GPU, integrated graphics included.
@@ -49,7 +49,7 @@ The full list of changes is in [CHANGELOG.md](https://github.com/felixxxrrr8-afk
 - `atoms.exe` — программа
 - `ИНСТРУКЦИЯ.html` — подробная инструкция, открывается по <kbd>F1</kbd>
 - `MANUAL.html` — та же инструкция на английском
-- `vcomp140.dll` — библиотека OpenMP от Microsoft; нужна, если нет Visual C++ Redistributable
+- `vcomp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll` — библиотеки OpenMP и среды Visual C++ от Microsoft: они лежат рядом с программой, поэтому ничего доустанавливать не нужно, даже Visual C++ Redistributable
 - `LICENSE` — лицензия GPL-3.0
 
 **Требования:** Windows 10 или 11 (x64), видеокарта с OpenGL — подойдёт любая встроенная.

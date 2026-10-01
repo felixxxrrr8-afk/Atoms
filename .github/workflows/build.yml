@@ -20,14 +20,14 @@ jobs:
         shell: cmd
         run: .\build.bat setup ci
 
+      # the archive gets the same runtime DLLs as the installer (staged and checked by build.bat setup):
+      # the program starts on a clean Windows without the Visual C++ Redistributable
       - name: Package for Windows
         shell: pwsh
         run: |
-          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
-          $omp = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC*.OpenMP\vcomp140.dll" | Sort-Object FullName | Select-Object -Last 1
-          if (-not $omp) { throw "vcomp140.dll not found in $vs" }
           New-Item -ItemType Directory dist | Out-Null
-          Copy-Item atoms.exe, docs/MANUAL.html, docs/ИНСТРУКЦИЯ.html, LICENSE, $omp.FullName dist/
+          Copy-Item atoms.exe, docs/MANUAL.html, docs/ИНСТРУКЦИЯ.html, LICENSE dist/
+          Copy-Item .build/setup/vcomp140.dll, .build/setup/vcruntime140.dll, .build/setup/vcruntime140_1.dll dist/
           Compress-Archive dist/* atoms-windows-x64.zip
           Get-ChildItem dist | Format-Table Name, Length
 

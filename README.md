@@ -239,7 +239,7 @@ Next to them are worlds of other scales: nuclei and chain reactions, quarks, sem
 2. Or download `atoms-windows-x64.zip`, unzip it anywhere and run `atoms.exe` — nothing to install.
 3. <kbd>Tab</kbd> opens the scene menu, <kbd>E</kbd> the periodic table, <kbd>F7</kbd> the atom structure, <kbd>H</kbd> a cheat sheet, <kbd>F8</kbd> the settings, <kbd>F1</kbd> the full manual.
 
-Windows 10 or 11 (x64) and any OpenGL-capable GPU. SmartScreen may warn that the program is unsigned: "More info" → "Run anyway".
+Windows 10 or 11 (x64) and any OpenGL-capable GPU. Nothing else needs to be installed: the Visual C++ and OpenMP runtime DLLs lie next to the program, and it starts on a freshly installed Windows. SmartScreen may warn that the program is unsigned: "More info" → "Run anyway".
 
 The installer takes command-line switches: `/S` for no window, `/D=folder`, `/nodesktop`, `/nostartmenu`, `/norun`; `uninstall.exe /S` removes the program without questions.
 
@@ -444,7 +444,7 @@ No external libraries: MSVC from Visual Studio or Build Tools is enough.
 build.bat
 ```
 
-`build.bat` finds Visual Studio by itself; `build.bat asan` builds a debug version with AddressSanitizer, and `build.bat setup` also builds the installer `AtomsSetup.exe` (the program, manuals, license and the OpenMP runtime inside). By hand, from an x64 Native Tools Command Prompt:
+`build.bat` finds Visual Studio by itself; `build.bat asan` builds a debug version with AddressSanitizer, and `build.bat setup` also builds the installer `AtomsSetup.exe` (the program, manuals, license and the OpenMP and Visual C++ runtime DLLs inside; `tools/checkdeps.ps1` checks that the package needs nothing but Windows itself). By hand, from an x64 Native Tools Command Prompt:
 
 ```bash
 rc /nologo /fo res\atoms.res res\atoms.rc

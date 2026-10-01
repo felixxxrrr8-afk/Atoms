@@ -13,6 +13,8 @@
 104 RCDATA "manual_ru.html"
 105 RCDATA "LICENSE.txt"
 106 RCDATA "uninstall.exe"
+107 RCDATA "vcruntime140.dll"
+108 RCDATA "vcruntime140_1.dll"
 #endif
 
 VS_VERSION_INFO VERSIONINFO

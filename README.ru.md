@@ -239,7 +239,7 @@
 2. Или скачайте `atoms-windows-x64.zip`, распакуйте в любую папку и запустите `atoms.exe` — без установки.
 3. <kbd>Tab</kbd> — меню сцен, <kbd>E</kbd> — таблица Менделеева, <kbd>F7</kbd> — строение атома, <kbd>H</kbd> — шпаргалка, <kbd>F8</kbd> — настройки, <kbd>F1</kbd> — полная инструкция.
 
-Нужны Windows 10 или 11 (x64) и любая видеокарта с OpenGL. SmartScreen может предупредить, что у программы нет цифровой подписи: «Подробнее» → «Выполнить в любом случае».
+Нужны Windows 10 или 11 (x64) и любая видеокарта с OpenGL. Больше ничего ставить не надо: библиотеки Visual C++ и OpenMP лежат рядом с программой, и она запускается на только что установленной Windows. SmartScreen может предупредить, что у программы нет цифровой подписи: «Подробнее» → «Выполнить в любом случае».
 
 Установщик понимает ключи командной строки: `/S` — без окна, `/D=папка`, `/nodesktop`, `/nostartmenu`, `/norun`; `uninstall.exe /S` удаляет без вопросов.
 
@@ -444,7 +444,7 @@ atoms.exe --lang ru --shot K N png   # отрисовать сцену K и со
 build.bat
 ```
 
-`build.bat` сам находит Visual Studio; `build.bat asan` собирает отладочную версию с AddressSanitizer, `build.bat setup` — ещё и установщик `AtomsSetup.exe` (внутри — программа, инструкции, лицензия и библиотека OpenMP). Вручную, в «x64 Native Tools Command Prompt»:
+`build.bat` сам находит Visual Studio; `build.bat asan` собирает отладочную версию с AddressSanitizer, `build.bat setup` — ещё и установщик `AtomsSetup.exe` (внутри — программа, инструкции, лицензия и библиотеки OpenMP и Visual C++; `tools/checkdeps.ps1` проверяет, что пакету не нужно ничего, кроме самой Windows). Вручную, в «x64 Native Tools Command Prompt»:
 
 ```bash
 rc /nologo /fo res\atoms.res res\atoms.rc
