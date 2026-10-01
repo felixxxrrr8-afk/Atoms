@@ -52,6 +52,8 @@ $shotList = @(
   @('orbital-shapes',       '1 30 atomview avz=6 avmode=2'),
   @('orbital-cloud',        '1 40 atomview avz=26 avmode=1 avn=3 avl=2 avm=1'),
   @('orbital-2p',           '1 40 atomview avz=6 avmode=1 avn=2 avl=1 avm=2'),
+  @('atom-rings',           '1 30 atomview avz=92 avmode=0 avzoom=6'),
+  @('atom-quarks',          '1 30 atomview avz=1 avmode=0 avzoom=1e9'),
   @('reactor',              '103 400'),
   @('proton',               '110 330'),
   @('led',                  '121 3000'),

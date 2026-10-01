@@ -7,7 +7,7 @@ Download **AtomsSetup.exe** — a one-file installer: pick a folder, get shortcu
 - Valence counted by electrons: hypervalent SF₆, PCl₅, XeF₄, H₂SO₄; lone pairs set the shape of a molecule; Marcus barriers
 - Ball-and-stick molecules in element colors, glow of red-hot atoms, a new font
 - Orbitals in the simulation: a bond forms only if the atoms meet along a free orbital; the electron clouds are shown right in the scene (<kbd>Shift</kbd>+<kbd>O</kbd>)
-- Atom structure (<kbd>F7</kbd>): a glowing electron cloud with a quarter cut away, a single orbital colored by the sign of ψ with its 85% surface, smooth shapes of s, p, d, f orbitals
+- Atom structure (<kbd>F7</kbd>): a glowing electron cloud with a quarter cut away, a single orbital colored by the sign of ψ with its 85% surface, smooth shapes of s, p, d, f orbitals; the mouse wheel zooms into the atom — through the shells to the nucleus of protons and neutrons and the quarks inside a proton
 - The average shape of molecules on screen: hydrogen atoms no longer jitter; molecules are placed already in thermal equilibrium
 - Light with a wavelength: a quantum breaks a bond only if the molecule absorbs it
 - 19 scenes in worlds of other scales: nuclei and chain reactions, quarks, semiconductors, quantum waves
@@ -38,7 +38,7 @@ The full list of changes is in [CHANGELOG.md](https://github.com/felixxxrrr8-afk
 - Валентность по электронам: гипервалентные SF₆, PCl₅, XeF₄, H₂SO₄; неподелённые пары задают форму молекулы; барьеры по Маркусу
 - Шаростержневые молекулы цвета элементов, свечение раскалённых атомов, новый шрифт
 - Орбитали в симуляции: связь возникает, только если атомы сошлись вдоль свободной орбитали; облака электронов видны прямо в сцене (<kbd>Shift</kbd>+<kbd>O</kbd>)
-- Строение атома (<kbd>F7</kbd>): светящееся облако электронов с вырезанной четвертью, орбиталь с цветом по знаку ψ и поверхностью 85%, гладкие формы орбиталей s, p, d, f
+- Строение атома (<kbd>F7</kbd>): светящееся облако электронов с вырезанной четвертью, орбиталь с цветом по знаку ψ и поверхностью 85%, гладкие формы орбиталей s, p, d, f; колесо мыши приближает внутрь атома — через оболочки к ядру из протонов и нейтронов и к кваркам внутри протона
 - Средняя форма молекул на экране: водород больше не дрожит; молекулы ставятся сразу в тепловом равновесии
 - Свет с длиной волны: квант рвёт связь, только если молекула его поглощает
 - 19 сцен в мирах других масштабов: ядра и цепная реакция, кварки, полупроводники, квантовые волны

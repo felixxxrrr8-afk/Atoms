@@ -216,7 +216,7 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
 <tr><td><kbd>Tab</kbd></td><td>scene menu (picking the same scene again opens its variant)</td></tr>
 <tr><td><kbd>1</kbd>…<kbd>0</kbd>, <kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>5</kbd></td><td>quick scene launch (the other scenes — from the menu)</td></tr>
 <tr><td><kbd>E</kbd></td><td>periodic table</td></tr>
-<tr><td><kbd>F7</kbd></td><td>atom structure: electron clouds and orbitals (the element of the atom under the cursor; inside the window — ◀ ▶ and <b>element from the table</b>)</td></tr>
+<tr><td><kbd>F7</kbd></td><td>atom structure: electron clouds and orbitals (the element of the atom under the cursor; inside the window — ◀ ▶ and <b>element from the table</b>, the wheel and <kbd>+</kbd> <kbd>−</kbd> — closer to the nucleus)</td></tr>
 <tr><td><kbd>Shift</kbd>+<kbd>O</kbd></td><td>orbitals in the scene: lone pairs, unpaired electrons, π clouds (see <a href="#orbitals">Orbitals in molecules</a>)</td></tr>
 <tr><td><kbd>Space</kbd> / <kbd>S</kbd> / <kbd>R</kbd></td><td>pause / single step / reset scene</td></tr>
 <tr><td><kbd>Ctrl+Z</kbd></td><td>undo</td></tr>
@@ -403,8 +403,9 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
   <li><b>atom cloud</b> — all electrons; a quarter of the atom is cut away, and the cut shows the layers of the shells (s red, p orange, d blue, f green) and the dark nodes of the wave between them. The brightness is the probability of finding a shell's electron at this distance from the nucleus (r²|ψ|²), as on the radial plot on the right. The electron does not fly along an orbit: it is a standing wave, and the cloud shows where it can be found.</li>
   <li><b>orbital</b> — one orbital n, l, m: the cloud glows where |ψ|² is large, the color is the sign of ψ (orange plus, blue minus), and a glossy surface encloses the region where the electron is found 85% of the time; the corner shows the angular part |Y|; under the buttons — the number of electrons in the orbital (0, 1 or 2 — the Pauli principle).</li>
   <li><b>s p d f shapes</b> — the angular parts of all orbitals as smooth glossy figures: one s, three p, five d, seven f; the shade of a lobe is the sign of the wave function.</li>
-  <li>On the right — the electron configuration, the subshells with their electron counts, the effective nuclear charge Z_eff (Slater's rules) and the mean radius, and the plot "where the electrons are: probability at distance r".</li>
-  <li>The cloud can be rotated with the mouse. The radial functions are hydrogen-like with Z_eff, so sizes are approximate while shapes are exact.</li>
+  <li><b>Zoom</b> — the mouse wheel over the picture, the <kbd>+</kbd> and <kbd>−</kbd> keys (<kbd>Home</kbd> — the whole atom) or the <b>atom · 1s · nucleus · quarks</b> buttons in the corner of the view. As you zoom in, the cloud turns into a cross-section through the nucleus: each shell is a ring (the rings are labeled 1s, 2s 2p…), and a single orbital shows its lobes, nodes and the light line of the 85% surface. Inside the 1s shell the cloud is almost uniform: the density of s electrons is highest right at the nucleus. Tens of thousands of times closer is the nucleus of protons (red) and neutrons (grey) with its near half removed by the same plane, and inside a proton — three quarks u, u, d and the Y-shaped string of the gluon field. The bottom left shows a scale bar (Å, pm, fm) and the magnification; the scale is kept when you change the element, so nuclei can be compared.</li>
+  <li>On the right — the electron configuration, the subshells with their electron counts, the effective nuclear charge Z_eff and the mean radius (Slater's rules with the effective principal quantum number n*), and the plot "where the electrons are: probability at distance r" on a logarithmic r scale, so that the inner shells of heavy atoms do not merge at zero; the part currently in view is highlighted.</li>
+  <li>The cloud can be rotated with the mouse. The radial functions are hydrogen-like, with the nodes of the real shell, and their charge is chosen so that the mean radius equals that of the Slater orbital; so sizes are approximate (the outer shells of heavy atoms up to one and a half times too wide) while shapes are exact. A filled subshell is a sphere (Unsöld's theorem).</li>
 </ul>
 
 <h2 id="worlds">Worlds of other scales</h2>
@@ -510,7 +511,7 @@ ul { padding-left: 20px; } li { margin: 3px 0; }
   <li><b>Light with a wavelength</b> — <a href="#light">Light and photons</a>.</li>
   <li><b>Ball-and-stick molecules</b> in element colors, glow of red-hot atoms, a new font; the molecule model and the font are chosen in the <a href="#settings">settings</a>.</li>
   <li><b>Orbitals in the simulation</b> — a bond forms only along a free orbital; the clouds are visible right in the scene (<kbd>Shift</kbd>+<kbd>O</kbd>) — <a href="#orbitals">Orbitals in molecules</a>.</li>
-  <li><b>Atom structure</b> (<kbd>F7</kbd>) — <a href="#atom">electron clouds and orbitals</a> in 3D: the atom in a cutaway, an orbital with a glossy surface, smooth s, p, d, f shapes.</li>
+  <li><b>Atom structure</b> (<kbd>F7</kbd>) — <a href="#atom">electron clouds and orbitals</a> in 3D: the atom in a cutaway, an orbital with a glossy surface, smooth s, p, d, f shapes; the mouse wheel zooms from the cloud through the 1s shell to the nucleus of protons and neutrons and to the quarks inside a proton.</li>
   <li><b>Smooth motion</b>: the screen shows the average shape of molecules without the jitter of fast vibrations, molecules start in thermal equilibrium, time runs evenly — see <a href="#physics">Physics</a>.</li>
   <li><b>Worlds of other scales</b>, 19 scenes — <a href="#worlds">nuclei, quarks, semiconductors, quantum waves</a>.</li>
   <li><b>The Scene tab</b> — <a href="#editor">an editor of boundaries, walls and the vessel, grid placement and filling</a>.</li>

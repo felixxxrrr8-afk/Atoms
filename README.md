@@ -199,6 +199,10 @@ Next to them are worlds of other scales: nuclei and chain reactions, quarks, sem
 <td><img src="docs/en/orbital-2p.png" alt="The 2p orbital of carbon"><br><sub><b>The 2p orbital of carbon.</b> Two lobes of opposite sign of ψ with a nodal plane between them, where the electron never is</sub></td>
 </tr>
 <tr>
+<td><img src="docs/en/atom-rings.png" alt="A uranium atom in cross-section"><br><sub><b>Closer to the nucleus (mouse wheel in F7).</b> A cross-section of a uranium atom through the nucleus: each shell is a ring, tighter and brighter closer to the nucleus</sub></td>
+<td><img src="docs/en/atom-quarks.png" alt="A proton inside a hydrogen atom"><br><sub><b>A hydrogen atom 140,000 times closer.</b> The nucleus is a proton, and inside it are three quarks u, u, d and the Y-shaped string of the gluon field</sub></td>
+</tr>
+<tr>
 <td><img src="docs/en/double-slit.png" alt="Double slit"><br><sub><b>Double slit.</b> The Schrödinger equation on a 256×256 grid; color is the phase of the wave, hits on the screen on the right</sub></td>
 <td><img src="docs/en/tunneling.png" alt="Tunneling"><br><sub><b>Tunneling.</b> 16.6% got through the barrier; plane-wave theory says 15.3%</sub></td>
 </tr>
