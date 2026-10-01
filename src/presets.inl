@@ -172,12 +172,22 @@ static void loadPreset(int k, int variant) {
         case L_BCC: a = 1.26; nx = ny = nz = 9; break;
         case L_SC: a = 1.05; nx = ny = nz = 11; break;
         case L_NACL: a = 2.82 / 3.405; nx = ny = nz = 10; T0 = kelvin(300); break;   // Na–Cl 2.82 Å
-        default: a = 6.35 / 3.405; nx = ny = nz = 3; T0 = kelvin(150); break;        // лёд Ic: ребро ячейки 6.35 Å
+        default: a = 6.35 / 3.405; nx = ny = nz = 4; T0 = kelvin(100); break;        // лёд Ic: ребро ячейки 6.35 Å;
+                                                                                     // у кристаллика 3×3×3 на поверхности 42% молекул
         }
         double cx = kind == L_NACL ? nx * a : nx * latticeCellX(kind, a), cy = kind == L_NACL ? ny * a : ny * latticeCellY(kind, a), cz = kind == L_NACL ? nz * a : nz * latticeCellZ(kind, a);
         double L = std::max({cx, cy, cz}) * (kind == L_ICE ? 2.6 : 2.0);
         worldReset(L, L, L, B_PERIODIC);
-        if (kind == L_ICE) iceLattice3D((L - cx) / 2, (L - cy) / 2, (L - cz) / 2, nx, ny, nz, a, T0);
+        if (kind == L_ICE) {
+            iceLattice3D((L - cx) / 2, (L - cy) / 2, (L - cz) / 2, nx, ny, nz, a, T0);
+            // идеальная решётка — не минимум энергии модели: угол H–O–H в ней тетраэдрический (у модели 104.5°), молекулы
+            // у поверхности не уравновешены соседями. Без спуска вдоль сил эта энергия за доли пикосекунды уходила в тепло,
+            // и кристаллик таял, не дойдя до плато. После спуска тепловые скорости раздаются заново
+            relaxContacts(300);
+            std::vector<int> all(S.n); for (int i = 0; i < S.n; i++) all[i] = i;
+            std::vector<std::vector<int>> comps; componentsIn(all, comps);
+            for (auto& c : comps) thermalizeMol(c.data(), (int)c.size(), T0);
+        }
         else lattice3D(kind, kind == L_NACL ? E_NA : E_AR, kind == L_NACL ? E_CLM : -1, 0, (L - cx) / 2, (L - cy) / 2, (L - cz) / 2, nx, ny, nz, a, T0);
         static const char* const t3[] = {   // по L_FCC, L_HCP, L_BCC, L_SC, L_NACL, L_ICE
             "2 · Плавление: ГЦК, нагрев P=const → плато T(t). Повтор 2 — ГЦК/ГПУ/ОЦК/ПК/NaCl/лёд",
@@ -188,8 +198,10 @@ static void loadPreset(int k, int variant) {
             "2 · Плавление: лёд, нагрев P=const → плато T(t). Повтор 2 — ГЦК/ГПУ/ОЦК/ПК/NaCl/лёд"};
         presetTitle = t3[clampv(kind, 0, 5)];
         P.Tset = T0; P.thermostat = TH_POWER; colorMode = 3;
-        // мощность на атом: соль плавится при 1074 K, лёд — при 273 K (с теплотой плавления — за ~40τ)
+        // мощность на атом: соль плавится при 1074 K, лёд — при 273 K (от 100 K, с теплотой плавления — за ~40τ;
+        // поверхность кристаллика разупорядочивается уже к 150–180 K, ядро держится до ~250 K)
         P.heatPower = kind == L_NACL ? 0.75 : (kind == L_ICE ? 0.1 : 0.012);
+        if (kind == L_ICE) P.substeps = 4;   // 1536 атомов с кулоном: по 4 шага на кадр модель идёт так же быстро, но вдвое плавнее
         break; }
     case 3: {   // кипение и испарение с поверхности под гравитацией
         // крайние слои — на равновесном расстоянии от стенок (минимум потенциала 9-3 ≈ 0.86σ)

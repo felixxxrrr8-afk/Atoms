@@ -897,19 +897,19 @@ static int selftest() {
         fflush(f);
     }
     // распознавание решёток: все варианты пресета 2 при низкой T (без нагрева)
-    fprintf(f, "\nLATTICES: 400 шагов при T=0.1\n");
+    fprintf(f, "\nLATTICES: 400 шагов при T=0.1 (лёд — при 100 K)\n");
     for (int v = 0; v < presetVariants(2); v++) {
-        loadPreset(2, v); P.thermostat = TH_BERENDSEN; P.Tset = v == L_ICE ? 0.05 : 0.1;
+        loadPreset(2, v); P.thermostat = TH_BERENDSEN; P.Tset = v == L_ICE ? kelvin(100) : 0.1;
         for (int s = 0; s < 400; s++) mdStep();
         analysisTick();
         fprintf(f, "  var %d: N=%d phase=%s coord=%.2f cryst=%.2f  FCC %d HCP %d BCC %d SC %d ICE %d other %d  drift(Berendsen)=%.4f%%\n", v, S.n, A::phase.c_str(), A::meanCoord, A::fCryst,
                 A::stCount[ST_FCC], A::stCount[ST_HCP], A::stCount[ST_BCC], A::stCount[ST_SC], A::stCount[ST_ICE], A::stCount[ST_OTHER], driftPct());
-        if (v == L_ICE) {   // лёд: устойчивость при нагреве
+        if (v == L_ICE) {   // лёд: ядро кристаллика держится до ~250 K, у 300 K плавится (поверхность разупорядочена раньше)
             P.thermostat = TH_BERENDSEN;
-            for (double T : {0.1, 0.2, 0.3, 0.45, 0.6}) {
-                P.Tset = T; for (int s = 0; s < 1500; s++) mdStep();
+            for (double TK : {150.0, 200.0, 250.0, 300.0}) {
+                P.Tset = kelvin(TK); for (int s = 0; s < 3000; s++) mdStep();
                 analysisTick(); analysisTick();
-                fprintf(f, "     ice T=%.2f -> Tmeas=%.3f ICE %d of %d, D=%.4f phase=%s\n", T, EN.T, A::stCount[ST_ICE], S.n, A::D, A::phase.c_str());
+                fprintf(f, "     ice %3.0f K -> %3.0f K: ICE %d of %d, D=%.4f phase=%s\n", TK, toKelvin(EN.T), A::stCount[ST_ICE], S.n, A::D, A::phase.c_str());
             }
         }
         fflush(f);

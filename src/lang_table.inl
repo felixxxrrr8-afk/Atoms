@@ -139,7 +139,7 @@ static const char* const LANG_TABLE[][2] = {
     {"строение атома", "atom structure"},
     {"всплывающая подсказка", "tooltip"},
     {"\n[%d] %s\n  N=%d  steps=%d  %.2f s (%.0f steps/s, %d пересборок списка)  t=%.2f dt=%.4f\n", "\n[%d] %s\n  N=%d  steps=%d  %.2f s (%.0f steps/s, %d list rebuilds)  t=%.2f dt=%.4f\n"},
-    {"\nLATTICES: 400 шагов при T=0.1\n", "\nLATTICES: 400 steps at T=0.1\n"},
+    {"\nLATTICES: 400 шагов при T=0.1 (лёд — при 100 K)\n", "\nLATTICES: 400 steps at T=0.1 (ice at 100 K)\n"},
     {"NaN у атома %d", "NaN at atom %d"},
     {"плохой атом %d", "bad atom %d"},
     {"несимметричная связь %d-%d", "asymmetric bond %d-%d"},

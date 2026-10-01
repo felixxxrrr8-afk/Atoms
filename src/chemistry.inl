@@ -1392,21 +1392,58 @@ static void lattice3D(int kind, int t, int t2, double frac2, double x0, double y
 static double latticeCellX(int kind, double a) { (void)kind; return a; }
 static double latticeCellY(int kind, double a) { return kind == L_HCP ? std::sqrt(3.0) * a : a; }
 static double latticeCellZ(int kind, double a) { return kind == L_HCP ? std::sqrt(8.0 / 3.0) * a : a; }
-// Кубический лёд Ic: кислород в решётке алмаза, водороды по правилам Бернала–Фаулера
-// (на каждой связи O···O ровно один H, у каждого O два своих H). Подрешётка A отдаёт H по d1,d2, B — по −d3,−d4.
-static void iceLattice3D(double x0, double y0, double z0, int nx, int ny, int nz, double a, double T) {
-    const double fcc[4][3] = {{0, 0, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}, {0.5, 0.5, 0}};
-    const double d[4][3] = {{1, 1, 1}, {1, -1, -1}, {-1, 1, -1}, {-1, -1, 1}};
-    const double rOH = r0of(E_O, E_H, 1), s3 = 1.0 / std::sqrt(3.0);
+// Кубический лёд Ic: кислород в решётке алмаза, водороды по правилам Бернала–Фаулера (на каждой связи O···O ровно
+// один H, у каждого O два своих H). Узел — кислород, q — его координаты в восьмых долях ребра ячейки; nb[h] — сосед
+// по направлению h (у подрешётки A это +d[h], у B — −d[h]: связь A–B у обоих под одним номером), don[h] — свой H
+// смотрит на этого соседа (или наружу, если соседа нет).
+// Простейшая расстановка упорядочена (подрешётка A отдаёт H по d1,d2, B — по −d3,−d4), но в ней все молекулы смотрят
+// диполем в одну сторону: у кристаллика огромный дипольный момент, и он за доли пикосекунды перестраивался, разогреваясь.
+// В настоящем льду протоны беспорядочны — расстановка перемешивается поворотами замкнутых цепочек водородных связей
+struct IceSite { int q[3], sub, nb[4]; bool don[4]; };
+static const int ICE_D[4][3] = {{1, 1, 1}, {1, -1, -1}, {-1, 1, -1}, {-1, -1, 1}};
+static std::vector<IceSite> iceSites(int nx, int ny, int nz) {
+    const int fcc8[4][3] = {{0, 0, 0}, {0, 4, 4}, {4, 0, 4}, {4, 4, 0}};
+    std::vector<IceSite> st; std::map<std::array<int, 3>, int> idx;
     for (int k = 0; k < nz; k++) for (int j = 0; j < ny; j++) for (int i = 0; i < nx; i++) for (int f = 0; f < 4; f++) for (int sub = 0; sub < 2; sub++) {
-        double ox = x0 + (i + fcc[f][0] + 0.125 + 0.25 * sub) * a, oy = y0 + (j + fcc[f][1] + 0.125 + 0.25 * sub) * a, oz = z0 + (k + fcc[f][2] + 0.125 + 0.25 * sub) * a;
-        int h1 = sub == 0 ? 0 : 2, h2 = sub == 0 ? 1 : 3; double sg = sub == 0 ? 1 : -1;
-        int mol[3]; mol[0] = addAtom(E_O, ox, oy, oz, 0, 0, 0);
-        for (int h : {h1, h2}) {
-            int hi = addAtom(E_H, ox + sg * rOH * s3 * d[h][0], oy + sg * rOH * s3 * d[h][1], oz + sg * rOH * s3 * d[h][2], 0, 0, 0);
-            changeBond(mol[0], hi, +1); updateCharge(hi); mol[h == h1 ? 1 : 2] = hi;
+        IceSite s{}; s.sub = sub;
+        s.q[0] = 8 * i + fcc8[f][0] + 1 + 2 * sub; s.q[1] = 8 * j + fcc8[f][1] + 1 + 2 * sub; s.q[2] = 8 * k + fcc8[f][2] + 1 + 2 * sub;
+        for (int h = 0; h < 4; h++) s.don[h] = sub == 0 ? h < 2 : h >= 2;
+        idx[{s.q[0], s.q[1], s.q[2]}] = (int)st.size(); st.push_back(s);
+    }
+    for (auto& s : st) for (int h = 0; h < 4; h++) {
+        const int sg = s.sub == 0 ? 2 : -2;
+        const auto it = idx.find({s.q[0] + sg * ICE_D[h][0], s.q[1] + sg * ICE_D[h][1], s.q[2] + sg * ICE_D[h][2]});
+        s.nb[h] = it == idx.end() ? -1 : it->second;
+    }
+    // случайный путь по своим H до первого повторного узла даёт замкнутую цепочку; все её H переходят к соседу
+    // назад по цепочке — у каждого O по-прежнему два своих H, на каждой связи по одному
+    const int N = (int)st.size(); std::vector<int> pos(N, -1), path, dir;
+    for (int it = 0; it < 40 * N; it++) {
+        path.clear(); dir.clear(); int c = std::min(N - 1, (int)(urand() * N));
+        for (int step = 0; step <= N; step++) {
+            if (pos[c] >= 0) {
+                for (size_t e = pos[c]; e < path.size(); e++) { IceSite& u = st[path[e]]; u.don[dir[e]] = false; st[u.nb[dir[e]]].don[dir[e]] = true; }
+                break;
+            }
+            pos[c] = (int)path.size(); path.push_back(c);
+            int cand[4], no = 0; for (int h = 0; h < 4; h++) if (st[c].don[h] && st[c].nb[h] >= 0) cand[no++] = h;
+            if (!no) break;   // оба H узла смотрят наружу — цепочка не замкнётся
+            const int h = cand[std::min(no - 1, (int)(urand() * no))]; dir.push_back(h); c = st[c].nb[h];
         }
-        updateCharge(mol[0]); thermalizeMol(mol, 3, T);
+        for (int v : path) pos[v] = -1;
+    }
+    return st;
+}
+static void iceLattice3D(double x0, double y0, double z0, int nx, int ny, int nz, double a, double T) {
+    const double rOH = r0of(E_O, E_H, 1), s3 = 1.0 / std::sqrt(3.0);
+    for (const IceSite& s : iceSites(nx, ny, nz)) {
+        const double ox = x0 + s.q[0] * a / 8, oy = y0 + s.q[1] * a / 8, oz = z0 + s.q[2] * a / 8, sg = s.sub == 0 ? 1 : -1;
+        int mol[3], m = 1; mol[0] = addAtom(E_O, ox, oy, oz, 0, 0, 0);
+        for (int h = 0; h < 4; h++) if (s.don[h] && m < 3) {
+            const int hi = addAtom(E_H, ox + sg * rOH * s3 * ICE_D[h][0], oy + sg * rOH * s3 * ICE_D[h][1], oz + sg * rOH * s3 * ICE_D[h][2], 0, 0, 0);
+            changeBond(mol[0], hi, +1); updateCharge(hi); mol[m++] = hi;
+        }
+        updateCharge(mol[0]); thermalizeMol(mol, m, T);
     }
 }
 static void wrapAll() {
@@ -2017,14 +2054,12 @@ static bool buildLibTmpl(int idx, Tmpl& m) {
         }
         break; }
     case ML_C60: fullereneTmpl(m); break;
-    case ML_ICE: {
-        const double a = 2.08, rOH = r0of(E_O, E_H, 1), s3 = 1.0 / std::sqrt(3.0);
-        const double fcc[4][3] = {{0, 0, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}, {0.5, 0.5, 0}};
-        const double dd[4][3] = {{1, 1, 1}, {1, -1, -1}, {-1, 1, -1}, {-1, -1, 1}};
-        for (int k = 0; k < 2; k++) for (int j = 0; j < 2; j++) for (int i = 0; i < 2; i++) for (int f = 0; f < 4; f++) for (int sub = 0; sub < 2; sub++) {
-            V3 po{(i + fcc[f][0] + 0.125 + 0.25 * sub) * a, (j + fcc[f][1] + 0.125 + 0.25 * sub) * a, (k + fcc[f][2] + 0.125 + 0.25 * sub) * a};
-            int o = tA(m, E_O, po); double sg = sub == 0 ? 1 : -1;
-            for (int h : {sub == 0 ? 0 : 2, sub == 0 ? 1 : 3}) { int hi = tA(m, E_H, po + V3{dd[h][0], dd[h][1], dd[h][2]} * (sg * rOH * s3)); tB(m, o, hi); }
+    case ML_ICE: {   // кубический лёд с беспорядочными протонами (iceSites), ребро ячейки 6.35 Å
+        const double a = 6.35 / 3.405, rOH = r0of(E_O, E_H, 1), s3 = 1.0 / std::sqrt(3.0);
+        for (const IceSite& s : iceSites(2, 2, 2)) {
+            const V3 po{s.q[0] * a / 8, s.q[1] * a / 8, s.q[2] * a / 8}; const double sg = s.sub == 0 ? 1 : -1;
+            const int o = tA(m, E_O, po);
+            for (int h = 0; h < 4; h++) if (s.don[h]) { const int hi = tA(m, E_H, po + V3{(double)ICE_D[h][0], (double)ICE_D[h][1], (double)ICE_D[h][2]} * (sg * rOH * s3)); tB(m, o, hi); }
         }
         break; }
     case ML_SIO2: {   // кристобалит: Si в узлах алмаза, O посередине связей Si–Si; свободные O — группы OH
